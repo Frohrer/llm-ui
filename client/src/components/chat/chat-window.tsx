@@ -7,7 +7,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation } from '@tanstack/react-query';
 
-
 interface ChatWindowProps {
   provider: LLMProvider;
   conversation?: Conversation;
@@ -31,17 +30,28 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
     setIsLoading(true);
 
     try {
-      // Pass the entire conversation history as context
-      const response = await provider.sendMessage(
-        content,
-        conversation?.id,
-        [...messages, userMessage] // Include the current message in context
-      );
+      const response = await fetch(`/api/chat/${provider.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: content,
+          conversationId: conversation?.id,
+          context: messages,
+          model: provider.models.find(m => m.defaultModel)?.id
+        }),
+      });
 
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}`);
+      }
+
+      const data = await response.json();
       const assistantMessage: MessageType = {
         id: nanoid(),
         role: 'assistant',
-        content: response,
+        content: data.response,
         timestamp: Date.now()
       };
 
@@ -49,19 +59,18 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
       setMessages(updatedMessages);
 
       // Update the parent component with new conversation state if callback exists
-      if (onConversationUpdate && conversation) {
-        onConversationUpdate({
-          ...conversation,
-          messages: updatedMessages,
-          lastMessageAt: new Date().toISOString()
-        });
+      if (onConversationUpdate && data.conversation) {
+        onConversationUpdate(data.conversation);
       }
     } catch (error) {
+      console.error('Error sending message:', error);
       toast({
         variant: "destructive",
         title: "Error",
         description: "Failed to send message. Please try again."
       });
+      // Remove the user message if the request failed
+      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
     } finally {
       setIsLoading(false);
     }
