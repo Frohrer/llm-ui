@@ -1,22 +1,20 @@
 import { useState, useEffect } from 'react';
 import { nanoid } from 'nanoid';
-import { Message } from './message';
-import { ChatInput } from './chat-input';
+import { Message } from '@/components/chat/message';
+import { ChatInput } from '@/components/chat/chat-input';
 import { ModelSelector } from './model-selector';
-import type { Message as MessageType, LLMProvider, Conversation } from '@/lib/llm/types';
+import type { Message as MessageType, Conversation } from '@/lib/llm/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { getAllProviders } from '@/lib/llm/providers';
 
 interface ChatWindowProps {
-  provider: LLMProvider;
   conversation?: Conversation;
   onConversationUpdate?: (conversation: Conversation) => void;
 }
 
-export function ChatWindow({ provider, conversation, onConversationUpdate }: ChatWindowProps) {
-  // Transform database messages to frontend message format
+export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowProps) {
   const transformMessages = (conv?: Conversation): MessageType[] => {
     if (!conv) return [];
     return conv.messages.map(msg => ({
@@ -33,36 +31,43 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
     if (conversation) {
       return conversation.model;
     }
-    return provider.models.find(m => m.defaultModel)?.id || provider.models[0].id;
+    // Find the first default model from any provider
+    for (const provider of getAllProviders()) {
+      const defaultModel = provider.models.find(m => m.defaultModel);
+      if (defaultModel) return defaultModel.id;
+    }
+    // Fallback to first model of first provider
+    return getAllProviders()[0].models[0].id;
   });
+
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Helper function to find model display name across all providers
   const getModelDisplayName = (modelId: string): string => {
-    for (const p of getAllProviders()) {
-      const model = p.models.find(m => m.id === modelId);
+    for (const provider of getAllProviders()) {
+      const model = provider.models.find(m => m.id === modelId);
       if (model) {
-        return model.name;
+        return `${provider.name} - ${model.name}`;
       }
     }
-    return modelId; // Fallback to ID if model not found
+    return modelId;
   };
 
-  // Update messages when conversation changes
+  const getProviderForModel = (modelId: string): string => {
+    for (const provider of getAllProviders()) {
+      if (provider.models.some(m => m.id === modelId)) {
+        return provider.id;
+      }
+    }
+    throw new Error(`No provider found for model: ${modelId}`);
+  };
+
   useEffect(() => {
     setMessages(transformMessages(conversation));
     if (conversation) {
       setSelectedModel(conversation.model);
     }
   }, [conversation]);
-
-  // Update selected model when provider changes
-  useEffect(() => {
-    if (!conversation) {
-      setSelectedModel(provider.models.find(m => m.defaultModel)?.id || provider.models[0].id);
-    }
-  }, [provider]);
 
   const handleSendMessage = async (content: string) => {
     const userMessage: MessageType = {
@@ -76,7 +81,8 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
     setIsLoading(true);
 
     try {
-      const response = await fetch(`/api/chat/${provider.id}`, {
+      const providerId = getProviderForModel(selectedModel);
+      const response = await fetch(`/api/chat/${providerId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -101,20 +107,11 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
         throw new Error('No response received from the server');
       }
 
-      const assistantMessage: MessageType = {
-        id: nanoid(),
-        role: 'assistant',
-        content: data.response,
-        timestamp: Date.now()
-      };
-
       if (onConversationUpdate && data.conversation) {
         onConversationUpdate(data.conversation);
       }
 
       setMessages(transformMessages(data.conversation));
-
-      // Invalidate conversations query to refresh the list
       queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
     } catch (error) {
       console.error('Error sending message:', error);
@@ -123,7 +120,6 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to send message. Please try again."
       });
-      // Remove the user message if the request failed
       setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
     } finally {
       setIsLoading(false);
@@ -135,7 +131,6 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
       <div className="p-4 border-b flex items-center justify-between">
         <h2 className="font-semibold">{conversation?.title || 'New Conversation'}</h2>
         <ModelSelector
-          models={provider.models}
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
           disabled={!!conversation || isLoading}
