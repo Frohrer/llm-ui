@@ -45,7 +45,6 @@ export function registerRoutes(app: Express): Server {
       }
 
       let dbConversation;
-      // If this is a new conversation, create it
       if (!conversationId) {
         const [newConversation] = await db.insert(conversations).values({
           title: message.slice(0, 100),
@@ -55,7 +54,6 @@ export function registerRoutes(app: Express): Server {
           lastMessageAt: new Date()
         }).returning();
 
-        // Save user message
         await db.insert(messages).values({
           conversationId: newConversation.id,
           role: 'user',
@@ -63,7 +61,6 @@ export function registerRoutes(app: Express): Server {
           createdAt: new Date()
         });
 
-        // Save assistant message
         await db.insert(messages).values({
           conversationId: newConversation.id,
           role: 'assistant',
@@ -78,12 +75,10 @@ export function registerRoutes(app: Express): Server {
           }
         });
       } else {
-        // Update existing conversation
         await db.update(conversations)
           .set({ lastMessageAt: new Date() })
           .where(eq(conversations.id, parseInt(conversationId)));
 
-        // Save user message
         await db.insert(messages).values({
           conversationId: parseInt(conversationId),
           role: 'user',
@@ -91,7 +86,6 @@ export function registerRoutes(app: Express): Server {
           createdAt: new Date()
         });
 
-        // Save assistant message
         await db.insert(messages).values({
           conversationId: parseInt(conversationId),
           role: 'assistant',
@@ -132,13 +126,17 @@ export function registerRoutes(app: Express): Server {
       });
 
       // Extract response from Anthropic's response format
-      const response = completion.content[0].text;
+      const content = completion.content[0];
+      if (!content || content.type !== 'text') {
+        throw new Error("Unexpected response format from Anthropic");
+      }
+
+      const response = content.text;
       if (!response) {
         throw new Error("No response from Anthropic");
       }
 
       let dbConversation;
-      // If this is a new conversation, create it
       if (!conversationId) {
         const [newConversation] = await db.insert(conversations).values({
           title: message.slice(0, 100),
@@ -148,7 +146,6 @@ export function registerRoutes(app: Express): Server {
           lastMessageAt: new Date()
         }).returning();
 
-        // Save user message
         await db.insert(messages).values({
           conversationId: newConversation.id,
           role: 'user',
@@ -156,7 +153,6 @@ export function registerRoutes(app: Express): Server {
           createdAt: new Date()
         });
 
-        // Save assistant message
         await db.insert(messages).values({
           conversationId: newConversation.id,
           role: 'assistant',
@@ -171,12 +167,10 @@ export function registerRoutes(app: Express): Server {
           }
         });
       } else {
-        // Update existing conversation
         await db.update(conversations)
           .set({ lastMessageAt: new Date() })
           .where(eq(conversations.id, parseInt(conversationId)));
 
-        // Save user message
         await db.insert(messages).values({
           conversationId: parseInt(conversationId),
           role: 'user',
@@ -184,7 +178,6 @@ export function registerRoutes(app: Express): Server {
           createdAt: new Date()
         });
 
-        // Save assistant message
         await db.insert(messages).values({
           conversationId: parseInt(conversationId),
           role: 'assistant',
