@@ -44,6 +44,7 @@ export function registerRoutes(app: Express): Server {
         throw new Error("No response from OpenAI");
       }
 
+      let dbConversation;
       // If this is a new conversation, create it
       if (!conversationId) {
         const [newConversation] = await db.insert(conversations).values({
@@ -69,6 +70,13 @@ export function registerRoutes(app: Express): Server {
           content: response,
           createdAt: new Date()
         });
+
+        dbConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, newConversation.id),
+          with: {
+            messages: true
+          }
+        });
       } else {
         // Update existing conversation
         await db.update(conversations)
@@ -90,9 +98,16 @@ export function registerRoutes(app: Express): Server {
           content: response,
           createdAt: new Date()
         });
+
+        dbConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, parseInt(conversationId)),
+          with: {
+            messages: true
+          }
+        });
       }
 
-      res.json({ response });
+      res.json({ response, conversation: dbConversation });
     } catch (error) {
       console.error("OpenAI API error:", error);
       res.status(500).json({ error: "Failed to process OpenAI request" });
@@ -121,6 +136,7 @@ export function registerRoutes(app: Express): Server {
         throw new Error("No response from Anthropic");
       }
 
+      let dbConversation;
       // If this is a new conversation, create it
       if (!conversationId) {
         const [newConversation] = await db.insert(conversations).values({
@@ -146,6 +162,13 @@ export function registerRoutes(app: Express): Server {
           content: response,
           createdAt: new Date()
         });
+
+        dbConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, newConversation.id),
+          with: {
+            messages: true
+          }
+        });
       } else {
         // Update existing conversation
         await db.update(conversations)
@@ -167,9 +190,16 @@ export function registerRoutes(app: Express): Server {
           content: response,
           createdAt: new Date()
         });
+
+        dbConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, parseInt(conversationId)),
+          with: {
+            messages: true
+          }
+        });
       }
 
-      res.json({ response });
+      res.json({ response, conversation: dbConversation });
     } catch (error) {
       console.error("Anthropic API error:", error);
       res.status(500).json({ error: "Failed to process Anthropic request" });
