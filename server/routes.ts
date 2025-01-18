@@ -27,17 +27,24 @@ export function registerRoutes(app: Express): Server {
     try {
       const { message, conversationId, context = [], model = "gpt-3.5-turbo" } = req.body;
 
-      // Format conversation history for OpenAI
+      // Format messages for OpenAI
       const messages = context.map((msg: any) => ({
         role: msg.role,
         content: msg.content
       }));
       messages.push({ role: "user", content: message });
 
-      const completion = await openai.chat.completions.create({
-        messages,
-        model,
-      });
+      // Make the API request with proper error handling
+      let completion;
+      try {
+        completion = await openai.chat.completions.create({
+          messages,
+          model,
+        });
+      } catch (apiError: any) {
+        console.error("OpenAI API error details:", apiError);
+        throw new Error(apiError.message || "OpenAI API request failed");
+      }
 
       const response = completion.choices[0]?.message?.content;
       if (!response) {
@@ -114,7 +121,9 @@ export function registerRoutes(app: Express): Server {
       res.json({ response, conversation: dbConversation });
     } catch (error) {
       console.error("OpenAI API error:", error);
-      res.status(500).json({ error: "Failed to process OpenAI request" });
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to process OpenAI request" 
+      });
     }
   });
 
