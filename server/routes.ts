@@ -52,70 +52,88 @@ export function registerRoutes(app: Express): Server {
       }
 
       let dbConversation;
-      if (!conversationId) {
-        // Create new conversation
-        const [newConversation] = await db.insert(conversations).values({
-          title: message.slice(0, 100),
-          provider: 'openai',
-          model,
-          createdAt: new Date(),
-          lastMessageAt: new Date()
-        }).returning();
 
-        // Insert user message
-        await db.insert(messages).values({
-          conversationId: newConversation.id,
-          role: 'user',
-          content: message,
-          createdAt: new Date()
-        });
+      try {
+        if (!conversationId) {
+          // Create new conversation
+          const [newConversation] = await db.insert(conversations).values({
+            title: message.slice(0, 100),
+            provider: 'openai',
+            model,
+            createdAt: new Date(),
+            lastMessageAt: new Date()
+          }).returning();
 
-        // Insert assistant message
-        await db.insert(messages).values({
-          conversationId: newConversation.id,
-          role: 'assistant',
-          content: response,
-          createdAt: new Date()
-        });
+          // Insert user message
+          await db.insert(messages).values({
+            conversationId: newConversation.id,
+            role: 'user',
+            content: message,
+            createdAt: new Date()
+          });
 
-        // Fetch the complete conversation
-        dbConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, newConversation.id),
-          with: {
-            messages: true
+          // Insert assistant message
+          await db.insert(messages).values({
+            conversationId: newConversation.id,
+            role: 'assistant',
+            content: response,
+            createdAt: new Date()
+          });
+
+          // Fetch the complete conversation
+          dbConversation = await db.query.conversations.findFirst({
+            where: eq(conversations.id, newConversation.id),
+            with: {
+              messages: true
+            }
+          });
+        } else {
+          const conversationIdNum = parseInt(conversationId);
+          if (isNaN(conversationIdNum)) {
+            throw new Error('Invalid conversation ID');
           }
-        });
-      } else {
-        const conversationIdNum = parseInt(conversationId);
 
-        // Update existing conversation
-        await db.update(conversations)
-          .set({ lastMessageAt: new Date() })
-          .where(eq(conversations.id, conversationIdNum));
+          // Verify conversation exists
+          const existingConversation = await db.query.conversations.findFirst({
+            where: eq(conversations.id, conversationIdNum)
+          });
 
-        // Insert user message
-        await db.insert(messages).values({
-          conversationId: conversationIdNum,
-          role: 'user',
-          content: message,
-          createdAt: new Date()
-        });
-
-        // Insert assistant message
-        await db.insert(messages).values({
-          conversationId: conversationIdNum,
-          role: 'assistant',
-          content: response,
-          createdAt: new Date()
-        });
-
-        // Fetch the updated conversation
-        dbConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, conversationIdNum),
-          with: {
-            messages: true
+          if (!existingConversation) {
+            throw new Error('Conversation not found');
           }
-        });
+
+          // Update existing conversation
+          await db.update(conversations)
+            .set({ lastMessageAt: new Date() })
+            .where(eq(conversations.id, conversationIdNum));
+
+          // Insert user message
+          await db.insert(messages).values({
+            conversationId: conversationIdNum,
+            role: 'user',
+            content: message,
+            createdAt: new Date()
+          });
+
+          // Insert assistant message
+          await db.insert(messages).values({
+            conversationId: conversationIdNum,
+            role: 'assistant',
+            content: response,
+            createdAt: new Date()
+          });
+
+          // Fetch the updated conversation
+          dbConversation = await db.query.conversations.findFirst({
+            where: eq(conversations.id, conversationIdNum),
+            with: {
+              messages: true
+            }
+          });
+        }
+      } catch (dbError) {
+        console.error('Database error:', dbError);
+        throw new Error('Failed to save conversation to database');
       }
 
       res.json({ response, conversation: dbConversation });
@@ -131,7 +149,7 @@ export function registerRoutes(app: Express): Server {
     try {
       const { message, conversationId, context = [], model = "claude-3-opus-20240229" } = req.body;
 
-      // Format conversation history for Anthropic
+      // Format messages for Anthropic
       const messages = context.map((msg: any) => ({
         role: msg.role,
         content: msg.content
@@ -156,76 +174,96 @@ export function registerRoutes(app: Express): Server {
       }
 
       let dbConversation;
-      if (!conversationId) {
-        // Create new conversation
-        const [newConversation] = await db.insert(conversations).values({
-          title: message.slice(0, 100),
-          provider: 'anthropic',
-          model,
-          createdAt: new Date(),
-          lastMessageAt: new Date()
-        }).returning();
 
-        // Insert user message
-        await db.insert(messages).values({
-          conversationId: newConversation.id,
-          role: 'user',
-          content: message,
-          createdAt: new Date()
-        });
+      try {
+        if (!conversationId) {
+          // Create new conversation
+          const [newConversation] = await db.insert(conversations).values({
+            title: message.slice(0, 100),
+            provider: 'anthropic',
+            model,
+            createdAt: new Date(),
+            lastMessageAt: new Date()
+          }).returning();
 
-        // Insert assistant message
-        await db.insert(messages).values({
-          conversationId: newConversation.id,
-          role: 'assistant',
-          content: response,
-          createdAt: new Date()
-        });
+          // Insert user message
+          await db.insert(messages).values({
+            conversationId: newConversation.id,
+            role: 'user',
+            content: message,
+            createdAt: new Date()
+          });
 
-        // Fetch the complete conversation
-        dbConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, newConversation.id),
-          with: {
-            messages: true
+          // Insert assistant message
+          await db.insert(messages).values({
+            conversationId: newConversation.id,
+            role: 'assistant',
+            content: response,
+            createdAt: new Date()
+          });
+
+          // Fetch the complete conversation
+          dbConversation = await db.query.conversations.findFirst({
+            where: eq(conversations.id, newConversation.id),
+            with: {
+              messages: true
+            }
+          });
+        } else {
+          const conversationIdNum = parseInt(conversationId);
+          if (isNaN(conversationIdNum)) {
+            throw new Error('Invalid conversation ID');
           }
-        });
-      } else {
-        const conversationIdNum = parseInt(conversationId);
 
-        // Update existing conversation
-        await db.update(conversations)
-          .set({ lastMessageAt: new Date() })
-          .where(eq(conversations.id, conversationIdNum));
+          // Verify conversation exists
+          const existingConversation = await db.query.conversations.findFirst({
+            where: eq(conversations.id, conversationIdNum)
+          });
 
-        // Insert user message
-        await db.insert(messages).values({
-          conversationId: conversationIdNum,
-          role: 'user',
-          content: message,
-          createdAt: new Date()
-        });
-
-        // Insert assistant message
-        await db.insert(messages).values({
-          conversationId: conversationIdNum,
-          role: 'assistant',
-          content: response,
-          createdAt: new Date()
-        });
-
-        // Fetch the updated conversation
-        dbConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, conversationIdNum),
-          with: {
-            messages: true
+          if (!existingConversation) {
+            throw new Error('Conversation not found');
           }
-        });
+
+          // Update existing conversation
+          await db.update(conversations)
+            .set({ lastMessageAt: new Date() })
+            .where(eq(conversations.id, conversationIdNum));
+
+          // Insert user message
+          await db.insert(messages).values({
+            conversationId: conversationIdNum,
+            role: 'user',
+            content: message,
+            createdAt: new Date()
+          });
+
+          // Insert assistant message
+          await db.insert(messages).values({
+            conversationId: conversationIdNum,
+            role: 'assistant',
+            content: response,
+            createdAt: new Date()
+          });
+
+          // Fetch the updated conversation
+          dbConversation = await db.query.conversations.findFirst({
+            where: eq(conversations.id, conversationIdNum),
+            with: {
+              messages: true
+            }
+          });
+        }
+      } catch (dbError) {
+        console.error('Database error:', dbError);
+        throw new Error('Failed to save conversation to database');
       }
 
       res.json({ response, conversation: dbConversation });
     } catch (error) {
       console.error("Anthropic API error:", error);
-      res.status(500).json({ error: "Failed to process Anthropic request" });
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to process Anthropic request" 
+      });
     }
   });
 
