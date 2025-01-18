@@ -22,14 +22,28 @@ export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
 export async function loadProviderConfigs(): Promise<ProviderConfig[]> {
   try {
-    const currentFilePath = fileURLToPath(import.meta.url);
-    const providersDir = path.join(path.dirname(currentFilePath), 'providers');
+    const isDev = process.env.NODE_ENV !== 'production';
+    let providersDir: string;
+
+    if (isDev) {
+      const currentFilePath = fileURLToPath(import.meta.url);
+      providersDir = path.join(path.dirname(currentFilePath), 'providers');
+    } else {
+      // In production, configs are in server/config/providers relative to the app root
+      providersDir = path.join(process.cwd(), 'server', 'config', 'providers');
+    }
+
+    console.log('Loading provider configs from:', providersDir);
+
     const files = await readdir(providersDir);
     const jsonFiles = files.filter(file => file.endsWith('.json'));
+
+    console.log('Found provider config files:', jsonFiles);
 
     const configs = await Promise.all(
       jsonFiles.map(async (file) => {
         const filePath = path.join(providersDir, file);
+        console.log('Reading config file:', filePath);
         const content = await readFile(filePath, 'utf-8');
         const config = JSON.parse(content);
         return ProviderConfigSchema.parse(config);
