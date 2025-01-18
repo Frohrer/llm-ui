@@ -6,6 +6,16 @@ import { db } from "@db";
 import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
+import { loadProviderConfigs } from "./config/loader";
+
+// Load provider configurations at startup
+let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
+loadProviderConfigs().then(configs => {
+  providerConfigs = configs;
+}).catch(error => {
+  console.error('Failed to load provider configurations:', error);
+  process.exit(1);
+});
 
 if (!process.env.OPENAI_API_KEY) {
   throw new Error("OPENAI_API_KEY is required");
@@ -24,6 +34,19 @@ const anthropic = new Anthropic({
 });
 
 export function registerRoutes(app: Express): Server {
+  // Add new endpoint to get provider configurations
+  app.get('/api/providers', async (_req, res) => {
+    try {
+      if (!providerConfigs) {
+        providerConfigs = await loadProviderConfigs();
+      }
+      res.json(providerConfigs);
+    } catch (error) {
+      console.error('Error fetching provider configurations:', error);
+      res.status(500).json({ error: 'Failed to fetch provider configurations' });
+    }
+  });
+
   app.post('/api/chat/openai', async (req, res) => {
     try {
       const { message, conversationId, context = [], model = "gpt-3.5-turbo" } = req.body;
@@ -131,7 +154,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // the newest Anthropic model is "claude-3-5-sonnet-20241022" which was released October 22, 2024
   app.post('/api/chat/anthropic', async (req, res) => {
     try {
       const { message, conversationId, context = [], model = "claude-3-5-sonnet-20241022" } = req.body;
@@ -139,7 +161,6 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ error: "Invalid message" });
       }
 
-      // Format messages for Anthropic API
       const apiMessages = context.map((msg: any) => ({
         role: msg.role,
         content: msg.content
@@ -152,7 +173,11 @@ export function registerRoutes(app: Express): Server {
         messages: apiMessages,
       });
 
-      const response = completion.content[0].text;
+      // Handle response content safely
+      const response = completion.content[0]?.type === 'text' 
+        ? completion.content[0].text
+        : '';
+
       if (!response) {
         throw new Error("No response from Anthropic");
       }

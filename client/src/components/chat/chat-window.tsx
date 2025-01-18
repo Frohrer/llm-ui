@@ -7,7 +7,7 @@ import type { Message as MessageType, Conversation } from '@/lib/llm/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
-import { getAllProviders } from '@/lib/llm/providers';
+import { useProviders } from '@/lib/llm/providers';
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -27,24 +27,37 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
 
   const [messages, setMessages] = useState<MessageType[]>(transformMessages(conversation));
   const [isLoading, setIsLoading] = useState(false);
+  const { data: providers, isLoading: isLoadingProviders } = useProviders();
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     if (conversation) {
       return conversation.model;
     }
     // Find the first default model from any provider
-    for (const provider of getAllProviders()) {
-      const defaultModel = provider.models.find(m => m.defaultModel);
-      if (defaultModel) return defaultModel.id;
+    if (providers) {
+      for (const provider of Object.values(providers)) {
+        const defaultModel = provider.models.find(m => m.defaultModel);
+        if (defaultModel) return defaultModel.id;
+      }
+      // Fallback to first model of first provider
+      const firstProvider = Object.values(providers)[0];
+      if (firstProvider) return firstProvider.models[0].id;
     }
-    // Fallback to first model of first provider
-    return getAllProviders()[0].models[0].id;
+    return '';
   });
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    setMessages(transformMessages(conversation));
+    if (conversation) {
+      setSelectedModel(conversation.model);
+    }
+  }, [conversation]);
+
   const getModelDisplayName = (modelId: string): string => {
-    for (const provider of getAllProviders()) {
+    if (!providers) return modelId;
+    for (const provider of Object.values(providers)) {
       const model = provider.models.find(m => m.id === modelId);
       if (model) {
         return `${provider.name} - ${model.name}`;
@@ -54,20 +67,14 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   };
 
   const getProviderForModel = (modelId: string): string => {
-    for (const provider of getAllProviders()) {
+    if (!providers) return '';
+    for (const provider of Object.values(providers)) {
       if (provider.models.some(m => m.id === modelId)) {
         return provider.id;
       }
     }
     throw new Error(`No provider found for model: ${modelId}`);
   };
-
-  useEffect(() => {
-    setMessages(transformMessages(conversation));
-    if (conversation) {
-      setSelectedModel(conversation.model);
-    }
-  }, [conversation]);
 
   const handleSendMessage = async (content: string) => {
     const userMessage: MessageType = {
@@ -133,7 +140,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         <ModelSelector
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
-          disabled={!!conversation || isLoading}
+          disabled={!!conversation || isLoading || isLoadingProviders}
           getModelDisplayName={getModelDisplayName}
         />
       </div>

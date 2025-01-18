@@ -12,8 +12,8 @@ export interface Conversation {
   title: string;
   provider: string;
   model: string;
-  lastMessageAt: string; 
-  createdAt: string;   
+  lastMessageAt: string;
+  createdAt: string;
   messages: {
     id: number;
     role: 'user' | 'assistant';
@@ -32,7 +32,7 @@ export interface ModelConfig {
 export interface LLMProvider {
   id: string;
   name: string;
-  icon: string;
+  icon: string;  // Icon ID from react-icons/si (e.g., 'SiOpenai')
   models: ModelConfig[];
   sendMessage(message: string, conversationId?: string, context?: Message[]): Promise<string>;
 }

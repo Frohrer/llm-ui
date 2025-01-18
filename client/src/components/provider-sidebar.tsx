@@ -1,7 +1,7 @@
 import type { LLMProvider } from '@/lib/llm/types';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type { IconType } from 'react-icons';
+import * as SiIcons from 'react-icons/si';
 
 interface ProviderSidebarProps {
   providers: LLMProvider[];
@@ -18,7 +18,7 @@ export function ProviderSidebar({ providers, activeProvider, onProviderChange }:
       <ScrollArea className="h-[calc(100vh-65px)]">
         <div className="p-2 space-y-2">
           {providers.map((provider) => {
-            const Icon = provider.icon as IconType;
+            const Icon = (SiIcons as any)[provider.icon];
             return (
               <Button
                 key={provider.id}
@@ -26,7 +26,7 @@ export function ProviderSidebar({ providers, activeProvider, onProviderChange }:
                 className="w-full justify-start gap-2"
                 onClick={() => onProviderChange(provider)}
               >
-                <Icon className="h-4 w-4" />
+                {Icon && <Icon className="h-4 w-4" />}
                 {provider.name}
               </Button>
             );
