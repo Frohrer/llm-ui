@@ -131,6 +131,7 @@ export function registerRoutes(app: Express): Server {
         max_tokens: 1024,
       });
 
+      // Extract response from Anthropic's response format
       const response = completion.content[0].text;
       if (!response) {
         throw new Error("No response from Anthropic");
