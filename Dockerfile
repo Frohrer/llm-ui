@@ -6,7 +6,7 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install ALL dependencies (including devDependencies)
 RUN npm ci
 
 # Copy source code
@@ -20,13 +20,16 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Copy package files and install production dependencies
+# Copy package files and install ALL dependencies (not just production)
+# This is necessary because Vite is used in the server code
 COPY package*.json ./
-RUN npm ci --production
+RUN npm ci
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/db ./db
+COPY --from=builder /app/client/index.html ./client/index.html
+COPY --from=builder /app/server/config ./server/config
 
 # Expose the application port
 EXPOSE 5000
