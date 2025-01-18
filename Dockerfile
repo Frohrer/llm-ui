@@ -31,11 +31,18 @@ COPY --from=builder /app/db ./db
 COPY --from=builder /app/client/index.html ./client/index.html
 COPY --from=builder /app/server/config ./server/config
 
+# Add wait-for-it script
+ADD https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh /wait-for-it.sh
+RUN chmod +x /wait-for-it.sh
+
 # Expose the application port
 EXPOSE 5000
 
 # Set environment variables
 ENV NODE_ENV=production
 
-# Start the application
-CMD ["node", "dist/index.js"]
+# Add entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
