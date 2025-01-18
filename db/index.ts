@@ -1,4 +1,6 @@
 import { drizzle } from "drizzle-orm/neon-serverless";
+import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import ws from "ws";
 import * as schema from "@db/schema";
 
@@ -8,9 +10,24 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// Initialize drizzle with neon-serverless configuration
-export const db = drizzle({
-  connection: process.env.DATABASE_URL,
-  schema,
-  ws: ws,
-});
+// Initialize database connection based on environment
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
+let db;
+if (isDevelopment) {
+  // For development, use Neon serverless with WebSocket
+  db = drizzle({
+    connection: process.env.DATABASE_URL,
+    schema,
+    ws: ws,
+  });
+} else {
+  // For production (Docker), use regular PostgreSQL connection
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+  });
+
+  db = drizzlePostgres(pool, { schema });
+}
+
+export { db };
