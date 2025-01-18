@@ -46,7 +46,7 @@ export function registerRoutes(app: Express): Server {
 
       // If this is a new conversation, create it
       if (!conversationId) {
-        const newConversation = await db.insert(conversations).values({
+        const [newConversation] = await db.insert(conversations).values({
           title: message.slice(0, 100),
           provider: 'openai',
           model,
@@ -56,7 +56,7 @@ export function registerRoutes(app: Express): Server {
 
         // Save user message
         await db.insert(messages).values({
-          conversationId: newConversation[0].id,
+          conversationId: newConversation.id,
           role: 'user',
           content: message,
           createdAt: new Date()
@@ -64,7 +64,7 @@ export function registerRoutes(app: Express): Server {
 
         // Save assistant message
         await db.insert(messages).values({
-          conversationId: newConversation[0].id,
+          conversationId: newConversation.id,
           role: 'assistant',
           content: response,
           createdAt: new Date()
@@ -73,11 +73,11 @@ export function registerRoutes(app: Express): Server {
         // Update existing conversation
         await db.update(conversations)
           .set({ lastMessageAt: new Date() })
-          .where(eq(conversations.id, conversationId));
+          .where(eq(conversations.id, parseInt(conversationId)));
 
         // Save user message
         await db.insert(messages).values({
-          conversationId: conversationId,
+          conversationId: parseInt(conversationId),
           role: 'user',
           content: message,
           createdAt: new Date()
@@ -85,7 +85,7 @@ export function registerRoutes(app: Express): Server {
 
         // Save assistant message
         await db.insert(messages).values({
-          conversationId: conversationId,
+          conversationId: parseInt(conversationId),
           role: 'assistant',
           content: response,
           createdAt: new Date()
@@ -123,7 +123,7 @@ export function registerRoutes(app: Express): Server {
 
       // If this is a new conversation, create it
       if (!conversationId) {
-        const newConversation = await db.insert(conversations).values({
+        const [newConversation] = await db.insert(conversations).values({
           title: message.slice(0, 100),
           provider: 'anthropic',
           model,
@@ -133,7 +133,7 @@ export function registerRoutes(app: Express): Server {
 
         // Save user message
         await db.insert(messages).values({
-          conversationId: newConversation[0].id,
+          conversationId: newConversation.id,
           role: 'user',
           content: message,
           createdAt: new Date()
@@ -141,7 +141,7 @@ export function registerRoutes(app: Express): Server {
 
         // Save assistant message
         await db.insert(messages).values({
-          conversationId: newConversation[0].id,
+          conversationId: newConversation.id,
           role: 'assistant',
           content: response,
           createdAt: new Date()
@@ -150,11 +150,11 @@ export function registerRoutes(app: Express): Server {
         // Update existing conversation
         await db.update(conversations)
           .set({ lastMessageAt: new Date() })
-          .where(eq(conversations.id, conversationId));
+          .where(eq(conversations.id, parseInt(conversationId)));
 
         // Save user message
         await db.insert(messages).values({
-          conversationId: conversationId,
+          conversationId: parseInt(conversationId),
           role: 'user',
           content: message,
           createdAt: new Date()
@@ -162,7 +162,7 @@ export function registerRoutes(app: Express): Server {
 
         // Save assistant message
         await db.insert(messages).values({
-          conversationId: conversationId,
+          conversationId: parseInt(conversationId),
           role: 'assistant',
           content: response,
           createdAt: new Date()
