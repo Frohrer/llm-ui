@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { useProviders } from '@/lib/llm/providers';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -137,12 +138,15 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     <div className="flex flex-col h-screen bg-background">
       <div className="p-4 border-b flex items-center justify-between">
         <h2 className="font-semibold">{conversation?.title || 'New Conversation'}</h2>
-        <ModelSelector
-          selectedModel={selectedModel}
-          onModelChange={setSelectedModel}
-          disabled={!!conversation || isLoading || isLoadingProviders}
-          getModelDisplayName={getModelDisplayName}
-        />
+        <div className="flex items-center gap-4">
+          <ModelSelector
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+            disabled={!!conversation || isLoading || isLoadingProviders}
+            getModelDisplayName={getModelDisplayName}
+          />
+          <ThemeToggle />
+        </div>
       </div>
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full p-4">
