@@ -9,11 +9,23 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ models, selectedModel, onModelChange, disabled }: ModelSelectorProps) {
+  // Find the selected model config to display its name
+  const selectedModelConfig = models.find(model => model.id === selectedModel);
+
+  // If disabled (existing conversation), show just the model name
+  if (disabled) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        Using {selectedModelConfig?.name || selectedModel}
+      </div>
+    );
+  }
+
+  // For new conversations, show the dropdown
   return (
     <Select
       value={selectedModel}
       onValueChange={onModelChange}
-      disabled={disabled}
     >
       <SelectTrigger className="w-[200px]">
         <SelectValue placeholder="Select a model" />
