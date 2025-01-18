@@ -4,6 +4,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from '@/lib/utils';
 import type { Message as MessageType } from '@/lib/llm/types';
 import { Card } from '@/components/ui/card';
+import type { CodeProps } from 'react-markdown/lib/ast-to-react';
 
 interface MessageProps {
   message: MessageType;
@@ -17,7 +18,7 @@ export function Message({ message }: MessageProps) {
     )}>
       <ReactMarkdown
         components={{
-          code({ node, inline, className, children, ...props }) {
+          code({ node, inline, className, children, ...props }: CodeProps) {
             const match = /language-(\w+)/.exec(className || '');
             return !inline && match ? (
               <SyntaxHighlighter
