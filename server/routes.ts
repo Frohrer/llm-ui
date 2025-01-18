@@ -46,6 +46,7 @@ export function registerRoutes(app: Express): Server {
 
       let dbConversation;
       if (!conversationId) {
+        // Create new conversation
         const [newConversation] = await db.insert(conversations).values({
           title: message.slice(0, 100),
           provider: 'openai',
@@ -54,6 +55,7 @@ export function registerRoutes(app: Express): Server {
           lastMessageAt: new Date()
         }).returning();
 
+        // Insert user message
         await db.insert(messages).values({
           conversationId: newConversation.id,
           role: 'user',
@@ -61,6 +63,7 @@ export function registerRoutes(app: Express): Server {
           createdAt: new Date()
         });
 
+        // Insert assistant message
         await db.insert(messages).values({
           conversationId: newConversation.id,
           role: 'assistant',
@@ -68,6 +71,7 @@ export function registerRoutes(app: Express): Server {
           createdAt: new Date()
         });
 
+        // Fetch the complete conversation
         dbConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, newConversation.id),
           with: {
@@ -75,26 +79,32 @@ export function registerRoutes(app: Express): Server {
           }
         });
       } else {
+        const conversationIdNum = parseInt(conversationId);
+
+        // Update existing conversation
         await db.update(conversations)
           .set({ lastMessageAt: new Date() })
-          .where(eq(conversations.id, parseInt(conversationId)));
+          .where(eq(conversations.id, conversationIdNum));
 
+        // Insert user message
         await db.insert(messages).values({
-          conversationId: parseInt(conversationId),
+          conversationId: conversationIdNum,
           role: 'user',
           content: message,
           createdAt: new Date()
         });
 
+        // Insert assistant message
         await db.insert(messages).values({
-          conversationId: parseInt(conversationId),
+          conversationId: conversationIdNum,
           role: 'assistant',
           content: response,
           createdAt: new Date()
         });
 
+        // Fetch the updated conversation
         dbConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, parseInt(conversationId)),
+          where: eq(conversations.id, conversationIdNum),
           with: {
             messages: true
           }
@@ -138,6 +148,7 @@ export function registerRoutes(app: Express): Server {
 
       let dbConversation;
       if (!conversationId) {
+        // Create new conversation
         const [newConversation] = await db.insert(conversations).values({
           title: message.slice(0, 100),
           provider: 'anthropic',
@@ -146,6 +157,7 @@ export function registerRoutes(app: Express): Server {
           lastMessageAt: new Date()
         }).returning();
 
+        // Insert user message
         await db.insert(messages).values({
           conversationId: newConversation.id,
           role: 'user',
@@ -153,6 +165,7 @@ export function registerRoutes(app: Express): Server {
           createdAt: new Date()
         });
 
+        // Insert assistant message
         await db.insert(messages).values({
           conversationId: newConversation.id,
           role: 'assistant',
@@ -160,6 +173,7 @@ export function registerRoutes(app: Express): Server {
           createdAt: new Date()
         });
 
+        // Fetch the complete conversation
         dbConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, newConversation.id),
           with: {
@@ -167,26 +181,32 @@ export function registerRoutes(app: Express): Server {
           }
         });
       } else {
+        const conversationIdNum = parseInt(conversationId);
+
+        // Update existing conversation
         await db.update(conversations)
           .set({ lastMessageAt: new Date() })
-          .where(eq(conversations.id, parseInt(conversationId)));
+          .where(eq(conversations.id, conversationIdNum));
 
+        // Insert user message
         await db.insert(messages).values({
-          conversationId: parseInt(conversationId),
+          conversationId: conversationIdNum,
           role: 'user',
           content: message,
           createdAt: new Date()
         });
 
+        // Insert assistant message
         await db.insert(messages).values({
-          conversationId: parseInt(conversationId),
+          conversationId: conversationIdNum,
           role: 'assistant',
           content: response,
           createdAt: new Date()
         });
 
+        // Fetch the updated conversation
         dbConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, parseInt(conversationId)),
+          where: eq(conversations.id, conversationIdNum),
           with: {
             messages: true
           }

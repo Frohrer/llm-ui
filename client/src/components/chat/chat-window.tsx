@@ -5,7 +5,6 @@ import { ChatInput } from './chat-input';
 import type { Message as MessageType, LLMProvider, Conversation } from '@/lib/llm/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { useMutation } from '@tanstack/react-query';
 
 interface ChatWindowProps {
   provider: LLMProvider;
@@ -44,10 +43,17 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
       });
 
       if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}`);
+        const errorData = await response.text();
+        console.error(`API Error: ${response.status} - ${errorData}`);
+        throw new Error(`Failed to send message: ${errorData}`);
       }
 
       const data = await response.json();
+
+      if (!data.response) {
+        throw new Error('No response received from the server');
+      }
+
       const assistantMessage: MessageType = {
         id: nanoid(),
         role: 'assistant',
@@ -67,7 +73,7 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to send message. Please try again."
+        description: error instanceof Error ? error.message : "Failed to send message. Please try again."
       });
       // Remove the user message if the request failed
       setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
