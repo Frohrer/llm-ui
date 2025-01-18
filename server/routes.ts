@@ -69,21 +69,31 @@ export function registerRoutes(app: Express): Server {
             throw new Error('Failed to create conversation');
           }
 
-          // Insert both messages
-          await Promise.all([
-            db.insert(messages).values({
+          const userMessage = await db.insert(messages)
+            .values({
               conversationId: conversation.id,
               role: 'user',
               content: message,
               createdAt: new Date()
-            }),
-            db.insert(messages).values({
+            })
+            .returning();
+
+          if (!userMessage || !userMessage[0]) {
+            throw new Error('Failed to save user message');
+          }
+
+          const assistantMessage = await db.insert(messages)
+            .values({
               conversationId: conversation.id,
               role: 'assistant',
               content: response,
               createdAt: new Date()
             })
-          ]);
+            .returning();
+
+          if (!assistantMessage || !assistantMessage[0]) {
+            throw new Error('Failed to save assistant message');
+          }
 
           // Fetch complete conversation
           dbConversation = await db.query.conversations.findFirst({
@@ -112,20 +122,31 @@ export function registerRoutes(app: Express): Server {
             .set({ lastMessageAt: new Date() })
             .where(eq(conversations.id, conversationIdNum));
 
-          await Promise.all([
-            db.insert(messages).values({
+          const userMessage = await db.insert(messages)
+            .values({
               conversationId: conversationIdNum,
               role: 'user',
               content: message,
               createdAt: new Date()
-            }),
-            db.insert(messages).values({
+            })
+            .returning();
+
+          if (!userMessage || !userMessage[0]) {
+            throw new Error('Failed to save user message');
+          }
+
+          const assistantMessage = await db.insert(messages)
+            .values({
               conversationId: conversationIdNum,
               role: 'assistant',
               content: response,
               createdAt: new Date()
             })
-          ]);
+            .returning();
+
+          if (!assistantMessage || !assistantMessage[0]) {
+            throw new Error('Failed to save assistant message');
+          }
 
           // Fetch updated conversation
           dbConversation = await db.query.conversations.findFirst({
