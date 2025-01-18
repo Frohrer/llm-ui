@@ -27,33 +27,24 @@ export function registerRoutes(app: Express): Server {
   app.post('/api/chat/openai', async (req, res) => {
     try {
       const { message, conversationId, context = [], model = "gpt-3.5-turbo" } = req.body;
-
       if (!message || typeof message !== 'string') {
         return res.status(400).json({ error: "Invalid message" });
       }
-
-      // Format messages for OpenAI
       const apiMessages = context.map((msg: any) => ({
         role: msg.role,
         content: msg.content
       }));
       apiMessages.push({ role: "user", content: message });
-
-      // Make the OpenAI API request
       const completion = await openai.chat.completions.create({
         messages: apiMessages,
         model,
       });
-
       const response = completion.choices[0]?.message?.content;
       if (!response) {
         throw new Error("No response from OpenAI");
       }
-
       let dbConversation;
-
       if (!conversationId) {
-        // Create new conversation
         const [newConversation] = await db.insert(conversations)
           .values({
             title: message.slice(0, 100),
@@ -63,12 +54,9 @@ export function registerRoutes(app: Express): Server {
             last_message_at: new Date()
           })
           .returning();
-
         if (!newConversation) {
           throw new Error("Failed to create conversation");
         }
-
-        // Insert both messages
         await Promise.all([
           db.insert(messages)
             .values({
@@ -85,8 +73,6 @@ export function registerRoutes(app: Express): Server {
               created_at: new Date()
             })
         ]);
-
-        // Fetch complete conversation
         dbConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, newConversation.id),
           with: {
@@ -98,22 +84,15 @@ export function registerRoutes(app: Express): Server {
         if (isNaN(conversationIdNum)) {
           throw new Error('Invalid conversation ID');
         }
-
-        // Check if conversation exists
         const existingConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, conversationIdNum)
         });
-
         if (!existingConversation) {
           throw new Error('Conversation not found');
         }
-
-        // Update conversation timestamp
         await db.update(conversations)
           .set({ last_message_at: new Date() })
           .where(eq(conversations.id, conversationIdNum));
-
-        // Insert both messages
         await Promise.all([
           db.insert(messages)
             .values({
@@ -130,8 +109,6 @@ export function registerRoutes(app: Express): Server {
               created_at: new Date()
             })
         ]);
-
-        // Fetch updated conversation
         dbConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, conversationIdNum),
           with: {
@@ -139,20 +116,41 @@ export function registerRoutes(app: Express): Server {
           }
         });
       }
-
       if (!dbConversation) {
         throw new Error('Failed to retrieve conversation');
       }
-
-      res.json({ 
+      res.json({
         response,
         conversation: transformDatabaseConversation(dbConversation)
       });
     } catch (error) {
       console.error("Error:", error);
-      res.status(500).json({ 
-        error: error instanceof Error ? error.message : "Failed to process request" 
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Failed to process request"
       });
+    }
+  });
+
+  app.delete('/api/conversations/:id', async (req, res) => {
+    try {
+      const conversationId = parseInt(req.params.id);
+      if (isNaN(conversationId)) {
+        return res.status(400).json({ error: "Invalid conversation ID" });
+      }
+      const conversation = await db.query.conversations.findFirst({
+        where: eq(conversations.id, conversationId)
+      });
+      if (!conversation) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+      await db.delete(messages)
+        .where(eq(messages.conversation_id, conversationId));
+      await db.delete(conversations)
+        .where(eq(conversations.id, conversationId));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Database error:", error);
+      res.status(500).json({ error: "Failed to delete conversation" });
     }
   });
 
@@ -164,10 +162,7 @@ export function registerRoutes(app: Express): Server {
           messages: true
         }
       });
-
-      // Transform and sort conversations for frontend
       const transformedConversations = result.map(conv => transformDatabaseConversation(conv));
-
       res.json(transformedConversations);
     } catch (error) {
       console.error("Database error:", error);
@@ -183,14 +178,10 @@ export function registerRoutes(app: Express): Server {
           messages: true
         }
       });
-
       if (!result) {
         return res.status(404).json({ error: "Conversation not found" });
       }
-
-      // Transform the conversation for frontend
       const transformedConversation = transformDatabaseConversation(result);
-
       res.json(transformedConversation);
     } catch (error) {
       console.error("Database error:", error);
