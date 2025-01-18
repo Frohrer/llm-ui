@@ -5,6 +5,7 @@ import { ChatInput } from './chat-input';
 import type { Message as MessageType, LLMProvider, Conversation } from '@/lib/llm/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface ChatWindowProps {
   provider: LLMProvider;
@@ -27,6 +28,7 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
   const [messages, setMessages] = useState<MessageType[]>(transformMessages(conversation));
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // Update messages when conversation changes
   useEffect(() => {
@@ -82,6 +84,9 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
       }
 
       setMessages(transformMessages(data.conversation));
+
+      // Invalidate conversations query to refresh the list
+      queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
     } catch (error) {
       console.error('Error sending message:', error);
       toast({
