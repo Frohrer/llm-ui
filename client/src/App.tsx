@@ -4,6 +4,8 @@ import { queryClient } from "./lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import Home from "@/pages/home";
 import NotFound from "@/pages/not-found";
+import { ThemeProvider } from "@/components/providers/theme-provider";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 function Router() {
   return (
@@ -16,10 +18,15 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <Router />
-      <Toaster />
-    </QueryClientProvider>
+    <ThemeProvider defaultTheme="system" storageKey="chat-ui-theme">
+      <QueryClientProvider client={queryClient}>
+        <div className="fixed top-4 right-4 z-50">
+          <ThemeToggle />
+        </div>
+        <Router />
+        <Toaster />
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
 
