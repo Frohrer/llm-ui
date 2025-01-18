@@ -2,16 +2,20 @@ import { useState } from 'react';
 import { nanoid } from 'nanoid';
 import { Message } from './message';
 import { ChatInput } from './chat-input';
-import type { Message as MessageType, LLMProvider } from '@/lib/llm/types';
+import type { Message as MessageType, LLMProvider, Conversation } from '@/lib/llm/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
+import { useMutation } from '@tanstack/react-query';
+
 
 interface ChatWindowProps {
   provider: LLMProvider;
+  conversation?: Conversation;
+  onConversationUpdate?: (conversation: Conversation) => void;
 }
 
-export function ChatWindow({ provider }: ChatWindowProps) {
-  const [messages, setMessages] = useState<MessageType[]>([]);
+export function ChatWindow({ provider, conversation, onConversationUpdate }: ChatWindowProps) {
+  const [messages, setMessages] = useState<MessageType[]>(conversation?.messages || []);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
@@ -27,8 +31,13 @@ export function ChatWindow({ provider }: ChatWindowProps) {
     setIsLoading(true);
 
     try {
-      const response = await provider.sendMessage(content);
-      
+      // Pass the entire conversation history as context
+      const response = await provider.sendMessage(
+        content,
+        conversation?.id,
+        [...messages, userMessage] // Include the current message in context
+      );
+
       const assistantMessage: MessageType = {
         id: nanoid(),
         role: 'assistant',
@@ -36,7 +45,17 @@ export function ChatWindow({ provider }: ChatWindowProps) {
         timestamp: Date.now()
       };
 
-      setMessages(prev => [...prev, assistantMessage]);
+      const updatedMessages = [...messages, userMessage, assistantMessage];
+      setMessages(updatedMessages);
+
+      // Update the parent component with new conversation state if callback exists
+      if (onConversationUpdate && conversation) {
+        onConversationUpdate({
+          ...conversation,
+          messages: updatedMessages,
+          lastMessageAt: new Date().toISOString()
+        });
+      }
     } catch (error) {
       toast({
         variant: "destructive",
