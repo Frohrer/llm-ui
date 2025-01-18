@@ -30,6 +30,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/db ./db
 COPY --from=builder /app/client/index.html ./client/index.html
 COPY --from=builder /app/server/config ./server/config
+COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 
 # Add wait-for-it script
 ADD https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh /wait-for-it.sh

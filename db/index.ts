@@ -13,10 +13,12 @@ if (!process.env.DATABASE_URL) {
 
 // Initialize database connection based on environment
 const isDevelopment = process.env.NODE_ENV !== 'production';
+console.log(`Initializing database connection in ${isDevelopment ? 'development' : 'production'} mode`);
 
 let db;
 if (isDevelopment) {
   // For development, use Neon serverless with WebSocket
+  console.log('Using Neon serverless connection with WebSocket');
   db = drizzle({
     connection: process.env.DATABASE_URL,
     schema,
@@ -24,8 +26,22 @@ if (isDevelopment) {
   });
 } else {
   // For production (Docker), use regular PostgreSQL connection
+  console.log('Using regular PostgreSQL connection');
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+  });
+
+  // Test the connection
+  pool.on('error', (err) => {
+    console.error('Unexpected error on idle client', err);
+    process.exit(-1);
+  });
+
+  pool.on('connect', () => {
+    console.log('Successfully connected to PostgreSQL');
   });
 
   db = drizzlePostgres(pool, { schema });
