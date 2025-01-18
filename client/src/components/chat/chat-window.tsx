@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { nanoid } from 'nanoid';
 import { Message } from './message';
 import { ChatInput } from './chat-input';
+import { ModelSelector } from './model-selector';
 import type { Message as MessageType, LLMProvider, Conversation } from '@/lib/llm/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
@@ -27,13 +28,29 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
 
   const [messages, setMessages] = useState<MessageType[]>(transformMessages(conversation));
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    if (conversation) {
+      return conversation.model;
+    }
+    return provider.models.find(m => m.defaultModel)?.id || provider.models[0].id;
+  });
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   // Update messages when conversation changes
   useEffect(() => {
     setMessages(transformMessages(conversation));
+    if (conversation) {
+      setSelectedModel(conversation.model);
+    }
   }, [conversation]);
+
+  // Update selected model when provider changes
+  useEffect(() => {
+    if (!conversation) {
+      setSelectedModel(provider.models.find(m => m.defaultModel)?.id || provider.models[0].id);
+    }
+  }, [provider]);
 
   const handleSendMessage = async (content: string) => {
     const userMessage: MessageType = {
@@ -56,7 +73,7 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
           message: content,
           conversationId: conversation?.id,
           context: messages,
-          model: provider.models.find(m => m.defaultModel)?.id
+          model: selectedModel
         }),
       });
 
@@ -103,6 +120,15 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      <div className="p-4 border-b flex items-center justify-between">
+        <h2 className="font-semibold">{conversation?.title || 'New Conversation'}</h2>
+        <ModelSelector
+          models={provider.models}
+          selectedModel={selectedModel}
+          onModelChange={setSelectedModel}
+          disabled={!!conversation || isLoading}
+        />
+      </div>
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full p-4">
           {messages.map(message => (
