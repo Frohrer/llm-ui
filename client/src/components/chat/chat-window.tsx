@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { nanoid } from 'nanoid';
 import { Message } from './message';
 import { ChatInput } from './chat-input';
@@ -13,9 +13,25 @@ interface ChatWindowProps {
 }
 
 export function ChatWindow({ provider, conversation, onConversationUpdate }: ChatWindowProps) {
-  const [messages, setMessages] = useState<MessageType[]>(conversation?.messages || []);
+  // Transform database messages to frontend message format
+  const transformMessages = (conv?: Conversation): MessageType[] => {
+    if (!conv) return [];
+    return conv.messages.map(msg => ({
+      id: msg.id.toString(),
+      role: msg.role,
+      content: msg.content,
+      timestamp: new Date(msg.created_at).getTime()
+    }));
+  };
+
+  const [messages, setMessages] = useState<MessageType[]>(transformMessages(conversation));
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+
+  // Update messages when conversation changes
+  useEffect(() => {
+    setMessages(transformMessages(conversation));
+  }, [conversation]);
 
   const handleSendMessage = async (content: string) => {
     const userMessage: MessageType = {
@@ -61,13 +77,11 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
         timestamp: Date.now()
       };
 
-      const updatedMessages = [...messages, userMessage, assistantMessage];
-      setMessages(updatedMessages);
-
-      // Update the parent component with new conversation state if callback exists
       if (onConversationUpdate && data.conversation) {
         onConversationUpdate(data.conversation);
       }
+
+      setMessages(transformMessages(data.conversation));
     } catch (error) {
       console.error('Error sending message:', error);
       toast({
