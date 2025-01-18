@@ -5,6 +5,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { db } from "@db";
 import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
+import { transformDatabaseConversation } from "@/lib/llm/types";
 
 if (!process.env.OPENAI_API_KEY) {
   throw new Error("OPENAI_API_KEY is required");
@@ -145,12 +146,7 @@ export function registerRoutes(app: Express): Server {
 
       res.json({ 
         response,
-        conversation: {
-          ...dbConversation,
-          messages: dbConversation.messages.sort((a, b) => 
-            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-          )
-        }
+        conversation: transformDatabaseConversation(dbConversation)
       });
     } catch (error) {
       console.error("Error:", error);
@@ -169,15 +165,10 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      // Sort messages by timestamp within each conversation
-      const sortedResult = result.map(conv => ({
-        ...conv,
-        messages: conv.messages.sort((a, b) => 
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        )
-      }));
+      // Transform and sort conversations for frontend
+      const transformedConversations = result.map(conv => transformDatabaseConversation(conv));
 
-      res.json(sortedResult);
+      res.json(transformedConversations);
     } catch (error) {
       console.error("Database error:", error);
       res.status(500).json({ error: "Failed to fetch conversations" });
@@ -197,12 +188,10 @@ export function registerRoutes(app: Express): Server {
         return res.status(404).json({ error: "Conversation not found" });
       }
 
-      // Sort messages by timestamp
-      result.messages = result.messages.sort((a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
+      // Transform the conversation for frontend
+      const transformedConversation = transformDatabaseConversation(result);
 
-      res.json(result);
+      res.json(transformedConversation);
     } catch (error) {
       console.error("Database error:", error);
       res.status(500).json({ error: "Failed to fetch conversation" });
