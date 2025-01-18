@@ -28,7 +28,7 @@ export function registerRoutes(app: Express): Server {
       const { message, conversationId, context = [], model = "gpt-3.5-turbo" } = req.body;
 
       // Format conversation history for OpenAI
-      const messages = context.map(msg => ({
+      const messages = context.map((msg: any) => ({
         role: msg.role,
         content: msg.content
       }));
@@ -44,6 +44,54 @@ export function registerRoutes(app: Express): Server {
         throw new Error("No response from OpenAI");
       }
 
+      // If this is a new conversation, create it
+      if (!conversationId) {
+        const newConversation = await db.insert(conversations).values({
+          title: message.slice(0, 100),
+          provider: 'openai',
+          model,
+          createdAt: new Date(),
+          lastMessageAt: new Date()
+        }).returning();
+
+        // Save user message
+        await db.insert(messages).values({
+          conversationId: newConversation[0].id,
+          role: 'user',
+          content: message,
+          createdAt: new Date()
+        });
+
+        // Save assistant message
+        await db.insert(messages).values({
+          conversationId: newConversation[0].id,
+          role: 'assistant',
+          content: response,
+          createdAt: new Date()
+        });
+      } else {
+        // Update existing conversation
+        await db.update(conversations)
+          .set({ lastMessageAt: new Date() })
+          .where(eq(conversations.id, conversationId));
+
+        // Save user message
+        await db.insert(messages).values({
+          conversationId: conversationId,
+          role: 'user',
+          content: message,
+          createdAt: new Date()
+        });
+
+        // Save assistant message
+        await db.insert(messages).values({
+          conversationId: conversationId,
+          role: 'assistant',
+          content: response,
+          createdAt: new Date()
+        });
+      }
+
       res.json({ response });
     } catch (error) {
       console.error("OpenAI API error:", error);
@@ -56,7 +104,7 @@ export function registerRoutes(app: Express): Server {
       const { message, conversationId, context = [], model = "claude-3-opus-20240229" } = req.body;
 
       // Format conversation history for Anthropic
-      const messages = context.map(msg => ({
+      const messages = context.map((msg: any) => ({
         role: msg.role,
         content: msg.content
       }));
@@ -71,6 +119,54 @@ export function registerRoutes(app: Express): Server {
       const response = completion.content[0].text;
       if (!response) {
         throw new Error("No response from Anthropic");
+      }
+
+      // If this is a new conversation, create it
+      if (!conversationId) {
+        const newConversation = await db.insert(conversations).values({
+          title: message.slice(0, 100),
+          provider: 'anthropic',
+          model,
+          createdAt: new Date(),
+          lastMessageAt: new Date()
+        }).returning();
+
+        // Save user message
+        await db.insert(messages).values({
+          conversationId: newConversation[0].id,
+          role: 'user',
+          content: message,
+          createdAt: new Date()
+        });
+
+        // Save assistant message
+        await db.insert(messages).values({
+          conversationId: newConversation[0].id,
+          role: 'assistant',
+          content: response,
+          createdAt: new Date()
+        });
+      } else {
+        // Update existing conversation
+        await db.update(conversations)
+          .set({ lastMessageAt: new Date() })
+          .where(eq(conversations.id, conversationId));
+
+        // Save user message
+        await db.insert(messages).values({
+          conversationId: conversationId,
+          role: 'user',
+          content: message,
+          createdAt: new Date()
+        });
+
+        // Save assistant message
+        await db.insert(messages).values({
+          conversationId: conversationId,
+          role: 'assistant',
+          content: response,
+          createdAt: new Date()
+        });
       }
 
       res.json({ response });
