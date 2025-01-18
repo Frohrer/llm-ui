@@ -7,6 +7,7 @@ import type { Message as MessageType, LLMProvider, Conversation } from '@/lib/ll
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { getAllProviders } from '@/lib/llm/providers';
 
 interface ChatWindowProps {
   provider: LLMProvider;
@@ -36,6 +37,17 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
   });
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Helper function to find model display name across all providers
+  const getModelDisplayName = (modelId: string): string => {
+    for (const p of getAllProviders()) {
+      const model = p.models.find(m => m.id === modelId);
+      if (model) {
+        return model.name;
+      }
+    }
+    return modelId; // Fallback to ID if model not found
+  };
 
   // Update messages when conversation changes
   useEffect(() => {
@@ -127,6 +139,7 @@ export function ChatWindow({ provider, conversation, onConversationUpdate }: Cha
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
           disabled={!!conversation || isLoading}
+          getModelDisplayName={getModelDisplayName}
         />
       </div>
       <div className="flex-1 overflow-hidden">

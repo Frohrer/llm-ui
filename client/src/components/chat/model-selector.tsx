@@ -6,17 +6,20 @@ interface ModelSelectorProps {
   selectedModel: string;
   onModelChange: (modelId: string) => void;
   disabled?: boolean;
+  getModelDisplayName?: (modelId: string) => string;
 }
 
-export function ModelSelector({ models, selectedModel, onModelChange, disabled }: ModelSelectorProps) {
+export function ModelSelector({ models, selectedModel, onModelChange, disabled, getModelDisplayName }: ModelSelectorProps) {
   // Find the selected model config to display its name
-  const selectedModelConfig = models.find(model => model.id === selectedModel);
+  const modelName = getModelDisplayName 
+    ? getModelDisplayName(selectedModel)
+    : models.find(model => model.id === selectedModel)?.name || selectedModel;
 
   // If disabled (existing conversation), show just the model name
   if (disabled) {
     return (
       <div className="text-sm text-muted-foreground">
-        Using {selectedModelConfig?.name || selectedModel}
+        Using {modelName}
       </div>
     );
   }
