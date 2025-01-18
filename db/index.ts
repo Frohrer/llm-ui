@@ -8,8 +8,21 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+// Parse the database URL to get host and port
+const dbUrl = new URL(process.env.DATABASE_URL);
+const host = dbUrl.hostname;
+const port = dbUrl.port || process.env.PGPORT || "5432";
+
+// Construct WebSocket URL with explicit port
+const wsUrl = `ws://${host}:${port}/v2`;
+
+console.log('Connecting to database with WebSocket URL:', wsUrl);
+
 export const db = drizzle({
   connection: process.env.DATABASE_URL,
   schema,
-  ws: ws,
+  ws: {
+    WebSocket: ws,
+    wsEndpoint: wsUrl,
+  },
 });
