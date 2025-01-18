@@ -7,15 +7,27 @@ export interface Message {
 
 export interface Conversation {
   id: string;
+  title: string;
   messages: Message[];
   provider: string;
+  model: string;
+  createdAt: string;
+  lastMessageAt: string;
+}
+
+export interface ModelConfig {
+  id: string;
+  name: string;
+  contextLength: number;
+  defaultModel: boolean;
 }
 
 export interface LLMProvider {
   id: string;
   name: string;
   icon: string;
-  sendMessage(message: string): Promise<string>;
+  models: ModelConfig[];
+  sendMessage(message: string, conversationId?: string, context?: Message[]): Promise<string>;
 }
 
 export interface LLMConfig {
