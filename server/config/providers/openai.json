@@ -1,0 +1,31 @@
+{
+  "id": "openai",
+  "name": "OpenAI",
+  "icon": "SiOpenai",
+  "models": [
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4 Omni",
+      "contextLength": 128000,
+      "defaultModel": true
+    },
+    {
+      "id": "gpt-4o-mini",
+      "name": "GPT-4 Omni Mini",
+      "contextLength": 128000,
+      "defaultModel": false
+    },
+    {
+      "id": "o1",
+      "name": "O1",
+      "contextLength": 128000,
+      "defaultModel": false
+    },
+    {
+      "id": "o1-mini",
+      "name": "O1 Mini",
+      "contextLength": 128000,
+      "defaultModel": false
+    }
+  ]
+}

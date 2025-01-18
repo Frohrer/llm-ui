@@ -1,36 +1,18 @@
 import type { LLMProvider, ModelConfig, Message } from "../types";
 import { SiOpenai } from "react-icons/si";
+import type { ProviderConfig } from "../../../../server/config/loader";
 
 export class OpenAIProvider implements LLMProvider {
-  id = "openai";
-  name = "OpenAI";
+  id: string;
+  name: string;
   icon = SiOpenai;
-  models: ModelConfig[] = [
-    {
-      id: "gpt-4o",
-      name: "GPT-4 Omni",
-      contextLength: 128000,
-      defaultModel: true,
-    },
-    {
-      id: "gpt-4o-mini",
-      name: "GPT-4 Omni Mini",
-      contextLength: 128000,
-      defaultModel: false,
-    },
-    {
-      id: "o1",
-      name: "O1",
-      contextLength: 128000,
-      defaultModel: false,
-    },
-    {
-      id: "o1-mini",
-      name: "O1 Mini",
-      contextLength: 128000,
-      defaultModel: false,
-    },
-  ];
+  models: ModelConfig[];
+
+  constructor(config: ProviderConfig) {
+    this.id = config.id;
+    this.name = config.name;
+    this.models = config.models;
+  }
 
   async sendMessage(
     message: string,

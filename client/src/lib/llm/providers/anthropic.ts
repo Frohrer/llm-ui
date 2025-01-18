@@ -1,30 +1,18 @@
 import type { LLMProvider, ModelConfig, Message } from "../types";
 import { SiAntdesign } from "react-icons/si";
+import type { ProviderConfig } from "../../../../server/config/loader";
 
 export class AnthropicProvider implements LLMProvider {
-  id = "anthropic";
-  name = "Anthropic Claude";
+  id: string;
+  name: string;
   icon = SiAntdesign;
-  models: ModelConfig[] = [
-    {
-      id: "claude-3-opus-latest",
-      name: "Claude 3 Opus",
-      contextLength: 200000,
-      defaultModel: true,
-    },
-    {
-      id: "claude-3-5-sonnet-latest",
-      name: "Claude 3.5 Sonnet",
-      contextLength: 200000,
-      defaultModel: false,
-    },
-    {
-      id: "claude-3-5-haiku-latest",
-      name: "Claude 3.5 Haiku",
-      contextLength: 200000,
-      defaultModel: false,
-    },
-  ];
+  models: ModelConfig[];
+
+  constructor(config: ProviderConfig) {
+    this.id = config.id;
+    this.name = config.name;
+    this.models = config.models;
+  }
 
   async sendMessage(
     message: string,
@@ -38,6 +26,7 @@ export class AnthropicProvider implements LLMProvider {
         message,
         conversationId,
         context,
+        model: this.models.find((m) => m.defaultModel)?.id || this.models[0].id,
       }),
     });
 

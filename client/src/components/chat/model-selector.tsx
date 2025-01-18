@@ -1,6 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectSeparator, SelectGroup, SelectLabel } from '@/components/ui/select';
 import type { ModelConfig } from '@/lib/llm/types';
-import { getAllProviders } from '@/lib/llm/providers';
+import { useProviders } from '@/lib/llm/providers';
 
 interface ModelSelectorProps {
   selectedModel: string;
@@ -10,6 +10,7 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ selectedModel, onModelChange, disabled, getModelDisplayName }: ModelSelectorProps) {
+  const { data: providers, isLoading } = useProviders();
   const modelName = getModelDisplayName 
     ? getModelDisplayName(selectedModel)
     : selectedModel;
@@ -23,7 +24,14 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
     );
   }
 
-  const providers = getAllProviders();
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        Loading models...
+      </div>
+    );
+  }
 
   // For new conversations, show the grouped dropdown
   return (
@@ -35,7 +43,7 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
         <SelectValue placeholder="Select a model" />
       </SelectTrigger>
       <SelectContent>
-        {providers.map((provider) => (
+        {Object.values(providers || {}).map((provider) => (
           <SelectGroup key={provider.id}>
             <SelectLabel className="font-semibold">{provider.name}</SelectLabel>
             {provider.models.map((model) => (
@@ -43,7 +51,7 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
                 {model.name}
               </SelectItem>
             ))}
-            {provider !== providers[providers.length - 1] && <SelectSeparator />}
+            {provider !== Object.values(providers || {}).pop() && <SelectSeparator />}
           </SelectGroup>
         ))}
       </SelectContent>
