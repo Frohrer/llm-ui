@@ -3,13 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDistanceToNow, isToday, isThisWeek, parseISO } from 'date-fns';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Conversation } from '@/lib/llm/types';
 
 interface ConversationListProps {
   activeConversation?: Conversation;
-  onSelectConversation: (conversation: Conversation) => void;
+  onSelectConversation: (conversation: Conversation | undefined) => void;
 }
 
 export function ConversationList({ activeConversation, onSelectConversation }: ConversationListProps) {
@@ -46,12 +46,16 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
     },
   });
 
+  const handleNewChat = () => {
+    onSelectConversation(undefined);
+  };
+
   const handleDelete = async (conversationId: number, event: React.MouseEvent) => {
     event.stopPropagation();
     if (confirm('Are you sure you want to delete this conversation?')) {
       await deleteMutation.mutate(conversationId);
       if (activeConversation?.id === conversationId) {
-        onSelectConversation(undefined as any);
+        onSelectConversation(undefined);
       }
     }
   };
@@ -82,14 +86,6 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
     return (
       <div className="p-4 text-destructive">
         Error loading conversations. Please try again later.
-      </div>
-    );
-  }
-
-  if (!conversations?.length) {
-    return (
-      <div className="p-4 text-center text-muted-foreground">
-        No conversations yet. Start a new chat to begin.
       </div>
     );
   }
@@ -133,12 +129,31 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-65px)]">
-      <div className="p-4 space-y-2">
-        {renderCategory('Today', categorizedConversations.today)}
-        {renderCategory('This Week', categorizedConversations.thisWeek)}
-        {renderCategory('Previous', categorizedConversations.older)}
+    <div className="flex flex-col h-full">
+      <div className="p-4 border-b">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold">Chat History</h2>
+          <Button onClick={handleNewChat} variant="outline" size="sm" className="gap-2">
+            <Plus className="h-4 w-4" />
+            New Chat
+          </Button>
+        </div>
       </div>
-    </ScrollArea>
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-2">
+          {!conversations?.length ? (
+            <div className="text-center text-muted-foreground">
+              No conversations yet. Start a new chat to begin.
+            </div>
+          ) : (
+            <>
+              {renderCategory('Today', categorizedConversations.today)}
+              {renderCategory('This Week', categorizedConversations.thisWeek)}
+              {renderCategory('Previous', categorizedConversations.older)}
+            </>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
   );
 }
