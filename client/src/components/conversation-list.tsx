@@ -1,38 +1,45 @@
-import { useEffect, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { formatDistanceToNow, isToday, isThisWeek, parseISO } from 'date-fns';
-import { Trash2, Plus } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import type { Conversation } from '@/lib/llm/types';
+import { useEffect, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { formatDistanceToNow, isToday, isThisWeek, parseISO } from "date-fns";
+import { Trash2, Plus } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import type { Conversation } from "@/lib/llm/types";
 
 interface ConversationListProps {
   activeConversation?: Conversation;
   onSelectConversation: (conversation: Conversation | undefined) => void;
 }
 
-export function ConversationList({ activeConversation, onSelectConversation }: ConversationListProps) {
+export function ConversationList({
+  activeConversation,
+  onSelectConversation,
+}: ConversationListProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: conversations, isLoading, error } = useQuery<Conversation[]>({
-    queryKey: ['/api/conversations'],
+  const {
+    data: conversations,
+    isLoading,
+    error,
+  } = useQuery<Conversation[]>({
+    queryKey: ["/api/conversations"],
   });
 
   // Delete conversation mutation
   const deleteMutation = useMutation({
     mutationFn: async (conversationId: number) => {
       const response = await fetch(`/api/conversations/${conversationId}`, {
-        method: 'DELETE',
+        method: "DELETE",
       });
       if (!response.ok) {
-        throw new Error('Failed to delete conversation');
+        throw new Error("Failed to delete conversation");
       }
       return conversationId;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
       toast({
         description: "Conversation deleted successfully",
       });
@@ -41,7 +48,10 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
       toast({
         variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete conversation",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to delete conversation",
       });
     },
   });
@@ -50,9 +60,12 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
     onSelectConversation(undefined);
   };
 
-  const handleDelete = async (conversationId: number, event: React.MouseEvent) => {
+  const handleDelete = async (
+    conversationId: number,
+    event: React.MouseEvent,
+  ) => {
     event.stopPropagation();
-    if (confirm('Are you sure you want to delete this conversation?')) {
+    if (confirm("Are you sure you want to delete this conversation?")) {
       await deleteMutation.mutate(conversationId);
       if (activeConversation?.id === conversationId) {
         onSelectConversation(undefined);
@@ -63,23 +76,28 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
   const categorizedConversations = useMemo(() => {
     if (!conversations) return {};
 
-    return conversations.reduce((acc, conv) => {
-      const lastMessageDate = parseISO(conv.lastMessageAt);
+    return conversations.reduce(
+      (acc, conv) => {
+        const lastMessageDate = parseISO(conv.lastMessageAt);
 
-      if (isToday(lastMessageDate)) {
-        acc.today = [...(acc.today || []), conv];
-      } else if (isThisWeek(lastMessageDate)) {
-        acc.thisWeek = [...(acc.thisWeek || []), conv];
-      } else {
-        acc.older = [...(acc.older || []), conv];
-      }
+        if (isToday(lastMessageDate)) {
+          acc.today = [...(acc.today || []), conv];
+        } else if (isThisWeek(lastMessageDate)) {
+          acc.thisWeek = [...(acc.thisWeek || []), conv];
+        } else {
+          acc.older = [...(acc.older || []), conv];
+        }
 
-      return acc;
-    }, {} as Record<'today' | 'thisWeek' | 'older', Conversation[]>);
+        return acc;
+      },
+      {} as Record<"today" | "thisWeek" | "older", Conversation[]>,
+    );
   }, [conversations]);
 
   if (isLoading) {
-    return <div className="p-4 text-muted-foreground">Loading conversations...</div>;
+    return (
+      <div className="p-4 text-muted-foreground">Loading conversations...</div>
+    );
   }
 
   if (error) {
@@ -90,7 +108,10 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
     );
   }
 
-  const renderCategory = (title: string, conversations: Conversation[] = []) => {
+  const renderCategory = (
+    title: string,
+    conversations: Conversation[] = [],
+  ) => {
     if (!conversations.length) return null;
 
     return (
@@ -102,14 +123,18 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
           {conversations.map((conv) => (
             <div key={conv.id} className="group flex items-center gap-2 px-2">
               <Button
-                variant={conv.id === activeConversation?.id ? "secondary" : "ghost"}
+                variant={
+                  conv.id === activeConversation?.id ? "secondary" : "ghost"
+                }
                 className="flex-1 justify-start text-left"
                 onClick={() => onSelectConversation(conv)}
               >
                 <div className="flex flex-col items-start">
                   <span className="text-sm truncate">{conv.title}</span>
                   <span className="text-xs text-muted-foreground">
-                    {formatDistanceToNow(parseISO(conv.lastMessageAt), { addSuffix: true })}
+                    {formatDistanceToNow(parseISO(conv.lastMessageAt), {
+                      addSuffix: true,
+                    })}
                   </span>
                 </div>
               </Button>
@@ -133,7 +158,12 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
       <div className="p-4 border-b">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold">Chat History</h2>
-          <Button onClick={handleNewChat} variant="outline" size="sm" className="gap-2">
+          <Button
+            onClick={handleNewChat}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
             <Plus className="h-4 w-4" />
             New Chat
           </Button>
@@ -147,9 +177,9 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
             </div>
           ) : (
             <>
-              {renderCategory('Today', categorizedConversations.today)}
-              {renderCategory('This Week', categorizedConversations.thisWeek)}
-              {renderCategory('Previous', categorizedConversations.older)}
+              {renderCategory("Today", categorizedConversations.today)}
+              {renderCategory("This Week", categorizedConversations.thisWeek)}
+              {renderCategory("Previous", categorizedConversations.older)}
             </>
           )}
         </div>
