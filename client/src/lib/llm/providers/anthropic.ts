@@ -7,16 +7,10 @@ export class AnthropicProvider implements LLMProvider {
   icon = SiAntdesign;
   models: ModelConfig[] = [
     {
-      id: 'claude-3-opus-20240229',
-      name: 'Claude 3 Opus',
+      id: 'claude-3-5-sonnet-20241022',
+      name: 'Claude 3.5 Sonnet',
       contextLength: 200000,
       defaultModel: true
-    },
-    {
-      id: 'claude-3-sonnet-20240229',
-      name: 'Claude 3 Sonnet',
-      contextLength: 200000,
-      defaultModel: false
     }
   ];
 
