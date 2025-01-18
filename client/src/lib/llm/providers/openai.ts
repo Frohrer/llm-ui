@@ -7,15 +7,27 @@ export class OpenAIProvider implements LLMProvider {
   icon = SiOpenai;
   models: ModelConfig[] = [
     {
-      id: 'gpt-3.5-turbo',
-      name: 'GPT-3.5 Turbo',
-      contextLength: 4096,
+      id: 'gpt-4o',
+      name: 'GPT-4 Optimal',
+      contextLength: 128000,
       defaultModel: true
     },
     {
-      id: 'gpt-4',
-      name: 'GPT-4',
-      contextLength: 8192,
+      id: 'gpt-4o-mini',
+      name: 'GPT-4 Optimal Mini',
+      contextLength: 128000,
+      defaultModel: false
+    },
+    {
+      id: 'o1',
+      name: 'O1',
+      contextLength: 128000,
+      defaultModel: false
+    },
+    {
+      id: 'o1-mini',
+      name: 'O1 Mini',
+      contextLength: 128000,
       defaultModel: false
     }
   ];
@@ -27,7 +39,8 @@ export class OpenAIProvider implements LLMProvider {
       body: JSON.stringify({ 
         message,
         conversationId,
-        context
+        context,
+        model: this.models.find(m => m.defaultModel)?.id || this.models[0].id
       })
     });
 
