@@ -1,8 +1,10 @@
 import { useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDistanceToNow, isToday, isThisWeek, parseISO } from 'date-fns';
+import { Trash2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 import type { Conversation } from '@/lib/llm/types';
 
 interface ConversationListProps {
@@ -11,9 +13,48 @@ interface ConversationListProps {
 }
 
 export function ConversationList({ activeConversation, onSelectConversation }: ConversationListProps) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
   const { data: conversations, isLoading, error } = useQuery<Conversation[]>({
     queryKey: ['/api/conversations'],
   });
+
+  // Delete conversation mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (conversationId: number) => {
+      const response = await fetch(`/api/conversations/${conversationId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to delete conversation');
+      }
+      return conversationId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
+      toast({
+        description: "Conversation deleted successfully",
+      });
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete conversation",
+      });
+    },
+  });
+
+  const handleDelete = async (conversationId: number, event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (confirm('Are you sure you want to delete this conversation?')) {
+      await deleteMutation.mutate(conversationId);
+      if (activeConversation?.id === conversationId) {
+        onSelectConversation(undefined as any);
+      }
+    }
+  };
 
   const categorizedConversations = useMemo(() => {
     if (!conversations) return {};
@@ -63,19 +104,28 @@ export function ConversationList({ activeConversation, onSelectConversation }: C
         </h3>
         <div className="space-y-1">
           {conversations.map((conv) => (
-            <Button
-              key={conv.id}
-              variant={conv.id === activeConversation?.id ? "secondary" : "ghost"}
-              className="w-full justify-start text-left"
-              onClick={() => onSelectConversation(conv)}
-            >
-              <div className="flex flex-col items-start">
-                <span className="text-sm truncate">{conv.title}</span>
-                <span className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(parseISO(conv.lastMessageAt), { addSuffix: true })}
-                </span>
-              </div>
-            </Button>
+            <div key={conv.id} className="group flex items-center gap-2 px-2">
+              <Button
+                variant={conv.id === activeConversation?.id ? "secondary" : "ghost"}
+                className="flex-1 justify-start text-left"
+                onClick={() => onSelectConversation(conv)}
+              >
+                <div className="flex flex-col items-start">
+                  <span className="text-sm truncate">{conv.title}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatDistanceToNow(parseISO(conv.lastMessageAt), { addSuffix: true })}
+                  </span>
+                </div>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => handleDelete(conv.id, e)}
+              >
+                <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+              </Button>
+            </div>
           ))}
         </div>
       </div>
