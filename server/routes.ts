@@ -7,6 +7,7 @@ import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { loadProviderConfigs } from "./config/loader";
+import { cloudflareAuthMiddleware } from "./middleware/auth";
 
 // Load provider configurations at startup
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -34,6 +35,14 @@ const anthropic = new Anthropic({
 });
 
 export function registerRoutes(app: Express): Server {
+  // Apply authentication middleware to all /api routes
+  app.use('/api', cloudflareAuthMiddleware);
+
+  // Add endpoint to get current user info
+  app.get('/api/user', (req, res) => {
+    res.json(req.user);
+  });
+
   // Add new endpoint to get provider configurations
   app.get('/api/providers', async (_req, res) => {
     try {
@@ -47,6 +56,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Update OpenAI chat endpoint to use authenticated user
   app.post('/api/chat/openai', async (req, res) => {
     try {
       const { message, conversationId, context = [], model = "gpt-3.5-turbo" } = req.body;
@@ -76,13 +86,14 @@ export function registerRoutes(app: Express): Server {
 
       let dbConversation;
       if (!conversationId) {
-        // For new conversations, create with initial timestamp
+        // For new conversations, create with user_id
         const timestamp = new Date();
         const [newConversation] = await db.insert(conversations)
           .values({
             title: message.slice(0, 100),
             provider: 'openai',
             model,
+            user_id: req.user!.id, // Add user_id
             created_at: timestamp,
             last_message_at: timestamp
           })
@@ -126,12 +137,16 @@ export function registerRoutes(app: Express): Server {
           throw new Error('Invalid conversation ID');
         }
 
+        // Check if conversation belongs to user
         const existingConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, conversationIdNum)
+          where: eq(conversations.id, conversationIdNum),
+          with: {
+            messages: true
+          }
         });
 
-        if (!existingConversation) {
-          throw new Error('Conversation not found');
+        if (!existingConversation || existingConversation.user_id !== req.user!.id) {
+          throw new Error('Conversation not found or unauthorized');
         }
 
         const timestamp = new Date();
@@ -185,6 +200,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Update Anthropic chat endpoint similarly
   app.post('/api/chat/anthropic', async (req, res) => {
     try {
       const { message, conversationId, context = [], model = "claude-3-5-sonnet-20241022" } = req.body;
@@ -224,6 +240,7 @@ export function registerRoutes(app: Express): Server {
             title: message.slice(0, 100),
             provider: 'anthropic',
             model,
+            user_id: req.user!.id, // Add user_id
             created_at: new Date(),
             last_message_at: new Date()
           })
@@ -268,11 +285,14 @@ export function registerRoutes(app: Express): Server {
         }
 
         const existingConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, conversationIdNum)
+          where: eq(conversations.id, conversationIdNum),
+          with: {
+            messages: true
+          }
         });
 
-        if (!existingConversation) {
-          throw new Error('Conversation not found');
+        if (!existingConversation || existingConversation.user_id !== req.user!.id) {
+          throw new Error('Conversation not found or unauthorized');
         }
 
         await db.update(conversations)
@@ -325,7 +345,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Rest of the routes remain unchanged
+  // Update conversations endpoints to filter by user
   app.delete('/api/conversations/:id', async (req, res) => {
     try {
       const conversationId = parseInt(req.params.id);
@@ -335,8 +355,8 @@ export function registerRoutes(app: Express): Server {
       const conversation = await db.query.conversations.findFirst({
         where: eq(conversations.id, conversationId)
       });
-      if (!conversation) {
-        return res.status(404).json({ error: "Conversation not found" });
+      if (!conversation || conversation.user_id !== req.user!.id) {
+        return res.status(404).json({ error: "Conversation not found or unauthorized" });
       }
       await db.delete(messages)
         .where(eq(messages.conversation_id, conversationId));
@@ -352,6 +372,7 @@ export function registerRoutes(app: Express): Server {
   app.get('/api/conversations', async (req, res) => {
     try {
       const result = await db.query.conversations.findMany({
+        where: eq(conversations.user_id, req.user!.id),
         orderBy: (conversations, { desc }) => [desc(conversations.last_message_at)],
         with: {
           messages: true
@@ -373,9 +394,16 @@ export function registerRoutes(app: Express): Server {
           messages: true
         }
       });
+
       if (!result) {
         return res.status(404).json({ error: "Conversation not found" });
       }
+
+      // Check if conversation belongs to user
+      if (result.user_id !== req.user!.id) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
       const transformedConversation = transformDatabaseConversation(result);
       res.json(transformedConversation);
     } catch (error) {
