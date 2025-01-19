@@ -76,13 +76,15 @@ export function registerRoutes(app: Express): Server {
 
       let dbConversation;
       if (!conversationId) {
+        // For new conversations, create with initial timestamp
+        const timestamp = new Date();
         const [newConversation] = await db.insert(conversations)
           .values({
             title: message.slice(0, 100),
             provider: 'openai',
             model,
-            created_at: new Date(),
-            last_message_at: new Date()
+            created_at: timestamp,
+            last_message_at: timestamp
           })
           .returning();
 
@@ -90,22 +92,25 @@ export function registerRoutes(app: Express): Server {
           throw new Error("Failed to create conversation");
         }
 
-        await Promise.all([
-          db.insert(messages)
-            .values({
-              conversation_id: newConversation.id,
-              role: 'user',
-              content: message,
-              created_at: new Date()
-            }),
-          db.insert(messages)
-            .values({
-              conversation_id: newConversation.id,
-              role: 'assistant',
-              content: response,
-              created_at: new Date()
-            })
-        ]);
+        // Create user message first
+        const userMessageTimestamp = new Date(timestamp.getTime());
+        await db.insert(messages)
+          .values({
+            conversation_id: newConversation.id,
+            role: 'user',
+            content: message,
+            created_at: userMessageTimestamp
+          });
+
+        // Create assistant message after user message
+        const assistantMessageTimestamp = new Date(timestamp.getTime() + 1);
+        await db.insert(messages)
+          .values({
+            conversation_id: newConversation.id,
+            role: 'assistant',
+            content: response,
+            created_at: assistantMessageTimestamp
+          });
 
         dbConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, newConversation.id),
@@ -129,29 +134,30 @@ export function registerRoutes(app: Express): Server {
           throw new Error('Conversation not found');
         }
 
+        const timestamp = new Date();
         await db.update(conversations)
-          .set({ last_message_at: new Date() })
+          .set({ last_message_at: timestamp })
           .where(eq(conversations.id, conversationIdNum));
 
-        const userMessageTime = new Date();
-        const assistantMessageTime = new Date(userMessageTime.getTime() + 1000); // Ensure assistant message is after user message
+        // Create user message first
+        const userMessageTimestamp = new Date(timestamp.getTime());
+        await db.insert(messages)
+          .values({
+            conversation_id: conversationIdNum,
+            role: 'user',
+            content: message,
+            created_at: userMessageTimestamp
+          });
 
-        await Promise.all([
-          db.insert(messages)
-            .values({
-              conversation_id: conversationIdNum,
-              role: 'user',
-              content: message,
-              created_at: userMessageTime
-            }),
-          db.insert(messages)
-            .values({
-              conversation_id: conversationIdNum,
-              role: 'assistant',
-              content: response,
-              created_at: assistantMessageTime
-            })
-        ]);
+        // Create assistant message after user message
+        const assistantMessageTimestamp = new Date(timestamp.getTime() + 1);
+        await db.insert(messages)
+          .values({
+            conversation_id: conversationIdNum,
+            role: 'assistant',
+            content: response,
+            created_at: assistantMessageTimestamp
+          });
 
         dbConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, conversationIdNum),
@@ -203,7 +209,7 @@ export function registerRoutes(app: Express): Server {
       });
 
       // Handle response content safely
-      const response = completion.content[0]?.type === 'text' 
+      const response = completion.content[0]?.type === 'text'
         ? completion.content[0].text
         : '';
 
