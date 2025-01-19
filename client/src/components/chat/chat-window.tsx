@@ -18,12 +18,14 @@ interface ChatWindowProps {
 export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowProps) {
   const transformMessages = (conv?: Conversation): MessageType[] => {
     if (!conv) return [];
-    return conv.messages.map(msg => ({
-      id: msg.id.toString(),
-      role: msg.role,
-      content: msg.content,
-      timestamp: new Date(msg.created_at).getTime()
-    }));
+    return conv.messages
+      .map(msg => ({
+        id: msg.id.toString(),
+        role: msg.role,
+        content: msg.content,
+        timestamp: new Date(msg.created_at).getTime()
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp); // Ensure messages are sorted by timestamp
   };
 
   const [messages, setMessages] = useState<MessageType[]>(transformMessages(conversation));
@@ -50,7 +52,8 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    setMessages(transformMessages(conversation));
+    const sortedMessages = transformMessages(conversation);
+    setMessages(sortedMessages);
     if (conversation) {
       setSelectedModel(conversation.model);
     }
@@ -78,14 +81,15 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   };
 
   const handleSendMessage = async (content: string) => {
+    const timestamp = Date.now();
     const userMessage: MessageType = {
       id: nanoid(),
       role: 'user',
       content,
-      timestamp: Date.now()
+      timestamp
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [...prev, userMessage].sort((a, b) => a.timestamp - b.timestamp));
     setIsLoading(true);
 
     try {
@@ -119,7 +123,9 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         onConversationUpdate(data.conversation);
       }
 
-      setMessages(transformMessages(data.conversation));
+      // Transform and sort messages again to ensure proper order
+      const updatedMessages = transformMessages(data.conversation);
+      setMessages(updatedMessages);
       queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
     } catch (error) {
       console.error('Error sending message:', error);
