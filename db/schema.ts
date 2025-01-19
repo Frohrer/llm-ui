@@ -1,17 +1,18 @@
 import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+import { sql } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  username: text("username").unique().notNull(),
-  password: text("password").notNull(),
+  email: text("email").unique().notNull(),
+  created_at: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const conversations = pgTable("conversations", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
-  user_id: integer("user_id").references(() => users.id),
+  user_id: integer("user_id").references(() => users.id).notNull(),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
   created_at: timestamp("created_at").defaultNow().notNull(),
