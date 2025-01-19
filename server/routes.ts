@@ -53,19 +53,27 @@ export function registerRoutes(app: Express): Server {
       if (!message || typeof message !== 'string') {
         return res.status(400).json({ error: "Invalid message" });
       }
-      const apiMessages = context.map((msg: any) => ({
-        role: msg.role,
-        content: msg.content
-      }));
+
+      // Ensure the context messages are properly ordered
+      const apiMessages = context
+        .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        .map((msg: any) => ({
+          role: msg.role,
+          content: msg.content
+        }));
+
       apiMessages.push({ role: "user", content: message });
+
       const completion = await openai.chat.completions.create({
         messages: apiMessages,
         model,
       });
+
       const response = completion.choices[0]?.message?.content;
       if (!response) {
         throw new Error("No response from OpenAI");
       }
+
       let dbConversation;
       if (!conversationId) {
         const [newConversation] = await db.insert(conversations)
@@ -77,9 +85,11 @@ export function registerRoutes(app: Express): Server {
             last_message_at: new Date()
           })
           .returning();
+
         if (!newConversation) {
           throw new Error("Failed to create conversation");
         }
+
         await Promise.all([
           db.insert(messages)
             .values({
@@ -96,10 +106,13 @@ export function registerRoutes(app: Express): Server {
               created_at: new Date()
             })
         ]);
+
         dbConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, newConversation.id),
           with: {
-            messages: true
+            messages: {
+              orderBy: (messages, { asc }) => [asc(messages.created_at)]
+            }
           }
         });
       } else {
@@ -107,41 +120,53 @@ export function registerRoutes(app: Express): Server {
         if (isNaN(conversationIdNum)) {
           throw new Error('Invalid conversation ID');
         }
+
         const existingConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, conversationIdNum)
         });
+
         if (!existingConversation) {
           throw new Error('Conversation not found');
         }
+
         await db.update(conversations)
           .set({ last_message_at: new Date() })
           .where(eq(conversations.id, conversationIdNum));
+
+        const userMessageTime = new Date();
+        const assistantMessageTime = new Date(userMessageTime.getTime() + 1000); // Ensure assistant message is after user message
+
         await Promise.all([
           db.insert(messages)
             .values({
               conversation_id: conversationIdNum,
               role: 'user',
               content: message,
-              created_at: new Date()
+              created_at: userMessageTime
             }),
           db.insert(messages)
             .values({
               conversation_id: conversationIdNum,
               role: 'assistant',
               content: response,
-              created_at: new Date()
+              created_at: assistantMessageTime
             })
         ]);
+
         dbConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, conversationIdNum),
           with: {
-            messages: true
+            messages: {
+              orderBy: (messages, { asc }) => [asc(messages.created_at)]
+            }
           }
         });
       }
+
       if (!dbConversation) {
         throw new Error('Failed to retrieve conversation');
       }
+
       res.json({
         response,
         conversation: transformDatabaseConversation(dbConversation)
@@ -161,10 +186,14 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ error: "Invalid message" });
       }
 
-      const apiMessages = context.map((msg: any) => ({
-        role: msg.role,
-        content: msg.content
-      }));
+      // Ensure the context messages are properly ordered
+      const apiMessages = context
+        .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        .map((msg: any) => ({
+          role: msg.role,
+          content: msg.content
+        }));
+
       apiMessages.push({ role: "user", content: message });
 
       const completion = await anthropic.messages.create({
@@ -198,27 +227,32 @@ export function registerRoutes(app: Express): Server {
           throw new Error("Failed to create conversation");
         }
 
+        const userMessageTime = new Date();
+        const assistantMessageTime = new Date(userMessageTime.getTime() + 1000); // Ensure assistant message is after user message
+
         await Promise.all([
           db.insert(messages)
             .values({
               conversation_id: newConversation.id,
               role: 'user',
               content: message,
-              created_at: new Date()
+              created_at: userMessageTime
             }),
           db.insert(messages)
             .values({
               conversation_id: newConversation.id,
               role: 'assistant',
               content: response,
-              created_at: new Date()
+              created_at: assistantMessageTime
             })
         ]);
 
         dbConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, newConversation.id),
           with: {
-            messages: true
+            messages: {
+              orderBy: (messages, { asc }) => [asc(messages.created_at)]
+            }
           }
         });
       } else {
@@ -239,27 +273,32 @@ export function registerRoutes(app: Express): Server {
           .set({ last_message_at: new Date() })
           .where(eq(conversations.id, conversationIdNum));
 
+        const userMessageTime = new Date();
+        const assistantMessageTime = new Date(userMessageTime.getTime() + 1000); // Ensure assistant message is after user message
+
         await Promise.all([
           db.insert(messages)
             .values({
               conversation_id: conversationIdNum,
               role: 'user',
               content: message,
-              created_at: new Date()
+              created_at: userMessageTime
             }),
           db.insert(messages)
             .values({
               conversation_id: conversationIdNum,
               role: 'assistant',
               content: response,
-              created_at: new Date()
+              created_at: assistantMessageTime
             })
         ]);
 
         dbConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, conversationIdNum),
           with: {
-            messages: true
+            messages: {
+              orderBy: (messages, { asc }) => [asc(messages.created_at)]
+            }
           }
         });
       }
@@ -280,6 +319,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Rest of the routes remain unchanged
   app.delete('/api/conversations/:id', async (req, res) => {
     try {
       const conversationId = parseInt(req.params.id);

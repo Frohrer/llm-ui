@@ -52,11 +52,13 @@ export function transformDatabaseConversation(dbConv: SelectConversation & { mes
     model: dbConv.model,
     lastMessageAt: dbConv.last_message_at.toISOString(),
     createdAt: dbConv.created_at.toISOString(),
-    messages: dbConv.messages.map(msg => ({
-      id: msg.id,
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content,
-      created_at: msg.created_at.toISOString()
-    }))
+    messages: dbConv.messages
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .map(msg => ({
+        id: msg.id,
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+        created_at: msg.created_at.toISOString()
+      }))
   };
 }
