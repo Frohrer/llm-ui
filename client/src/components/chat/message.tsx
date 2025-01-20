@@ -35,10 +35,18 @@ export function Message({ message }: MessageProps) {
   return (
     <Card className={cn(
       "mb-4 p-4",
-      message.role === 'assistant' ? "bg-secondary" : "bg-primary text-primary-foreground"
+      message.role === 'assistant' 
+        ? "bg-secondary" 
+        : "bg-primary/10 dark:bg-primary/20" 
     )}>
       <ReactMarkdown
-        className="prose dark:prose-invert prose-sm max-w-none"
+        className={cn(
+          "prose prose-sm max-w-none",
+          message.role === 'user' 
+            ? "prose-neutral dark:prose-invert" 
+            : "dark:prose-invert",
+          "prose-a:text-blue-600 dark:prose-a:text-blue-400" 
+        )}
         components={{
           code({ node, inline, className, children, ...props }: CodeProps) {
             const match = /language-(\w+)/.exec(className || '');
@@ -70,7 +78,6 @@ export function Message({ message }: MessageProps) {
               </code>
             );
           },
-          // Add custom styling for other markdown elements
           p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
           ul: ({ children }) => <ul className="list-disc pl-6 mb-4">{children}</ul>,
           ol: ({ children }) => <ol className="list-decimal pl-6 mb-4">{children}</ol>,
@@ -84,7 +91,12 @@ export function Message({ message }: MessageProps) {
             </blockquote>
           ),
           a: ({ children, href }) => (
-            <a href={href} className="text-primary underline hover:no-underline" target="_blank" rel="noopener noreferrer">
+            <a 
+              href={href} 
+              className="text-blue-600 dark:text-blue-400 underline hover:no-underline" 
+              target="_blank" 
+              rel="noopener noreferrer"
+            >
               {children}
             </a>
           ),
