@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,7 @@ export function Message({ message }: MessageProps) {
         : "bg-primary/10 dark:bg-primary/20" 
     )}>
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         className={cn(
           "prose prose-sm max-w-none",
           message.role === 'user' 
