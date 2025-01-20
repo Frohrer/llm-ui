@@ -16,7 +16,7 @@
       "defaultModel": false
     },
     {
-      "id": "o1",
+      "id": "o1-preview",
       "name": "O1",
       "contextLength": 128000,
       "defaultModel": false
