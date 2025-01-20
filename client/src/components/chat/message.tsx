@@ -45,7 +45,13 @@ export function Message({ message }: MessageProps) {
           message.role === 'user' 
             ? "prose-neutral dark:prose-invert" 
             : "dark:prose-invert",
-          "prose-a:text-blue-600 dark:prose-a:text-blue-400" 
+          "prose-a:text-blue-600 dark:prose-a:text-blue-400",
+          // Add table styles
+          "prose-table:table-auto prose-table:w-full",
+          "prose-thead:bg-muted prose-thead:dark:bg-muted/50",
+          "prose-tr:border-b prose-tr:border-border",
+          "prose-th:p-2 prose-th:text-left",
+          "prose-td:p-2",
         )}
         components={{
           code({ node, inline, className, children, ...props }: CodeProps) {
@@ -100,6 +106,17 @@ export function Message({ message }: MessageProps) {
               {children}
             </a>
           ),
+          // Add table components
+          table: ({ children }) => (
+            <div className="overflow-x-auto">
+              <table>{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead>{children}</thead>,
+          tbody: ({ children }) => <tbody>{children}</tbody>,
+          tr: ({ children }) => <tr>{children}</tr>,
+          th: ({ children }) => <th>{children}</th>,
+          td: ({ children }) => <td>{children}</td>,
         }}
       >
         {message.content}
