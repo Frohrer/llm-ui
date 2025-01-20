@@ -7,7 +7,6 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Copy } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { CodeProps } from 'react-markdown/lib/ast-to-react';
 
 interface MessageProps {
   message: MessageType;
@@ -54,7 +53,7 @@ export function Message({ message }: MessageProps) {
           "prose-td:p-2",
         )}
         components={{
-          code({ node, inline, className, children, ...props }: CodeProps) {
+          code({ node, inline, className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || '');
             const code = String(children).replace(/\n$/, '');
 
@@ -106,7 +105,6 @@ export function Message({ message }: MessageProps) {
               {children}
             </a>
           ),
-          // Add table components with explicit styling
           table: ({ children }) => (
             <div className="overflow-x-auto my-4">
               <table className="w-full border-collapse">{children}</table>
