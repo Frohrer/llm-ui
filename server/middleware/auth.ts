@@ -19,29 +19,57 @@ export async function cloudflareAuthMiddleware(
   res: Response,
   next: NextFunction
 ) {
+  const isDevelopment = process.env.NODE_ENV !== 'production';
   const userEmail = req.headers["cf-access-authenticated-user-email"];
 
-  if (!userEmail || typeof userEmail !== "string") {
+  // If no Cloudflare header in production, return unauthorized
+  if (!isDevelopment && !userEmail) {
     return res.status(401).json({ error: "Unauthorized - No valid Cloudflare authentication" });
   }
 
   try {
-    // Try to find existing user
-    let [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, userEmail))
-      .limit(1);
+    let user;
 
-    // Create new user if they don't exist
+    if (!userEmail && isDevelopment) {
+      // In development, use a test user if no Cloudflare header
+      const testEmail = 'test@example.com';
+      [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, testEmail))
+        .limit(1);
+
+      if (!user) {
+        const [newUser] = await db
+          .insert(users)
+          .values({
+            email: testEmail,
+          })
+          .returning();
+        user = newUser;
+      }
+    } else if (typeof userEmail === "string") {
+      // Try to find existing user with Cloudflare email
+      [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, userEmail))
+        .limit(1);
+
+      // Create new user if they don't exist
+      if (!user) {
+        const [newUser] = await db
+          .insert(users)
+          .values({
+            email: userEmail,
+          })
+          .returning();
+        user = newUser;
+      }
+    }
+
     if (!user) {
-      const [newUser] = await db
-        .insert(users)
-        .values({
-          email: userEmail,
-        })
-        .returning();
-      user = newUser;
+      return res.status(401).json({ error: "Failed to authenticate user" });
     }
 
     // Attach user to request
