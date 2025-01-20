@@ -106,17 +106,25 @@ export function Message({ message }: MessageProps) {
               {children}
             </a>
           ),
-          // Add table components
+          // Add table components with explicit styling
           table: ({ children }) => (
-            <div className="overflow-x-auto">
-              <table>{children}</table>
+            <div className="overflow-x-auto my-4">
+              <table className="w-full border-collapse">{children}</table>
             </div>
           ),
-          thead: ({ children }) => <thead>{children}</thead>,
+          thead: ({ children }) => (
+            <thead className="bg-muted dark:bg-muted/50">{children}</thead>
+          ),
           tbody: ({ children }) => <tbody>{children}</tbody>,
-          tr: ({ children }) => <tr>{children}</tr>,
-          th: ({ children }) => <th>{children}</th>,
-          td: ({ children }) => <td>{children}</td>,
+          tr: ({ children }) => (
+            <tr className="border-b border-border">{children}</tr>
+          ),
+          th: ({ children }) => (
+            <th className="p-2 text-left font-semibold">{children}</th>
+          ),
+          td: ({ children }) => (
+            <td className="p-2">{children}</td>
+          ),
         }}
       >
         {message.content}
