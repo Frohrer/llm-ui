@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { nanoid } from 'nanoid';
 import { Message } from '@/components/chat/message';
 import { ChatInput } from '@/components/chat/chat-input';
@@ -25,23 +25,23 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         content: msg.content,
         timestamp: new Date(msg.created_at).getTime()
       }))
-      .sort((a, b) => a.timestamp - b.timestamp); // Ensure messages are sorted by timestamp
+      .sort((a, b) => a.timestamp - b.timestamp);
   };
 
   const [messages, setMessages] = useState<MessageType[]>(transformMessages(conversation));
   const [isLoading, setIsLoading] = useState(false);
+  const [streamedText, setStreamedText] = useState('');
+  const streamIdRef = useRef<string>('');
   const { data: providers, isLoading: isLoadingProviders } = useProviders();
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     if (conversation) {
       return conversation.model;
     }
-    // Find the first default model from any provider
     if (providers) {
       for (const provider of Object.values(providers)) {
         const defaultModel = provider.models.find(m => m.defaultModel);
         if (defaultModel) return defaultModel.id;
       }
-      // Fallback to first model of first provider
       const firstProvider = Object.values(providers)[0];
       if (firstProvider) return firstProvider.models[0].id;
     }
@@ -50,6 +50,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const sortedMessages = transformMessages(conversation);
@@ -58,6 +59,13 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
       setSelectedModel(conversation.model);
     }
   }, [conversation]);
+
+  useEffect(() => {
+    // Scroll to bottom when new messages arrive or when streaming
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+    }
+  }, [messages, streamedText]);
 
   const getModelDisplayName = (modelId: string): string => {
     if (!providers) return modelId;
@@ -89,8 +97,10 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
       timestamp
     };
 
-    setMessages(prev => [...prev, userMessage].sort((a, b) => a.timestamp - b.timestamp));
+    setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
+    setStreamedText('');
+    streamIdRef.current = nanoid();
 
     try {
       const providerId = getProviderForModel(selectedModel);
@@ -108,25 +118,72 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
       });
 
       if (!response.ok) {
-        const errorData = await response.text();
-        console.error(`API Error: ${response.status} - ${errorData}`);
-        throw new Error(`Failed to send message: ${errorData}`);
+        throw new Error(`Failed to send message: ${await response.text()}`);
       }
 
-      const data = await response.json();
-
-      if (!data.response) {
-        throw new Error('No response received from the server');
+      if (!response.body) {
+        throw new Error('No response body received');
       }
 
-      if (onConversationUpdate && data.conversation) {
-        onConversationUpdate(data.conversation);
-      }
+      // Handle server-sent events
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const currentStreamId = streamIdRef.current;
 
-      // Transform and sort messages again to ensure proper order
-      const updatedMessages = transformMessages(data.conversation);
-      setMessages(updatedMessages);
-      queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          // Process the received chunks
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(5));
+
+                // Only process events if the stream hasn't been superseded
+                if (currentStreamId === streamIdRef.current) {
+                  switch (data.type) {
+                    case 'start':
+                      // Reset streamed text when starting a new response
+                      setStreamedText('');
+                      break;
+
+                    case 'chunk':
+                      setStreamedText(prev => prev + data.content);
+                      break;
+
+                    case 'end':
+                      // Update the full conversation state
+                      if (onConversationUpdate && data.conversation) {
+                        onConversationUpdate(data.conversation);
+                      }
+                      setStreamedText('');
+                      // Transform and sort messages again to ensure proper order
+                      const updatedMessages = transformMessages(data.conversation);
+                      setMessages(updatedMessages);
+                      queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
+                      break;
+
+                    case 'error':
+                      throw new Error(data.error);
+                  }
+                }
+              } catch (e) {
+                console.error('Error parsing SSE data:', e);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error reading stream:', error);
+        throw error;
+      } finally {
+        reader.releaseLock();
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       toast({
@@ -137,6 +194,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
       setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
     } finally {
       setIsLoading(false);
+      setStreamedText('');
     }
   };
 
@@ -155,11 +213,23 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         </div>
       </div>
       <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full p-4">
+        <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
           {messages.map(message => (
             <Message key={message.id} message={message} />
           ))}
-          {isLoading && <div className="animate-pulse">Thinking...</div>}
+          {streamedText && (
+            <Message
+              message={{
+                id: 'streaming',
+                role: 'assistant',
+                content: streamedText,
+                timestamp: Date.now()
+              }}
+            />
+          )}
+          {isLoading && !streamedText && (
+            <div className="animate-pulse">Thinking...</div>
+          )}
         </ScrollArea>
       </div>
       <div className="p-4 border-t">

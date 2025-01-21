@@ -43,7 +43,7 @@ export function registerRoutes(app: Express): Server {
     res.json(req.user);
   });
 
-  // Add new endpoint to get provider configurations
+  // Add provider configurations endpoint
   app.get('/api/providers', async (_req, res) => {
     try {
       if (!providerConfigs) {
@@ -56,7 +56,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Update OpenAI chat endpoint to use authenticated user
+  // Update OpenAI chat endpoint to use streaming
   app.post('/api/chat/openai', async (req, res) => {
     try {
       const { message, conversationId, context = [], model = "gpt-3.5-turbo" } = req.body;
@@ -64,36 +64,24 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ error: "Invalid message" });
       }
 
-      // Ensure the context messages are properly ordered
-      const apiMessages = context
-        .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-        .map((msg: any) => ({
-          role: msg.role,
-          content: msg.content
-        }));
+      // Set up SSE headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
 
-      apiMessages.push({ role: "user", content: message });
-
-      const completion = await openai.chat.completions.create({
-        messages: apiMessages,
-        model,
-      });
-
-      const response = completion.choices[0]?.message?.content;
-      if (!response) {
-        throw new Error("No response from OpenAI");
-      }
-
+      let conversationTitle = message.slice(0, 100);
       let dbConversation;
+      let streamedResponse = '';
+
+      // Create or update conversation first
       if (!conversationId) {
-        // For new conversations, create with user_id
         const timestamp = new Date();
         const [newConversation] = await db.insert(conversations)
           .values({
-            title: message.slice(0, 100),
+            title: conversationTitle,
             provider: 'openai',
             model,
-            user_id: req.user!.id, // Add user_id
+            user_id: req.user!.id,
             created_at: timestamp,
             last_message_at: timestamp
           })
@@ -103,46 +91,24 @@ export function registerRoutes(app: Express): Server {
           throw new Error("Failed to create conversation");
         }
 
-        // Create user message first
-        const userMessageTimestamp = new Date(timestamp.getTime());
+        // Create user message
         await db.insert(messages)
           .values({
             conversation_id: newConversation.id,
             role: 'user',
             content: message,
-            created_at: userMessageTimestamp
+            created_at: timestamp
           });
 
-        // Create assistant message after user message
-        const assistantMessageTimestamp = new Date(timestamp.getTime() + 1);
-        await db.insert(messages)
-          .values({
-            conversation_id: newConversation.id,
-            role: 'assistant',
-            content: response,
-            created_at: assistantMessageTimestamp
-          });
-
-        dbConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, newConversation.id),
-          with: {
-            messages: {
-              orderBy: (messages, { asc }) => [asc(messages.created_at)]
-            }
-          }
-        });
+        dbConversation = newConversation;
       } else {
         const conversationIdNum = parseInt(conversationId);
         if (isNaN(conversationIdNum)) {
           throw new Error('Invalid conversation ID');
         }
 
-        // Check if conversation belongs to user
         const existingConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, conversationIdNum),
-          with: {
-            messages: true
-          }
         });
 
         if (!existingConversation || existingConversation.user_id !== req.user!.id) {
@@ -154,61 +120,18 @@ export function registerRoutes(app: Express): Server {
           .set({ last_message_at: timestamp })
           .where(eq(conversations.id, conversationIdNum));
 
-        // Create user message first
-        const userMessageTimestamp = new Date(timestamp.getTime());
         await db.insert(messages)
           .values({
             conversation_id: conversationIdNum,
             role: 'user',
             content: message,
-            created_at: userMessageTimestamp
+            created_at: timestamp
           });
 
-        // Create assistant message after user message
-        const assistantMessageTimestamp = new Date(timestamp.getTime() + 1);
-        await db.insert(messages)
-          .values({
-            conversation_id: conversationIdNum,
-            role: 'assistant',
-            content: response,
-            created_at: assistantMessageTimestamp
-          });
-
-        dbConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, conversationIdNum),
-          with: {
-            messages: {
-              orderBy: (messages, { asc }) => [asc(messages.created_at)]
-            }
-          }
-        });
+        dbConversation = existingConversation;
       }
 
-      if (!dbConversation) {
-        throw new Error('Failed to retrieve conversation');
-      }
-
-      res.json({
-        response,
-        conversation: transformDatabaseConversation(dbConversation)
-      });
-    } catch (error) {
-      console.error("Error:", error);
-      res.status(500).json({
-        error: error instanceof Error ? error.message : "Failed to process request"
-      });
-    }
-  });
-
-  // Update Anthropic chat endpoint similarly
-  app.post('/api/chat/anthropic', async (req, res) => {
-    try {
-      const { message, conversationId, context = [], model = "claude-3-5-sonnet-20241022" } = req.body;
-      if (!message || typeof message !== 'string') {
-        return res.status(400).json({ error: "Invalid message" });
-      }
-
-      // Ensure the context messages are properly ordered
+      // Ensure context messages are properly ordered
       const apiMessages = context
         .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
         .map((msg: any) => ({
@@ -218,31 +141,92 @@ export function registerRoutes(app: Express): Server {
 
       apiMessages.push({ role: "user", content: message });
 
-      const completion = await anthropic.messages.create({
-        model,
-        max_tokens: 1024,
+      // Stream the completion
+      const stream = await openai.chat.completions.create({
         messages: apiMessages,
+        model,
+        stream: true,
       });
 
-      // Handle response content safely
-      const response = completion.content[0]?.type === 'text'
-        ? completion.content[0].text
-        : '';
+      // Send initial conversation data
+      res.write(`data: ${JSON.stringify({ type: 'start', conversationId: dbConversation.id })}\n\n`);
 
-      if (!response) {
-        throw new Error("No response from Anthropic");
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        if (content) {
+          streamedResponse += content;
+          res.write(`data: ${JSON.stringify({ type: 'chunk', content })}\n\n`);
+        }
       }
 
+      // Save the complete response
+      const timestamp = new Date();
+      await db.insert(messages)
+        .values({
+          conversation_id: dbConversation.id,
+          role: 'assistant',
+          content: streamedResponse,
+          created_at: timestamp
+        });
+
+      // Send completion event
+      const updatedConversation = await db.query.conversations.findFirst({
+        where: eq(conversations.id, dbConversation.id),
+        with: {
+          messages: {
+            orderBy: (messages, { asc }) => [asc(messages.created_at)]
+          }
+        }
+      });
+
+      if (!updatedConversation) {
+        throw new Error('Failed to retrieve conversation');
+      }
+
+      res.write(`data: ${JSON.stringify({
+        type: 'end',
+        conversation: transformDatabaseConversation(updatedConversation)
+      })}\n\n`);
+
+      res.end();
+    } catch (error) {
+      console.error("Error:", error);
+      res.write(`data: ${JSON.stringify({
+        type: 'error',
+        error: error instanceof Error ? error.message : "Failed to process request"
+      })}\n\n`);
+      res.end();
+    }
+  });
+
+  // Update Anthropic chat endpoint to use streaming
+  app.post('/api/chat/anthropic', async (req, res) => {
+    try {
+      const { message, conversationId, context = [], model = "claude-3-5-sonnet-20241022" } = req.body;
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: "Invalid message" });
+      }
+
+      // Set up SSE headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      let conversationTitle = message.slice(0, 100);
       let dbConversation;
+      let streamedResponse = '';
+
+      // Create or update conversation first
       if (!conversationId) {
+        const timestamp = new Date();
         const [newConversation] = await db.insert(conversations)
           .values({
-            title: message.slice(0, 100),
+            title: conversationTitle,
             provider: 'anthropic',
             model,
-            user_id: req.user!.id, // Add user_id
-            created_at: new Date(),
-            last_message_at: new Date()
+            user_id: req.user!.id,
+            created_at: timestamp,
+            last_message_at: timestamp
           })
           .returning();
 
@@ -250,34 +234,15 @@ export function registerRoutes(app: Express): Server {
           throw new Error("Failed to create conversation");
         }
 
-        const userMessageTime = new Date();
-        const assistantMessageTime = new Date(userMessageTime.getTime() + 1000); // Ensure assistant message is after user message
+        await db.insert(messages)
+          .values({
+            conversation_id: newConversation.id,
+            role: 'user',
+            content: message,
+            created_at: timestamp
+          });
 
-        await Promise.all([
-          db.insert(messages)
-            .values({
-              conversation_id: newConversation.id,
-              role: 'user',
-              content: message,
-              created_at: userMessageTime
-            }),
-          db.insert(messages)
-            .values({
-              conversation_id: newConversation.id,
-              role: 'assistant',
-              content: response,
-              created_at: assistantMessageTime
-            })
-        ]);
-
-        dbConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, newConversation.id),
-          with: {
-            messages: {
-              orderBy: (messages, { asc }) => [asc(messages.created_at)]
-            }
-          }
-        });
+        dbConversation = newConversation;
       } else {
         const conversationIdNum = parseInt(conversationId);
         if (isNaN(conversationIdNum)) {
@@ -286,66 +251,97 @@ export function registerRoutes(app: Express): Server {
 
         const existingConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, conversationIdNum),
-          with: {
-            messages: true
-          }
         });
 
         if (!existingConversation || existingConversation.user_id !== req.user!.id) {
           throw new Error('Conversation not found or unauthorized');
         }
 
+        const timestamp = new Date();
         await db.update(conversations)
-          .set({ last_message_at: new Date() })
+          .set({ last_message_at: timestamp })
           .where(eq(conversations.id, conversationIdNum));
 
-        const userMessageTime = new Date();
-        const assistantMessageTime = new Date(userMessageTime.getTime() + 1000); // Ensure assistant message is after user message
+        await db.insert(messages)
+          .values({
+            conversation_id: conversationIdNum,
+            role: 'user',
+            content: message,
+            created_at: timestamp
+          });
 
-        await Promise.all([
-          db.insert(messages)
-            .values({
-              conversation_id: conversationIdNum,
-              role: 'user',
-              content: message,
-              created_at: userMessageTime
-            }),
-          db.insert(messages)
-            .values({
-              conversation_id: conversationIdNum,
-              role: 'assistant',
-              content: response,
-              created_at: assistantMessageTime
-            })
-        ]);
-
-        dbConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, conversationIdNum),
-          with: {
-            messages: {
-              orderBy: (messages, { asc }) => [asc(messages.created_at)]
-            }
-          }
-        });
+        dbConversation = existingConversation;
       }
 
-      if (!dbConversation) {
+      // Ensure context messages are properly ordered
+      const apiMessages = context
+        .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        .map((msg: any) => ({
+          role: msg.role,
+          content: msg.content
+        }));
+
+      apiMessages.push({ role: "user", content: message });
+
+      // Stream the completion
+      const stream = await anthropic.messages.create({
+        messages: apiMessages,
+        model,
+        max_tokens: 1024,
+        stream: true,
+      });
+
+      // Send initial conversation data
+      res.write(`data: ${JSON.stringify({ type: 'start', conversationId: dbConversation.id })}\n\n`);
+
+      for await (const chunk of stream) {
+        if (chunk.type === 'content_block_delta' && chunk.delta.text) {
+          streamedResponse += chunk.delta.text;
+          res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.delta.text })}\n\n`);
+        }
+      }
+
+      // Save the complete response
+      const timestamp = new Date();
+      await db.insert(messages)
+        .values({
+          conversation_id: dbConversation.id,
+          role: 'assistant',
+          content: streamedResponse,
+          created_at: timestamp
+        });
+
+      // Send completion event
+      const updatedConversation = await db.query.conversations.findFirst({
+        where: eq(conversations.id, dbConversation.id),
+        with: {
+          messages: {
+            orderBy: (messages, { asc }) => [asc(messages.created_at)]
+          }
+        }
+      });
+
+      if (!updatedConversation) {
         throw new Error('Failed to retrieve conversation');
       }
 
-      res.json({
-        response,
-        conversation: transformDatabaseConversation(dbConversation)
-      });
+      res.write(`data: ${JSON.stringify({
+        type: 'end',
+        conversation: transformDatabaseConversation(updatedConversation)
+      })}\n\n`);
+
+      res.end();
     } catch (error) {
       console.error("Error:", error);
-      res.status(500).json({
+      res.write(`data: ${JSON.stringify({
+        type: 'error',
         error: error instanceof Error ? error.message : "Failed to process request"
-      });
+      })}\n\n`);
+      res.end();
     }
   });
 
-  // Update conversations endpoints to filter by user
+  // Rest of the routes (conversations endpoints) remain unchanged
   app.delete('/api/conversations/:id', async (req, res) => {
     try {
       const conversationId = parseInt(req.params.id);
@@ -399,7 +395,6 @@ export function registerRoutes(app: Express): Server {
         return res.status(404).json({ error: "Conversation not found" });
       }
 
-      // Check if conversation belongs to user
       if (result.user_id !== req.user!.id) {
         return res.status(403).json({ error: "Unauthorized" });
       }
