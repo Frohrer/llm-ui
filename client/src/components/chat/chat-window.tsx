@@ -61,7 +61,6 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   }, [conversation]);
 
   useEffect(() => {
-    // Scroll to bottom when new messages arrive or when streaming
     if (scrollAreaRef.current) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
     }
@@ -125,55 +124,54 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         throw new Error('No response body received');
       }
 
-      // Handle server-sent events
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       const currentStreamId = streamIdRef.current;
+      let buffer = '';
 
       try {
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
 
-          // Process the received chunks
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          // Append new chunk to buffer and process line by line
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          // Keep the last incomplete line in the buffer
+          buffer = lines.pop() || '';
 
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               try {
-                const data = JSON.parse(line.slice(5));
-
-                // Only process events if the stream hasn't been superseded
-                if (currentStreamId === streamIdRef.current) {
-                  switch (data.type) {
-                    case 'start':
-                      // Reset streamed text when starting a new response
-                      setStreamedText('');
-                      break;
-
-                    case 'chunk':
-                      setStreamedText(prev => prev + data.content);
-                      break;
-
-                    case 'end':
-                      // Update the full conversation state
-                      if (onConversationUpdate && data.conversation) {
-                        onConversationUpdate(data.conversation);
-                      }
-                      setStreamedText('');
-                      // Transform and sort messages again to ensure proper order
-                      const updatedMessages = transformMessages(data.conversation);
-                      setMessages(updatedMessages);
-                      queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
-                      break;
-
-                    case 'error':
-                      throw new Error(data.error);
+                const jsonStr = line.slice(5).trim();
+                if (jsonStr) {
+                  const data = JSON.parse(jsonStr);
+                  // Only process if this is still the current stream
+                  if (currentStreamId === streamIdRef.current) {
+                    switch (data.type) {
+                      case 'start':
+                        setStreamedText('');
+                        break;
+                      case 'chunk':
+                        setStreamedText(prev => prev + (data.content || ''));
+                        break;
+                      case 'end':
+                        if (onConversationUpdate && data.conversation) {
+                          onConversationUpdate(data.conversation);
+                        }
+                        setStreamedText('');
+                        const updatedMessages = transformMessages(data.conversation);
+                        setMessages(updatedMessages);
+                        queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
+                        break;
+                      case 'error':
+                        throw new Error(data.error);
+                    }
                   }
                 }
               } catch (e) {
                 console.error('Error parsing SSE data:', e);
+                console.debug('Problematic line:', line);
               }
             }
           }
