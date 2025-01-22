@@ -51,6 +51,9 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const lastScrollHeightRef = useRef<number>(0);
+  const lastScrollTopRef = useRef<number>(0);
 
   useEffect(() => {
     const sortedMessages = transformMessages(conversation);
@@ -60,11 +63,34 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     }
   }, [conversation]);
 
+  const checkIfAtBottom = () => {
+    if (!scrollAreaRef.current) return true;
+    const { scrollHeight, scrollTop, clientHeight } = scrollAreaRef.current;
+    // Consider "at bottom" if within 100px of the bottom
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+    lastScrollHeightRef.current = scrollHeight;
+    lastScrollTopRef.current = scrollTop;
+    setShouldAutoScroll(isAtBottom);
+    return isAtBottom;
+  };
+
   useEffect(() => {
-    if (scrollAreaRef.current) {
+    const scrollArea = scrollAreaRef.current;
+    if (!scrollArea) return;
+
+    const handleScroll = () => {
+      checkIfAtBottom();
+    };
+
+    scrollArea.addEventListener('scroll', handleScroll);
+    return () => scrollArea.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (scrollAreaRef.current && shouldAutoScroll) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
     }
-  }, [messages, streamedText]);
+  }, [messages, streamedText, shouldAutoScroll]);
 
   const getModelDisplayName = (modelId: string): string => {
     if (!providers) return modelId;
@@ -100,6 +126,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     setIsLoading(true);
     setStreamedText('');
     streamIdRef.current = nanoid();
+    setShouldAutoScroll(checkIfAtBottom());
 
     try {
       const providerId = getProviderForModel(selectedModel);
