@@ -51,6 +51,8 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
   useEffect(() => {
     const sortedMessages = transformMessages(conversation);
@@ -60,9 +62,32 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     }
   }, [conversation]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const isNearBottom = () => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return true;
+
+    const threshold = 100; // pixels from bottom
+    const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    return distanceFromBottom <= threshold;
   };
+
+  const scrollToBottom = () => {
+    if (shouldAutoScroll) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  useEffect(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+
+    const handleScroll = () => {
+      setShouldAutoScroll(isNearBottom());
+    };
+
+    viewport.addEventListener('scroll', handleScroll);
+    return () => viewport.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Scroll to bottom when new messages arrive or when streaming text updates
   useEffect(() => {
@@ -236,7 +261,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         </div>
       </div>
       <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full p-4">
+        <ScrollArea className="h-full p-4" ref={scrollViewportRef}>
           <div className="space-y-4">
             {messages.map(message => (
               <Message key={message.id} message={message} />
