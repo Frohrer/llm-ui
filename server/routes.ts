@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { loadProviderConfigs } from "./config/loader";
 import { cloudflareAuthMiddleware } from "./middleware/auth";
+import type { SQL } from "drizzle-orm";
 
 // Load provider configurations at startup
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -18,6 +19,7 @@ loadProviderConfigs().then(configs => {
   process.exit(1);
 });
 
+// Initialize OpenAI and Anthropic clients
 if (!process.env.OPENAI_API_KEY) {
   throw new Error("OPENAI_API_KEY is required");
 }
@@ -26,12 +28,21 @@ if (!process.env.ANTHROPIC_API_KEY) {
   throw new Error("ANTHROPIC_API_KEY is required");
 }
 
+if (!process.env.DEEPSEEK_API_KEY) {
+  throw new Error("DEEPSEEK_API_KEY is required");
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+const deepseek = new OpenAI({
+  baseURL: 'https://api.deepseek.com/v1',
+  apiKey: process.env.DEEPSEEK_API_KEY,
 });
 
 export function registerRoutes(app: Express): Server {
@@ -341,7 +352,149 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Rest of the routes (conversations endpoints) remain unchanged
+  // Add DeepSeek chat endpoint with streaming
+  app.post('/api/chat/deepseek', async (req, res) => {
+    try {
+      const { message, conversationId, context = [], model = "deepseek-chat" } = req.body;
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: "Invalid message" });
+      }
+
+      // Set up SSE headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      let conversationTitle = message.slice(0, 100);
+      let dbConversation;
+      let streamedResponse = '';
+
+      // Create or update conversation first
+      if (!conversationId) {
+        const timestamp = new Date();
+        const [newConversation] = await db.insert(conversations)
+          .values({
+            title: conversationTitle,
+            provider: 'deepseek',
+            model,
+            user_id: req.user!.id,
+            created_at: timestamp,
+            last_message_at: timestamp
+          })
+          .returning();
+
+        if (!newConversation) {
+          throw new Error("Failed to create conversation");
+        }
+
+        await db.insert(messages)
+          .values({
+            conversation_id: newConversation.id,
+            role: 'user',
+            content: message,
+            created_at: timestamp
+          });
+
+        dbConversation = newConversation;
+      } else {
+        const conversationIdNum = parseInt(conversationId);
+        if (isNaN(conversationIdNum)) {
+          throw new Error('Invalid conversation ID');
+        }
+
+        const existingConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, conversationIdNum),
+        });
+
+        if (!existingConversation || existingConversation.user_id !== req.user!.id) {
+          throw new Error('Conversation not found or unauthorized');
+        }
+
+        const timestamp = new Date();
+        await db.update(conversations)
+          .set({ last_message_at: timestamp })
+          .where(eq(conversations.id, conversationIdNum));
+
+        await db.insert(messages)
+          .values({
+            conversation_id: conversationIdNum,
+            role: 'user',
+            content: message,
+            created_at: timestamp
+          });
+
+        dbConversation = existingConversation;
+      }
+
+      // Ensure context messages are properly ordered
+      const apiMessages = context
+        .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        .map((msg: any) => ({
+          role: msg.role,
+          content: msg.content
+        }));
+
+      apiMessages.push({ role: "user", content: message });
+
+      // Stream the completion using DeepSeek
+      const stream = await deepseek.chat.completions.create({
+        messages: apiMessages,
+        model,
+        stream: true,
+      });
+
+      // Send initial conversation data
+      res.write(`data: ${JSON.stringify({ type: 'start', conversationId: dbConversation.id })}\n\n`);
+
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        if (content) {
+          streamedResponse += content;
+          res.write(`data: ${JSON.stringify({ type: 'chunk', content })}\n\n`);
+        }
+      }
+
+      // Save the complete response
+      const timestamp = new Date();
+      await db.insert(messages)
+        .values({
+          conversation_id: dbConversation.id,
+          role: 'assistant',
+          content: streamedResponse,
+          created_at: timestamp
+        });
+
+      // Send completion event
+      const updatedConversation = await db.query.conversations.findFirst({
+        where: eq(conversations.id, dbConversation.id),
+        with: {
+          messages: {
+            orderBy: (messages, { asc }) => [asc(messages.created_at)]
+          }
+        }
+      });
+
+      if (!updatedConversation) {
+        throw new Error('Failed to retrieve conversation');
+      }
+
+      res.write(`data: ${JSON.stringify({
+        type: 'end',
+        conversation: transformDatabaseConversation(updatedConversation)
+      })}\n\n`);
+
+      res.end();
+    } catch (error) {
+      console.error("Error:", error);
+      res.write(`data: ${JSON.stringify({
+        type: 'error',
+        error: error instanceof Error ? error.message : "Failed to process request"
+      })}\n\n`);
+      res.end();
+    }
+  });
+
+  // Rest of the routes (conversations endpoints)
   app.delete('/api/conversations/:id', async (req, res) => {
     try {
       const conversationId = parseInt(req.params.id);

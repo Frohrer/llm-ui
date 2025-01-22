@@ -19,6 +19,7 @@ const ProviderConfigSchema = z.object({
 });
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
+export type ModelConfig = z.infer<typeof ModelConfigSchema>;
 
 export async function loadProviderConfigs(): Promise<ProviderConfig[]> {
   try {

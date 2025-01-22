@@ -134,44 +134,65 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
           const { value, done } = await reader.read();
           if (done) break;
 
-          // Append new chunk to buffer and process line by line
-          buffer += decoder.decode(value, { stream: true });
+          // Process the incoming chunk
+          const text = decoder.decode(value, { stream: true });
+          buffer += text;
+
+          // Process each complete line in the buffer
           const lines = buffer.split('\n');
-          // Keep the last incomplete line in the buffer
+          // Keep the last potentially incomplete line in the buffer
           buffer = lines.pop() || '';
 
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+
+            try {
+              const jsonStr = trimmedLine.slice(5).trim();
+              if (!jsonStr) continue;
+
+              // Safely parse the JSON data
+              let data;
               try {
-                const jsonStr = line.slice(5).trim();
-                if (jsonStr) {
-                  const data = JSON.parse(jsonStr);
-                  // Only process if this is still the current stream
-                  if (currentStreamId === streamIdRef.current) {
-                    switch (data.type) {
-                      case 'start':
-                        setStreamedText('');
-                        break;
-                      case 'chunk':
-                        setStreamedText(prev => prev + (data.content || ''));
-                        break;
-                      case 'end':
-                        if (onConversationUpdate && data.conversation) {
-                          onConversationUpdate(data.conversation);
-                        }
-                        setStreamedText('');
-                        const updatedMessages = transformMessages(data.conversation);
-                        setMessages(updatedMessages);
-                        queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
-                        break;
-                      case 'error':
-                        throw new Error(data.error);
+                data = JSON.parse(jsonStr);
+              } catch (parseError) {
+                console.error('Error parsing SSE data:', parseError);
+                console.debug('Problematic JSON string:', jsonStr);
+                continue; // Skip this malformed message and continue processing
+              }
+
+              // Only process if this is still the current stream
+              if (currentStreamId === streamIdRef.current) {
+                switch (data.type) {
+                  case 'start':
+                    setStreamedText('');
+                    break;
+                  case 'chunk':
+                    if (typeof data.content === 'string') {
+                      setStreamedText(prev => prev + data.content);
                     }
-                  }
+                    break;
+                  case 'end':
+                    if (onConversationUpdate && data.conversation) {
+                      onConversationUpdate(data.conversation);
+                    }
+                    setStreamedText('');
+                    const updatedMessages = transformMessages(data.conversation);
+                    setMessages(updatedMessages);
+                    queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
+                    break;
+                  case 'error':
+                    throw new Error(data.error);
                 }
-              } catch (e) {
-                console.error('Error parsing SSE data:', e);
-                console.debug('Problematic line:', line);
+              }
+            } catch (error) {
+              console.error('Error processing SSE data:', error);
+              if (error instanceof Error) {
+                toast({
+                  variant: "destructive",
+                  title: "Error",
+                  description: error.message
+                });
               }
             }
           }
@@ -189,6 +210,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to send message. Please try again."
       });
+      // Remove the user message if the request failed
       setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
     } finally {
       setIsLoading(false);

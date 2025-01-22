@@ -1,4 +1,5 @@
 import type { SelectConversation, SelectMessage } from '@db/schema';
+import type { IconType } from 'react-icons';
 
 export interface Message {
   id: string;
@@ -32,7 +33,7 @@ export interface ModelConfig {
 export interface LLMProvider {
   id: string;
   name: string;
-  icon: string;  // Icon ID from react-icons/si (e.g., 'SiOpenai')
+  icon: IconType;  // Updated to use IconType from react-icons
   models: ModelConfig[];
   sendMessage(message: string, conversationId?: string, context?: Message[]): Promise<string>;
 }

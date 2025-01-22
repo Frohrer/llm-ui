@@ -1,6 +1,6 @@
 import type { LLMProvider, ModelConfig, Message } from "../types";
 import { SiOpenai } from "react-icons/si";
-import type { ProviderConfig } from "../../../../server/config/loader";
+import type { ProviderConfig } from "./config.types";
 
 export class OpenAIProvider implements LLMProvider {
   id: string;
