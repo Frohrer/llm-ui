@@ -50,8 +50,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const scrollViewportRef = useRef<HTMLDivElement>(null);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const sortedMessages = transformMessages(conversation);
@@ -61,37 +60,14 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     }
   }, [conversation]);
 
-  const checkIfAtBottom = () => {
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return true;
-
-    const scrollPosition = viewport.scrollTop + viewport.clientHeight;
-    const scrollHeight = viewport.scrollHeight;
-    const threshold = 100; // pixels from bottom to consider "at bottom"
-    const isAtBottom = scrollHeight - scrollPosition <= threshold;
-
-    setShouldAutoScroll(isAtBottom);
-    return isAtBottom;
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Scroll to bottom when new messages arrive or when streaming text updates
   useEffect(() => {
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return;
-
-    const handleScroll = () => {
-      checkIfAtBottom();
-    };
-
-    viewport.addEventListener('scroll', handleScroll);
-    return () => viewport.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  // Auto-scroll effect
-  useEffect(() => {
-    if (shouldAutoScroll && scrollViewportRef.current) {
-      scrollViewportRef.current.scrollTop = scrollViewportRef.current.scrollHeight;
-    }
-  }, [messages, streamedText, shouldAutoScroll]);
+    scrollToBottom();
+  }, [messages, streamedText]);
 
   const getModelDisplayName = (modelId: string): string => {
     if (!providers) return modelId;
@@ -127,7 +103,6 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     setIsLoading(true);
     setStreamedText('');
     streamIdRef.current = nanoid();
-    setShouldAutoScroll(checkIfAtBottom());
 
     try {
       const providerId = getProviderForModel(selectedModel);
@@ -261,26 +236,26 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         </div>
       </div>
       <div className="flex-1 overflow-hidden">
-        <ScrollArea 
-          className="h-full p-4" 
-          viewportRef={scrollViewportRef}
-        >
-          {messages.map(message => (
-            <Message key={message.id} message={message} />
-          ))}
-          {streamedText && (
-            <Message
-              message={{
-                id: 'streaming',
-                role: 'assistant',
-                content: streamedText,
-                timestamp: Date.now()
-              }}
-            />
-          )}
-          {isLoading && !streamedText && (
-            <div className="animate-pulse">Thinking...</div>
-          )}
+        <ScrollArea className="h-full p-4">
+          <div className="space-y-4">
+            {messages.map(message => (
+              <Message key={message.id} message={message} />
+            ))}
+            {streamedText && (
+              <Message
+                message={{
+                  id: 'streaming',
+                  role: 'assistant',
+                  content: streamedText,
+                  timestamp: Date.now()
+                }}
+              />
+            )}
+            {isLoading && !streamedText && (
+              <div className="animate-pulse">Thinking...</div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </ScrollArea>
       </div>
       <div className="p-4 border-t">
