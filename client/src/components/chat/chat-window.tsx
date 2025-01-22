@@ -51,7 +51,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
   useEffect(() => {
@@ -63,11 +63,11 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   }, [conversation]);
 
   const isNearBottom = () => {
-    const viewport = viewportRef.current;
-    if (!viewport) return true;
+    const container = containerRef.current;
+    if (!container) return true;
 
     const threshold = 100; // pixels from bottom
-    const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     return distanceFromBottom <= threshold;
   };
 
@@ -78,15 +78,15 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   };
 
   useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
+    const container = containerRef.current;
+    if (!container) return;
 
     const handleScroll = () => {
       setShouldAutoScroll(isNearBottom());
     };
 
-    viewport.addEventListener('scroll', handleScroll);
-    return () => viewport.removeEventListener('scroll', handleScroll);
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
   }, []);
 
   // Scroll to bottom when new messages arrive or when streaming text updates
@@ -264,11 +264,8 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         </div>
       </div>
       <div className="flex-1 overflow-hidden">
-        <ScrollArea 
-          className="h-full p-4" 
-          viewportRef={viewportRef}
-        >
-          <div className="space-y-4">
+        <ScrollArea className="h-full">
+          <div className="p-4 space-y-4" ref={containerRef} style={{ height: '100%', overflow: 'auto' }}>
             {messages.map(message => (
               <Message key={message.id} message={message} />
             ))}
