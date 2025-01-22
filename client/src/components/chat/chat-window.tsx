@@ -51,7 +51,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const scrollViewportRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
   useEffect(() => {
@@ -63,7 +63,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   }, [conversation]);
 
   const isNearBottom = () => {
-    const viewport = scrollViewportRef.current;
+    const viewport = viewportRef.current;
     if (!viewport) return true;
 
     const threshold = 100; // pixels from bottom
@@ -72,13 +72,13 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   };
 
   const scrollToBottom = () => {
-    if (shouldAutoScroll) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (shouldAutoScroll && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   };
 
   useEffect(() => {
-    const viewport = scrollViewportRef.current;
+    const viewport = viewportRef.current;
     if (!viewport) return;
 
     const handleScroll = () => {
@@ -91,8 +91,10 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
 
   // Scroll to bottom when new messages arrive or when streaming text updates
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, streamedText]);
+    if (shouldAutoScroll) {
+      scrollToBottom();
+    }
+  }, [messages, streamedText, shouldAutoScroll]);
 
   const getModelDisplayName = (modelId: string): string => {
     if (!providers) return modelId;
@@ -128,6 +130,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     setIsLoading(true);
     setStreamedText('');
     streamIdRef.current = nanoid();
+    setShouldAutoScroll(isNearBottom());
 
     try {
       const providerId = getProviderForModel(selectedModel);
@@ -261,7 +264,10 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         </div>
       </div>
       <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full p-4" ref={scrollViewportRef}>
+        <ScrollArea 
+          className="h-full p-4" 
+          viewportRef={viewportRef}
+        >
           <div className="space-y-4">
             {messages.map(message => (
               <Message key={message.id} message={message} />
