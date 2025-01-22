@@ -50,10 +50,8 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  const lastScrollHeightRef = useRef<number>(0);
-  const lastScrollTopRef = useRef<number>(0);
 
   useEffect(() => {
     const sortedMessages = transformMessages(conversation);
@@ -64,31 +62,34 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   }, [conversation]);
 
   const checkIfAtBottom = () => {
-    if (!scrollAreaRef.current) return true;
-    const { scrollHeight, scrollTop, clientHeight } = scrollAreaRef.current;
-    // Consider "at bottom" if within 100px of the bottom
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
-    lastScrollHeightRef.current = scrollHeight;
-    lastScrollTopRef.current = scrollTop;
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return true;
+
+    const scrollPosition = viewport.scrollTop + viewport.clientHeight;
+    const scrollHeight = viewport.scrollHeight;
+    const threshold = 100; // pixels from bottom to consider "at bottom"
+    const isAtBottom = scrollHeight - scrollPosition <= threshold;
+
     setShouldAutoScroll(isAtBottom);
     return isAtBottom;
   };
 
   useEffect(() => {
-    const scrollArea = scrollAreaRef.current;
-    if (!scrollArea) return;
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
 
     const handleScroll = () => {
       checkIfAtBottom();
     };
 
-    scrollArea.addEventListener('scroll', handleScroll);
-    return () => scrollArea.removeEventListener('scroll', handleScroll);
+    viewport.addEventListener('scroll', handleScroll);
+    return () => viewport.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Auto-scroll effect
   useEffect(() => {
-    if (scrollAreaRef.current && shouldAutoScroll) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+    if (shouldAutoScroll && scrollViewportRef.current) {
+      scrollViewportRef.current.scrollTop = scrollViewportRef.current.scrollHeight;
     }
   }, [messages, streamedText, shouldAutoScroll]);
 
@@ -260,7 +261,10 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         </div>
       </div>
       <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
+        <ScrollArea 
+          className="h-full p-4" 
+          viewportRef={scrollViewportRef}
+        >
           {messages.map(message => (
             <Message key={message.id} message={message} />
           ))}
