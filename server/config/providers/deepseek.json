@@ -6,13 +6,13 @@
     {
       "id": "deepseek-chat",
       "name": "DeepSeek Chat",
-      "contextLength": 128000,
+      "contextLength": 64000,
       "defaultModel": false
     },
     {
-      "id": "deepseek-coder",
-      "name": "DeepSeek Coder",
-      "contextLength": 128000,
+      "id": "deepseek-reasoner",
+      "name": "DeepSeek Reasoner",
+      "contextLength": 64000,
       "defaultModel": false
     }
   ]
