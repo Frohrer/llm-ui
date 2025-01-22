@@ -1,5 +1,6 @@
 import { OpenAIProvider } from './openai';
 import { AnthropicProvider } from './anthropic';
+import { DeepSeekProvider } from './deepseek';
 import type { LLMProvider } from '../types';
 import { useQuery } from '@tanstack/react-query';
 
@@ -23,6 +24,9 @@ export async function initializeProviders() {
         break;
       case 'anthropic':
         providers[config.id] = new AnthropicProvider(config);
+        break;
+      case 'deepseek':
+        providers[config.id] = new DeepSeekProvider(config);
         break;
       // New providers can be added here
     }

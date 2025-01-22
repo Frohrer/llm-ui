@@ -1,0 +1,19 @@
+{
+  "id": "deepseek",
+  "name": "DeepSeek AI",
+  "icon": "SiOpenai",
+  "models": [
+    {
+      "id": "deepseek-chat",
+      "name": "DeepSeek Chat",
+      "contextLength": 128000,
+      "defaultModel": false
+    },
+    {
+      "id": "deepseek-coder",
+      "name": "DeepSeek Coder",
+      "contextLength": 128000,
+      "defaultModel": false
+    }
+  ]
+}

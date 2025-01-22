@@ -1,11 +1,11 @@
 import type { LLMProvider, ModelConfig, Message } from "../types";
-import { SiAntdesign } from "react-icons/si";
+import { SiOpenai } from "react-icons/si";
 import type { ProviderConfig } from "./config.types";
 
-export class AnthropicProvider implements LLMProvider {
+export class DeepSeekProvider implements LLMProvider {
   id: string;
   name: string;
-  icon = SiAntdesign;
+  icon = SiOpenai;
   models: ModelConfig[];
 
   constructor(config: ProviderConfig) {
@@ -19,7 +19,7 @@ export class AnthropicProvider implements LLMProvider {
     conversationId?: string,
     context: Message[] = [],
   ): Promise<string> {
-    const response = await fetch("/api/chat/anthropic", {
+    const response = await fetch("/api/chat/deepseek", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -31,7 +31,7 @@ export class AnthropicProvider implements LLMProvider {
     });
 
     if (!response.ok) {
-      throw new Error("Failed to send message to Anthropic");
+      throw new Error("Failed to send message to DeepSeek");
     }
 
     const data = await response.json();
