@@ -32,7 +32,22 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   const [isLoading, setIsLoading] = useState(false);
   const [streamedText, setStreamedText] = useState('');
   const streamIdRef = useRef<string>('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+
   const { data: providers, isLoading: isLoadingProviders } = useProviders();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const sortedMessages = transformMessages(conversation);
+    setMessages(sortedMessages);
+    if (conversation) {
+      setSelectedModel(conversation.model);
+    }
+  }, [conversation]);
+
+  // Update selected model based on providers and conversation
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     if (conversation) {
       return conversation.model;
@@ -48,20 +63,6 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     return '';
   });
 
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-
-  useEffect(() => {
-    const sortedMessages = transformMessages(conversation);
-    setMessages(sortedMessages);
-    if (conversation) {
-      setSelectedModel(conversation.model);
-    }
-  }, [conversation]);
-
   const isNearBottom = () => {
     const container = containerRef.current;
     if (!container) return true;
@@ -72,8 +73,9 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   };
 
   const scrollToBottom = () => {
-    if (shouldAutoScroll && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    const container = containerRef.current;
+    if (shouldAutoScroll && container) {
+      container.scrollTop = container.scrollHeight;
     }
   };
 
@@ -265,7 +267,11 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
       </div>
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full">
-          <div className="p-4 space-y-4" ref={containerRef} style={{ height: '100%', overflow: 'auto' }}>
+          <div 
+            className="p-4 space-y-4" 
+            ref={containerRef} 
+            style={{ height: 'calc(100vh - 140px)', overflow: 'auto' }}
+          >
             {messages.map(message => (
               <Message key={message.id} message={message} />
             ))}
@@ -282,7 +288,6 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
             {isLoading && !streamedText && (
               <div className="animate-pulse">Thinking...</div>
             )}
-            <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
       </div>
