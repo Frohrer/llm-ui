@@ -19,31 +19,30 @@ loadProviderConfigs().then(configs => {
   process.exit(1);
 });
 
-// Initialize OpenAI and Anthropic clients
-if (!process.env.OPENAI_API_KEY) {
-  throw new Error("OPENAI_API_KEY is required");
+// Initialize API clients based on available API keys
+const clients: Record<string, any> = {};
+
+// OpenAI client initialization
+if (process.env.OPENAI_API_KEY) {
+  clients.openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
 }
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  throw new Error("ANTHROPIC_API_KEY is required");
+// Anthropic client initialization
+if (process.env.ANTHROPIC_API_KEY) {
+  clients.anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+  });
 }
 
-if (!process.env.DEEPSEEK_API_KEY) {
-  throw new Error("DEEPSEEK_API_KEY is required");
+// DeepSeek client initialization
+if (process.env.DEEPSEEK_API_KEY) {
+  clients.deepseek = new OpenAI({
+    baseURL: 'https://api.deepseek.com/v1',
+    apiKey: process.env.DEEPSEEK_API_KEY,
+  });
 }
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
-const deepseek = new OpenAI({
-  baseURL: 'https://api.deepseek.com/v1',
-  apiKey: process.env.DEEPSEEK_API_KEY,
-});
 
 export function registerRoutes(app: Express): Server {
   // Apply authentication middleware to all /api routes
@@ -54,13 +53,28 @@ export function registerRoutes(app: Express): Server {
     res.json(req.user);
   });
 
-  // Add provider configurations endpoint
+  // Add provider configurations endpoint - only return providers with available API keys
   app.get('/api/providers', async (_req, res) => {
     try {
       if (!providerConfigs) {
         providerConfigs = await loadProviderConfigs();
       }
-      res.json(providerConfigs);
+
+      // Filter providers based on available API keys
+      const availableProviders = providerConfigs.filter(provider => {
+        switch (provider.id) {
+          case 'openai':
+            return !!clients.openai;
+          case 'anthropic':
+            return !!clients.anthropic;
+          case 'deepseek':
+            return !!clients.deepseek;
+          default:
+            return false;
+        }
+      });
+
+      res.json(availableProviders);
     } catch (error) {
       console.error('Error fetching provider configurations:', error);
       res.status(500).json({ error: 'Failed to fetch provider configurations' });
@@ -153,7 +167,7 @@ export function registerRoutes(app: Express): Server {
       apiMessages.push({ role: "user", content: message });
 
       // Stream the completion
-      const stream = await openai.chat.completions.create({
+      const stream = await clients.openai.chat.completions.create({
         messages: apiMessages,
         model,
         stream: true,
@@ -295,7 +309,7 @@ export function registerRoutes(app: Express): Server {
       apiMessages.push({ role: "user", content: message });
 
       // Stream the completion
-      const stream = await anthropic.messages.create({
+      const stream = await clients.anthropic.messages.create({
         messages: apiMessages,
         model,
         max_tokens: 1024,
@@ -437,7 +451,7 @@ export function registerRoutes(app: Express): Server {
       apiMessages.push({ role: "user", content: message });
 
       // Stream the completion using DeepSeek
-      const stream = await deepseek.chat.completions.create({
+      const stream = await clients.deepseek.chat.completions.create({
         messages: apiMessages,
         model,
         stream: true,
