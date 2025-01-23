@@ -130,7 +130,9 @@ export function ConversationList({
                 onClick={() => onSelectConversation(conv)}
               >
                 <div className="flex flex-col items-start">
-                  <span className="text-sm truncate max-w-[120px] inline-block">{conv.title}</span>
+                  <span className="text-sm truncate max-w-[200px] inline-block">
+                    {conv.title}
+                  </span>
                   <span className="text-xs text-muted-foreground">
                     {formatDistanceToNow(parseISO(conv.lastMessageAt), {
                       addSuffix: true,
