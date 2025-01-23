@@ -36,7 +36,7 @@ export function Message({ message }: MessageProps) {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       className={cn(
-        "prose prose-sm max-w-none",
+        "prose max-w-none", 
         "prose-neutral dark:prose-invert",
         "prose-a:text-blue-600 dark:prose-a:text-blue-400",
         // Add table styles
@@ -122,7 +122,7 @@ export function Message({ message }: MessageProps) {
       {message.content}
     </ReactMarkdown>
   ) : (
-    <div className="whitespace-pre-wrap">{message.content}</div>
+    <div className="text-base whitespace-pre-wrap">{message.content}</div>
   );
 
   return (
