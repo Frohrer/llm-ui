@@ -161,11 +161,16 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
       const decoder = new TextDecoder();
       const currentStreamId = streamIdRef.current;
       let buffer = '';
+      let isStreamActive = true;
 
       try {
-        while (true) {
+        while (isStreamActive) {
           const { value, done } = await reader.read();
-          if (done) break;
+
+          if (done) {
+            isStreamActive = false;
+            break;
+          }
 
           // Process the incoming chunk
           const text = decoder.decode(value, { stream: true });
@@ -206,6 +211,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
                     }
                     break;
                   case 'end':
+                    isStreamActive = false; // Ensure we stop after receiving end event
                     if (onConversationUpdate && data.conversation) {
                       onConversationUpdate(data.conversation);
                     }
@@ -220,6 +226,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
               }
             } catch (error) {
               console.error('Error processing SSE data:', error);
+              isStreamActive = false;
               if (error instanceof Error) {
                 toast({
                   variant: "destructive",
@@ -267,9 +274,9 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
       </div>
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full">
-          <div 
-            className="p-4 space-y-4" 
-            ref={containerRef} 
+          <div
+            className="p-4 space-y-4"
+            ref={containerRef}
             style={{ height: 'calc(100vh - 140px)', overflow: 'auto' }}
           >
             {messages.map(message => (

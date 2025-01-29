@@ -176,44 +176,58 @@ export function registerRoutes(app: Express): Server {
       // Send initial conversation data
       res.write(`data: ${JSON.stringify({ type: 'start', conversationId: dbConversation.id })}\n\n`);
 
-      for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content || '';
-        if (content) {
-          streamedResponse += content;
-          res.write(`data: ${JSON.stringify({ type: 'chunk', content })}\n\n`);
-        }
-      }
-
-      // Save the complete response
-      const timestamp = new Date();
-      await db.insert(messages)
-        .values({
-          conversation_id: dbConversation.id,
-          role: 'assistant',
-          content: streamedResponse,
-          created_at: timestamp
-        });
-
-      // Send completion event
-      const updatedConversation = await db.query.conversations.findFirst({
-        where: eq(conversations.id, dbConversation.id),
-        with: {
-          messages: {
-            orderBy: (messages, { asc }) => [asc(messages.created_at)]
+      try {
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || '';
+          if (content) {
+            streamedResponse += content;
+            // Ensure the data is properly formatted and flushed
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content })}\n\n`);
+            // Explicitly flush the response
+            if (res.flush) res.flush();
           }
         }
-      });
 
-      if (!updatedConversation) {
-        throw new Error('Failed to retrieve conversation');
+        // Save the complete response only after successful streaming
+        const timestamp = new Date();
+        await db.insert(messages)
+          .values({
+            conversation_id: dbConversation.id,
+            role: 'assistant',
+            content: streamedResponse,
+            created_at: timestamp
+          });
+
+        // Send completion event after successful save
+        const updatedConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, dbConversation.id),
+          with: {
+            messages: {
+              orderBy: (messages, { asc }) => [asc(messages.created_at)]
+            }
+          }
+        });
+
+        if (!updatedConversation) {
+          throw new Error('Failed to retrieve conversation');
+        }
+
+        res.write(`data: ${JSON.stringify({
+          type: 'end',
+          conversation: transformDatabaseConversation(updatedConversation)
+        })}\n\n`);
+
+        res.end();
+      } catch (streamError) {
+        console.error("Streaming error:", streamError);
+        // Send error event before ending
+        res.write(`data: ${JSON.stringify({
+          type: 'error',
+          error: streamError instanceof Error ? streamError.message : "Stream interrupted"
+        })}\n\n`);
+        res.end();
+        return;
       }
-
-      res.write(`data: ${JSON.stringify({
-        type: 'end',
-        conversation: transformDatabaseConversation(updatedConversation)
-      })}\n\n`);
-
-      res.end();
     } catch (error) {
       console.error("Error:", error);
       res.write(`data: ${JSON.stringify({
@@ -319,43 +333,54 @@ export function registerRoutes(app: Express): Server {
       // Send initial conversation data
       res.write(`data: ${JSON.stringify({ type: 'start', conversationId: dbConversation.id })}\n\n`);
 
-      for await (const chunk of stream) {
-        if (chunk.type === 'content_block_delta' && chunk.delta.text) {
-          streamedResponse += chunk.delta.text;
-          res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.delta.text })}\n\n`);
-        }
-      }
-
-      // Save the complete response
-      const timestamp = new Date();
-      await db.insert(messages)
-        .values({
-          conversation_id: dbConversation.id,
-          role: 'assistant',
-          content: streamedResponse,
-          created_at: timestamp
-        });
-
-      // Send completion event
-      const updatedConversation = await db.query.conversations.findFirst({
-        where: eq(conversations.id, dbConversation.id),
-        with: {
-          messages: {
-            orderBy: (messages, { asc }) => [asc(messages.created_at)]
+      try {
+        for await (const chunk of stream) {
+          if (chunk.type === 'content_block_delta' && chunk.delta.text) {
+            streamedResponse += chunk.delta.text;
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.delta.text })}\n\n`);
+            if (res.flush) res.flush();
           }
         }
-      });
 
-      if (!updatedConversation) {
-        throw new Error('Failed to retrieve conversation');
+        // Save the complete response only after successful streaming
+        const timestamp = new Date();
+        await db.insert(messages)
+          .values({
+            conversation_id: dbConversation.id,
+            role: 'assistant',
+            content: streamedResponse,
+            created_at: timestamp
+          });
+
+        // Send completion event after successful save
+        const updatedConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, dbConversation.id),
+          with: {
+            messages: {
+              orderBy: (messages, { asc }) => [asc(messages.created_at)]
+            }
+          }
+        });
+
+        if (!updatedConversation) {
+          throw new Error('Failed to retrieve conversation');
+        }
+
+        res.write(`data: ${JSON.stringify({
+          type: 'end',
+          conversation: transformDatabaseConversation(updatedConversation)
+        })}\n\n`);
+
+        res.end();
+      } catch (streamError) {
+        console.error("Streaming error:", streamError);
+        res.write(`data: ${JSON.stringify({
+          type: 'error',
+          error: streamError instanceof Error ? streamError.message : "Stream interrupted"
+        })}\n\n`);
+        res.end();
+        return;
       }
-
-      res.write(`data: ${JSON.stringify({
-        type: 'end',
-        conversation: transformDatabaseConversation(updatedConversation)
-      })}\n\n`);
-
-      res.end();
     } catch (error) {
       console.error("Error:", error);
       res.write(`data: ${JSON.stringify({
@@ -460,44 +485,55 @@ export function registerRoutes(app: Express): Server {
       // Send initial conversation data
       res.write(`data: ${JSON.stringify({ type: 'start', conversationId: dbConversation.id })}\n\n`);
 
-      for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content || '';
-        if (content) {
-          streamedResponse += content;
-          res.write(`data: ${JSON.stringify({ type: 'chunk', content })}\n\n`);
-        }
-      }
-
-      // Save the complete response
-      const timestamp = new Date();
-      await db.insert(messages)
-        .values({
-          conversation_id: dbConversation.id,
-          role: 'assistant',
-          content: streamedResponse,
-          created_at: timestamp
-        });
-
-      // Send completion event
-      const updatedConversation = await db.query.conversations.findFirst({
-        where: eq(conversations.id, dbConversation.id),
-        with: {
-          messages: {
-            orderBy: (messages, { asc }) => [asc(messages.created_at)]
+      try {
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || '';
+          if (content) {
+            streamedResponse += content;
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content })}\n\n`);
+            if (res.flush) res.flush();
           }
         }
-      });
 
-      if (!updatedConversation) {
-        throw new Error('Failed to retrieve conversation');
+        // Save the complete response only after successful streaming
+        const timestamp = new Date();
+        await db.insert(messages)
+          .values({
+            conversation_id: dbConversation.id,
+            role: 'assistant',
+            content: streamedResponse,
+            created_at: timestamp
+          });
+
+        // Send completion event after successful save
+        const updatedConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, dbConversation.id),
+          with: {
+            messages: {
+              orderBy: (messages, { asc }) => [asc(messages.created_at)]
+            }
+          }
+        });
+
+        if (!updatedConversation) {
+          throw new Error('Failed to retrieve conversation');
+        }
+
+        res.write(`data: ${JSON.stringify({
+          type: 'end',
+          conversation: transformDatabaseConversation(updatedConversation)
+        })}\n\n`);
+
+        res.end();
+      } catch (streamError) {
+        console.error("Streaming error:", streamError);
+        res.write(`data: ${JSON.stringify({
+          type: 'error',
+          error: streamError instanceof Error ? streamError.message : "Stream interrupted"
+        })}\n\n`);
+        res.end();
+        return;
       }
-
-      res.write(`data: ${JSON.stringify({
-        type: 'end',
-        conversation: transformDatabaseConversation(updatedConversation)
-      })}\n\n`);
-
-      res.end();
     } catch (error) {
       console.error("Error:", error);
       res.write(`data: ${JSON.stringify({
