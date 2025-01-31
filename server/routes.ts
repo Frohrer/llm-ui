@@ -177,8 +177,10 @@ export function registerRoutes(app: Express): Server {
             messages: apiMessages,
             model,
             stream: true,
-            max_tokens: 2048, // Set a reasonable max token limit
+            max_tokens: 4096, // Increased from 2048 to 4096
+            temperature: 0.7,
           });
+          console.log('Stream created with model:', model); //Added logging
           break;
         } catch (error) {
           retryCount++;
@@ -249,6 +251,7 @@ export function registerRoutes(app: Express): Server {
 
       } catch (streamError) {
         console.error("Streaming error:", streamError);
+        console.log("Completion reason:", (stream as any)?.response?.reason); //Added logging for completion reason
         res.write(`data: ${JSON.stringify({
           type: 'error',
           error: streamError instanceof Error ? streamError.message : "Stream interrupted"
@@ -355,9 +358,11 @@ export function registerRoutes(app: Express): Server {
       const stream = await clients.anthropic.messages.create({
         messages: apiMessages,
         model,
-        max_tokens: 1024,
+        max_tokens: 4096, // Increased from 1024 to 4096
+        temperature: 0.7,
         stream: true,
       });
+      console.log('Anthropic stream created with model:', model);
 
       // Send initial conversation data
       res.write(`data: ${JSON.stringify({ type: 'start', conversationId: dbConversation.id })}\n\n`);
@@ -403,6 +408,7 @@ export function registerRoutes(app: Express): Server {
         res.end();
       } catch (streamError) {
         console.error("Streaming error:", streamError);
+        console.log("Completion reason:", (stream as any)?.completion?.reason); //Added logging for completion reason
         res.write(`data: ${JSON.stringify({
           type: 'error',
           error: streamError instanceof Error ? streamError.message : "Stream interrupted"
@@ -509,7 +515,11 @@ export function registerRoutes(app: Express): Server {
         messages: apiMessages,
         model,
         stream: true,
+        max_tokens: 4096, // Increased token limit
+        temperature: 0.7,
       });
+
+      console.log('DeepSeek stream created with model:', model);
 
       // Send initial conversation data
       res.write(`data: ${JSON.stringify({ type: 'start', conversationId: dbConversation.id })}\n\n`);
@@ -556,6 +566,7 @@ export function registerRoutes(app: Express): Server {
         res.end();
       } catch (streamError) {
         console.error("Streaming error:", streamError);
+        console.log("Completion reason:", (stream as any)?.response?.reason); //Added logging for completion reason
         res.write(`data: ${JSON.stringify({
           type: 'error',
           error: streamError instanceof Error ? streamError.message : "Stream interrupted"
