@@ -32,6 +32,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   const [isLoading, setIsLoading] = useState(false);
   const [streamedText, setStreamedText] = useState('');
   const streamIdRef = useRef<string>('');
+  const abortControllerRef = useRef<AbortController>();
   const containerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
@@ -47,7 +48,6 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     }
   }, [conversation]);
 
-  // Update selected model based on providers and conversation
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     if (conversation) {
       return conversation.model;
@@ -66,8 +66,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   const isNearBottom = () => {
     const container = containerRef.current;
     if (!container) return true;
-
-    const threshold = 100; // pixels from bottom
+    const threshold = 100;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     return distanceFromBottom <= threshold;
   };
@@ -91,12 +90,20 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     return () => container.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Scroll to bottom when new messages arrive or when streaming text updates
   useEffect(() => {
     if (shouldAutoScroll) {
       scrollToBottom();
     }
   }, [messages, streamedText, shouldAutoScroll]);
+
+  // Cleanup abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const getModelDisplayName = (modelId: string): string => {
     if (!providers) return modelId;
@@ -120,6 +127,11 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   };
 
   const handleSendMessage = async (content: string) => {
+    // Cancel any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
     const timestamp = Date.now();
     const userMessage: MessageType = {
       id: nanoid(),
@@ -134,6 +146,9 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     streamIdRef.current = nanoid();
     setShouldAutoScroll(isNearBottom());
 
+    // Create new AbortController for this request
+    abortControllerRef.current = new AbortController();
+
     try {
       const providerId = getProviderForModel(selectedModel);
       const response = await fetch(`/api/chat/${providerId}`, {
@@ -147,6 +162,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
           context: messages,
           model: selectedModel
         }),
+        signal: abortControllerRef.current.signal
       });
 
       if (!response.ok) {
@@ -207,7 +223,14 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
                     break;
                   case 'chunk':
                     if (typeof data.content === 'string') {
-                      setStreamedText(prev => prev + data.content);
+                      setStreamedText(prev => {
+                        const newText = prev + data.content;
+                        // Force scroll to bottom on new content
+                        if (shouldAutoScroll) {
+                          setTimeout(scrollToBottom, 0);
+                        }
+                        return newText;
+                      });
                     }
                     break;
                   case 'end':
@@ -237,6 +260,23 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
             }
           }
         }
+
+        // Handle any remaining buffer data after the stream ends
+        if (buffer.trim()) {
+          try {
+            const trimmedLine = buffer.trim();
+            if (trimmedLine.startsWith('data: ')) {
+              const jsonStr = trimmedLine.slice(5).trim();
+              const data = JSON.parse(jsonStr);
+              if (data.type === 'chunk' && typeof data.content === 'string') {
+                setStreamedText(prev => prev + data.content);
+              }
+            }
+          } catch (error) {
+            console.error('Error processing final buffer:', error);
+          }
+        }
+
       } catch (error) {
         console.error('Error reading stream:', error);
         throw error;
@@ -244,6 +284,10 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
         reader.releaseLock();
       }
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Request aborted');
+        return;
+      }
       console.error('Error sending message:', error);
       toast({
         variant: "destructive",
@@ -255,6 +299,7 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
     } finally {
       setIsLoading(false);
       setStreamedText('');
+      abortControllerRef.current = undefined;
     }
   };
 
