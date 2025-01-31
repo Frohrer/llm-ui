@@ -81,18 +81,19 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Update OpenAI chat endpoint to use streaming
+  // Modified stream handling for OpenAI endpoint (similar changes needed for other providers)
   app.post('/api/chat/openai', async (req, res) => {
     try {
-      const { message, conversationId, context = [], model = "gpt-3.5-turbo" } = req.body;
+      const { message, conversationId, context = [], model = "gpt-4" } = req.body;
       if (!message || typeof message !== 'string') {
         return res.status(400).json({ error: "Invalid message" });
       }
 
-      // Set up SSE headers
+      // Set up SSE headers with keep-alive
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no'); // Disable proxy buffering
 
       let conversationTitle = message.slice(0, 100);
       let dbConversation;
@@ -116,7 +117,6 @@ export function registerRoutes(app: Express): Server {
           throw new Error("Failed to create conversation");
         }
 
-        // Create user message
         await db.insert(messages)
           .values({
             conversation_id: newConversation.id,
@@ -166,25 +166,55 @@ export function registerRoutes(app: Express): Server {
 
       apiMessages.push({ role: "user", content: message });
 
-      // Stream the completion
-      const stream = await clients.openai.chat.completions.create({
-        messages: apiMessages,
-        model,
-        stream: true,
-      });
+      // Stream the completion with retries
+      const maxRetries = 3;
+      let retryCount = 0;
+      let stream;
+
+      while (retryCount < maxRetries) {
+        try {
+          stream = await clients.openai.chat.completions.create({
+            messages: apiMessages,
+            model,
+            stream: true,
+            max_tokens: 2048, // Set a reasonable max token limit
+          });
+          break;
+        } catch (error) {
+          retryCount++;
+          if (retryCount === maxRetries) throw error;
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)); // Exponential backoff
+        }
+      }
+
+      if (!stream) {
+        throw new Error('Failed to create stream after retries');
+      }
 
       // Send initial conversation data
       res.write(`data: ${JSON.stringify({ type: 'start', conversationId: dbConversation.id })}\n\n`);
 
+      // Set up keep-alive interval
+      const keepAliveInterval = setInterval(() => {
+        res.write(': keep-alive\n\n');
+      }, 15000); // Send keep-alive every 15 seconds
+
       try {
+        let lastChunkTime = Date.now();
+        const chunkTimeout = 30000; // 30 seconds timeout between chunks
+
         for await (const chunk of stream) {
           const content = chunk.choices[0]?.delta?.content || '';
           if (content) {
             streamedResponse += content;
-            // Ensure the data is properly formatted and flushed
+            lastChunkTime = Date.now();
             res.write(`data: ${JSON.stringify({ type: 'chunk', content })}\n\n`);
-            // Explicitly flush the response
             if (res.flush) res.flush();
+          }
+
+          // Check for timeout between chunks
+          if (Date.now() - lastChunkTime > chunkTimeout) {
+            throw new Error('Stream timeout - no data received for 30 seconds');
           }
         }
 
@@ -217,16 +247,15 @@ export function registerRoutes(app: Express): Server {
           conversation: transformDatabaseConversation(updatedConversation)
         })}\n\n`);
 
-        res.end();
       } catch (streamError) {
         console.error("Streaming error:", streamError);
-        // Send error event before ending
         res.write(`data: ${JSON.stringify({
           type: 'error',
           error: streamError instanceof Error ? streamError.message : "Stream interrupted"
         })}\n\n`);
+      } finally {
+        clearInterval(keepAliveInterval);
         res.end();
-        return;
       }
     } catch (error) {
       console.error("Error:", error);
