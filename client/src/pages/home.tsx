@@ -19,7 +19,7 @@ export default function Home() {
       </SheetTrigger>
       <SheetContent 
         side="left" 
-        className="w-full p-0 sm:max-w-full flex flex-col"
+        className="w-full p-0 pt-10 sm:max-w-full flex flex-col"
       >
         <ConversationList
           activeConversation={activeConversation}

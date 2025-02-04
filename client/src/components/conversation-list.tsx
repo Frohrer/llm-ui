@@ -158,13 +158,13 @@ export function ConversationList({
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b">
-        <div className="flex items-center justify-between mb-4 relative">
+        <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-sm md:text-base">Chat History</h2>
           <Button
             onClick={handleNewChat}
             variant="outline"
             size="sm"
-            className="gap-2 text-xs md:text-sm absolute md:static right-0 top-0"
+            className="gap-2 text-xs md:text-sm z-10"
           >
             <Plus className="h-4 w-4" />
             New Chat
