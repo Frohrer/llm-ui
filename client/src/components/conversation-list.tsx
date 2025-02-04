@@ -62,7 +62,7 @@ export function ConversationList({
 
   const handleDelete = async (
     conversationId: number,
-    event: React.MouseEvent,
+    event: React.MouseEvent
   ) => {
     event.stopPropagation();
     if (confirm("Are you sure you want to delete this conversation?")) {
@@ -90,19 +90,19 @@ export function ConversationList({
 
         return acc;
       },
-      {} as Record<"today" | "thisWeek" | "older", Conversation[]>,
+      {} as Record<"today" | "thisWeek" | "older", Conversation[]>
     );
   }, [conversations]);
 
   if (isLoading) {
     return (
-      <div className="p-4 text-muted-foreground">Loading conversations...</div>
+      <div className="p-4 text-muted-foreground text-sm md:text-base">Loading conversations...</div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-4 text-destructive">
+      <div className="p-4 text-destructive text-sm md:text-base">
         Error loading conversations. Please try again later.
       </div>
     );
@@ -110,13 +110,13 @@ export function ConversationList({
 
   const renderCategory = (
     title: string,
-    conversations: Conversation[] = [],
+    conversations: Conversation[] = []
   ) => {
     if (!conversations.length) return null;
 
     return (
       <div key={title} className="mb-6">
-        <h3 className="mb-2 px-2 text-sm font-semibold text-muted-foreground">
+        <h3 className="mb-2 px-2 text-xs md:text-sm font-semibold text-muted-foreground">
           {title}
         </h3>
         <div className="space-y-1">
@@ -126,11 +126,11 @@ export function ConversationList({
                 variant={
                   conv.id === activeConversation?.id ? "secondary" : "ghost"
                 }
-                className="flex-1 justify-start text-left"
+                className="flex-1 justify-start text-left h-auto py-3 md:py-2"
                 onClick={() => onSelectConversation(conv)}
               >
                 <div className="flex flex-col items-start">
-                  <span className="text-sm truncate max-w-[200px] inline-block">
+                  <span className="text-sm md:text-base truncate max-w-[200px] inline-block">
                     {conv.title}
                   </span>
                   <span className="text-xs text-muted-foreground">
@@ -159,12 +159,12 @@ export function ConversationList({
     <div className="flex flex-col h-full">
       <div className="p-4 border-b">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold">Chat History</h2>
+          <h2 className="font-semibold text-sm md:text-base">Chat History</h2>
           <Button
             onClick={handleNewChat}
             variant="outline"
             size="sm"
-            className="gap-2"
+            className="gap-2 text-xs md:text-sm"
           >
             <Plus className="h-4 w-4" />
             New Chat
@@ -174,7 +174,7 @@ export function ConversationList({
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-2">
           {!conversations?.length ? (
-            <div className="text-center text-muted-foreground">
+            <div className="text-center text-muted-foreground text-sm md:text-base">
               No conversations yet. Start a new chat to begin.
             </div>
           ) : (
