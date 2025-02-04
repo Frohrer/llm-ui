@@ -13,9 +13,10 @@ import { ThemeToggle } from '@/components/theme-toggle';
 interface ChatWindowProps {
   conversation?: Conversation;
   onConversationUpdate?: (conversation: Conversation) => void;
+  mobileMenuTrigger?: React.ReactNode;
 }
 
-export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowProps) {
+export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigger }: ChatWindowProps) {
   const transformMessages = (conv?: Conversation): MessageType[] => {
     if (!conv) return [];
     return conv.messages
@@ -306,7 +307,10 @@ export function ChatWindow({ conversation, onConversationUpdate }: ChatWindowPro
   return (
     <div className="flex flex-col h-screen bg-background">
       <div className="p-4 border-b flex items-center justify-between">
-        <h2 className="font-semibold">{conversation?.title || 'New Conversation'}</h2>
+        <div className="flex items-center gap-2">
+          {mobileMenuTrigger}
+          <h2 className="font-semibold text-base md:text-lg">{conversation?.title || 'New Conversation'}</h2>
+        </div>
         <div className="flex items-center gap-4">
           <ModelSelector
             selectedModel={selectedModel}
