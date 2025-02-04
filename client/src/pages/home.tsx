@@ -17,7 +17,10 @@ export default function Home() {
           <Menu className="h-5 w-5" />
         </Button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-full p-0 sm:max-w-full">
+      <SheetContent 
+        side="left" 
+        className="w-full p-0 sm:max-w-full flex flex-col"
+      >
         <ConversationList
           activeConversation={activeConversation}
           onSelectConversation={(conv) => {
@@ -25,7 +28,9 @@ export default function Home() {
             const closestSheet = document.querySelector('[data-state="open"]');
             if (closestSheet instanceof HTMLElement) {
               const closeButton = closestSheet.querySelector('[data-state]');
-              closeButton?.click();
+              if (closeButton instanceof HTMLElement) {
+                closeButton.click();
+              }
             }
           }}
         />
