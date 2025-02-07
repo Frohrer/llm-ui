@@ -41,6 +41,53 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Add focus effect to check server and auth status
+  useEffect(() => {
+    const checkServerStatus = async () => {
+      try {
+        const response = await fetch('/api/user');
+        if (!response.ok) {
+          // If we get a 401, we need to refresh the page to trigger re-auth
+          if (response.status === 401) {
+            toast({
+              title: "Session expired",
+              description: "Please refresh the page to continue.",
+              variant: "destructive"
+            });
+          } else {
+            // For other errors, just show a general error message
+            toast({
+              title: "Connection error",
+              description: "Unable to connect to server. Please check your connection.",
+              variant: "destructive"
+            });
+          }
+        } else {
+          // If connection is successful, refresh all queries to get latest data
+          await queryClient.invalidateQueries();
+        }
+      } catch (error) {
+        toast({
+          title: "Connection error",
+          description: "Unable to connect to server. Please check your connection.",
+          variant: "destructive"
+        });
+      }
+    };
+
+    // Add focus event listener
+    const handleFocus = () => {
+      checkServerStatus();
+    };
+
+    window.addEventListener('focus', handleFocus);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [queryClient, toast]);
+
   useEffect(() => {
     const sortedMessages = transformMessages(conversation);
     setMessages(sortedMessages);
