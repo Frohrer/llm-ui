@@ -62,7 +62,7 @@ export function ConversationList({
 
   const handleDelete = async (
     conversationId: number,
-    event: React.MouseEvent
+    event: React.MouseEvent,
   ) => {
     event.stopPropagation();
     if (confirm("Are you sure you want to delete this conversation?")) {
@@ -90,13 +90,15 @@ export function ConversationList({
 
         return acc;
       },
-      {} as Record<"today" | "thisWeek" | "older", Conversation[]>
+      {} as Record<"today" | "thisWeek" | "older", Conversation[]>,
     );
   }, [conversations]);
 
   if (isLoading) {
     return (
-      <div className="p-4 text-muted-foreground text-sm md:text-base">Loading conversations...</div>
+      <div className="p-4 text-muted-foreground text-sm md:text-base">
+        Loading conversations...
+      </div>
     );
   }
 
@@ -126,11 +128,11 @@ export function ConversationList({
                 variant={
                   conv.id === activeConversation?.id ? "secondary" : "ghost"
                 }
-                className="flex-1 justify-start text-left h-auto py-3 md:py-2"
+                className="flex-1 justify-start text-left h-auto py-3 md:py-2 min-w-0"
                 onClick={() => onSelectConversation(conv)}
               >
-                <div className="flex flex-col items-start">
-                  <span className="text-sm md:text-base truncate max-w-[200px] inline-block">
+                <div className="flex flex-col items-start min-w-0 flex-1">
+                  <span className="text-sm md:text-base truncate w-full">
                     {conv.title}
                   </span>
                   <span className="text-xs text-muted-foreground">
@@ -143,7 +145,7 @@ export function ConversationList({
               <Button
                 variant="ghost"
                 size="icon"
-                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                 onClick={(e) => handleDelete(conv.id, e)}
               >
                 <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
