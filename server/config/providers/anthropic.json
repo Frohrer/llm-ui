@@ -4,6 +4,12 @@
   "icon": "SiAntdesign",
   "models": [
     {
+      "id": "claude-3-7-sonnet-20250219",
+      "name": "Claude 3.7 Sonnet",
+      "contextLength": 20000,
+      "defaultModel": false
+    },
+    {
       "id": "claude-3-opus-latest",
       "name": "Claude 3 Opus",
       "contextLength": 200000,
