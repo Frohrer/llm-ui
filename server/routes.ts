@@ -12,8 +12,9 @@ import type { SQL } from "drizzle-orm";
 import * as sdk from "microsoft-cognitiveservices-speech-sdk";
 import fs from 'fs';
 import path from 'path';
-import fluent_ffmpeg from 'fluent-ffmpeg';
-import ffmpeg_static from 'ffmpeg-static';
+import fluent from 'fluent-ffmpeg';
+import ffmpegStatic from 'ffmpeg-static';
+import { transcribeAudioBuffer, synthesizeSpeech, convertAudioBuffer } from './speech-service';
 
 // Load provider configurations at startup
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -766,46 +767,20 @@ export function registerRoutes(app: Express): Server {
       res.setHeader("Content-Type", "audio/mpeg");
       res.setHeader("Transfer-Encoding", "chunked");
       
-      // Initialize speech config
-      const speechConfig = sdk.SpeechConfig.fromSubscription(
-        process.env.SPEECH_KEY,
-        process.env.SPEECH_REGION
-      );
-      
-      // Set the output format to MP3
-      speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio24Khz96KBitRateMonoMp3;
-      speechConfig.speechSynthesisVoiceName = voice;
-      
-      // Create a synthesizer
-      const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
-      
-      // Start synthesis
-      synthesizer.speakTextAsync(
-        text,
-        (result) => {
-          if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-            // Stream the audio data
-            res.write(Buffer.from(result.audioData));
-            res.end();
-          } else {
-            console.error("Speech synthesis canceled or failed", result);
-            res.status(500).json({ 
-              error: "Speech synthesis failed", 
-              reason: result.errorDetails || "Unknown error" 
-            });
-          }
-          
-          // Clean up
-          synthesizer.close();
-        },
-        (error) => {
-          console.error("Error synthesizing speech:", error);
-          res.status(500).json({ error: "Error synthesizing speech" });
-          
-          // Clean up
-          synthesizer.close();
-        }
-      );
+      try {
+        // Use our improved speech service
+        const audioBuffer = await synthesizeSpeech(text);
+        
+        // Stream the audio data
+        res.write(audioBuffer);
+        res.end();
+      } catch (synthError) {
+        console.error("Speech synthesis error:", synthError);
+        res.status(500).json({ 
+          error: "Speech synthesis failed", 
+          reason: synthError instanceof Error ? synthError.message : "Unknown error" 
+        });
+      }
     } catch (error) {
       console.error("TTS Error:", error);
       res.status(500).json({ 
@@ -825,9 +800,6 @@ export function registerRoutes(app: Express): Server {
         });
       }
       
-      // Set ffmpeg path
-      fluent_ffmpeg.setFfmpegPath(ffmpeg_static);
-      
       // Get the audio data from request
       const chunks: Buffer[] = [];
       
@@ -836,92 +808,23 @@ export function registerRoutes(app: Express): Server {
       });
       
       req.on('end', async () => {
-        const audioData = Buffer.concat(chunks);
-        
-        // Generate unique filenames for temporary files
-        const tempId = Date.now().toString();
-        const webmFilePath = `./temp-audio-${tempId}.webm`;
-        const wavFilePath = `./temp-audio-${tempId}.wav`;
-        
-        // Save the audio data to a temporary webm file
-        fs.writeFileSync(webmFilePath, audioData);
-        
-        // Helper function to clean up temporary files
-        function cleanupFiles() {
-          try {
-            if (fs.existsSync(webmFilePath)) fs.unlinkSync(webmFilePath);
-            if (fs.existsSync(wavFilePath)) fs.unlinkSync(wavFilePath);
-          } catch (err) {
-            console.error("Error removing temporary files:", err);
-          }
+        try {
+          const audioData = Buffer.concat(chunks);
+          
+          // Convert the audio data to the correct format for Azure
+          const convertedAudio = await convertAudioBuffer(audioData);
+          
+          // Use our improved speech service to transcribe
+          const transcription = await transcribeAudioBuffer(convertedAudio);
+          
+          res.json({ text: transcription });
+        } catch (processError) {
+          console.error("Error processing audio:", processError);
+          res.status(500).json({ 
+            error: "Speech recognition failed", 
+            reason: processError instanceof Error ? processError.message : "Unknown error" 
+          });
         }
-        
-        // Convert webm to wav using ffmpeg
-        fluent_ffmpeg(webmFilePath)
-          .outputOptions('-acodec pcm_s16le') // Use standard PCM format
-          .outputOptions('-ar 16000') // 16kHz sample rate (good for speech)
-          .outputOptions('-ac 1') // Mono channel
-          .on('error', (err: Error) => {
-            console.error('FFmpeg conversion error: ', err);
-            res.status(500).json({ error: "Failed to convert audio format" });
-            cleanupFiles();
-          })
-          .on('end', () => {
-            // Now process with Azure Speech Services
-            try {
-              // Set up speech config
-              const speechConfig = sdk.SpeechConfig.fromSubscription(
-                process.env.SPEECH_KEY as string,
-                process.env.SPEECH_REGION as string
-              );
-              
-              // Configure recognition options
-              speechConfig.speechRecognitionLanguage = "en-US";
-              
-              // Create an audio config from the WAV file
-              const wavFileData = fs.readFileSync(wavFilePath);
-              const audioConfig = sdk.AudioConfig.fromWavFileInput(wavFileData);
-              
-              // Create a recognizer
-              const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
-              
-              // Start recognition
-              recognizer.recognizeOnceAsync(
-                (result) => {
-                  if (result.reason === sdk.ResultReason.RecognizedSpeech) {
-                    res.json({ text: result.text });
-                  } else {
-                    console.error("Speech recognition failed", result);
-                    res.status(500).json({ 
-                      error: "Speech recognition failed", 
-                      reason: result.reason, 
-                      errorDetails: result.errorDetails || "No speech detected"
-                    });
-                  }
-                  
-                  // Clean up
-                  recognizer.close();
-                  cleanupFiles();
-                },
-                (error) => {
-                  console.error("Error recognizing speech:", error);
-                  res.status(500).json({ error: "Error recognizing speech" });
-                  
-                  // Clean up
-                  recognizer.close();
-                  cleanupFiles();
-                }
-              );
-            } catch (error) {
-              console.error("Speech recognition setup error:", error);
-              res.status(500).json({ 
-                error: "Failed to set up speech recognition", 
-                details: error instanceof Error ? error.message : "Unknown error" 
-              });
-              cleanupFiles();
-            }
-          })
-          .save(wavFilePath);
       });
       
       req.on('error', (error) => {

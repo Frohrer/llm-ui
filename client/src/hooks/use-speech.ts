@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
-// Define a type for the SpeechRecognition constructor
-type SpeechRecognitionConstructor = new () => SpeechRecognition;
-
 export function useSpeech() {
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const scriptProcessorNodeRef = useRef<ScriptProcessorNode | null>(null);
   const audioQueueRef = useRef<string[]>([]);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const { toast } = useToast();
@@ -15,94 +16,151 @@ export function useSpeech() {
   // Transcript state to track interim results during speech recognition
   const [transcript, setTranscript] = useState<string>('');
   
+  // Cleanup function for audio resources
+  const cleanupAudio = () => {
+    // Stop and release the media recorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+
+    // Stop all tracks in the media stream
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+    }
+
+    // Clean up audio processor node
+    if (scriptProcessorNodeRef.current) {
+      scriptProcessorNodeRef.current.disconnect();
+    }
+
+    // Close audio context
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+    }
+
+    // Reset all refs
+    mediaRecorderRef.current = null;
+    mediaStreamRef.current = null;
+    scriptProcessorNodeRef.current = null;
+    audioContextRef.current = null;
+    audioChunksRef.current = [];
+  };
+  
+  // Ensure cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      cleanupAudio();
+    };
+  }, []);
+  
   const startRecording = async () => {
     try {
-      // Check if the browser supports the Web Speech API
-      const SpeechRecognitionAPI = window.SpeechRecognition || 
-                                 window.webkitSpeechRecognition as unknown as SpeechRecognitionConstructor;
-      
-      if (!SpeechRecognitionAPI) {
-        throw new Error('Speech recognition not supported in this browser');
-      }
-
-      // Request microphone permission first to ensure we have access
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Clean up any existing recording state
+      cleanupAudio();
       
       // Clear any previous transcript
-      setTranscript('');
+      setTranscript('Listening...');
       
-      // Initialize speech recognition
-      const recognition = new SpeechRecognitionAPI();
+      // Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
       
-      // Configure recognition
-      recognition.lang = 'en-US';
-      recognition.continuous = true;
-      recognition.interimResults = true;
+      // Create audio context
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
       
-      // Keep track of final transcript parts
-      let finalTranscript = '';
+      // Create media stream source
+      const microphone = audioContext.createMediaStreamSource(stream);
       
-      // Set up event handlers
-      recognition.onstart = () => {
-        console.log('Speech recognition started');
-        setTranscript('Listening...');
-        setIsRecording(true);
+      // Create script processor for audio analysis
+      const bufferSize = 4096;
+      const processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+      scriptProcessorNodeRef.current = processor;
+      
+      // Connect nodes: microphone -> processor -> destination
+      microphone.connect(processor);
+      processor.connect(audioContext.destination);
+      
+      // Setup audio processing for voice activity detection
+      processor.onaudioprocess = (event) => {
+        const audioData = event.inputBuffer.getChannelData(0);
+        
+        // Simple energy-based voice activity detection
+        const energy = calculateEnergy(audioData);
+        
+        // Debug: Log energy levels
+        if (isRecording && audioChunksRef.current.length % 10 === 0) {
+          console.log('Audio energy:', energy);
+        }
       };
       
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        let interimTranscript = '';
-        
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript + ' ';
-          } else {
-            interimTranscript += event.results[i][0].transcript;
+      // Setup media recorder for capturing audio
+      let options = {};
+      if (MediaRecorder.isTypeSupported('audio/webm')) {
+        options = { mimeType: 'audio/webm' };
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        options = { mimeType: 'audio/mp4' };
+      }
+      
+      const mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mediaRecorder;
+      
+      // Setup event listeners
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      
+      // Set up interval to send audio to server for transcription
+      const updateInterval = setInterval(async () => {
+        if (isRecording && audioChunksRef.current.length > 0) {
+          try {
+            // Create a copy of the current audio chunks
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            
+            // Send to server for recognition
+            const response = await fetch('/api/stt', {
+              method: 'POST',
+              body: audioBlob,
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.text && data.text.trim()) {
+                setTranscript(data.text);
+              }
+            }
+          } catch (err) {
+            console.error('Error getting interim transcript:', err);
           }
         }
-        
-        // Update the transcript state with the current recognition results
-        setTranscript(finalTranscript + interimTranscript);
+      }, 5000); // Check every 5 seconds
+      
+      // Start recording
+      mediaRecorder.start(1000); // Collect data every second
+      setIsRecording(true);
+      
+      // Set up cleanup on stop
+      mediaRecorder.onstop = () => {
+        clearInterval(updateInterval);
       };
-      
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error('Speech recognition error:', event.error);
-        
-        if (event.error !== 'no-speech') {
-          toast({
-            variant: "destructive",
-            title: "Speech Recognition Error",
-            description: `Error: ${event.error}${event.message ? ` - ${event.message}` : ''}`
-          });
-        }
-      };
-      
-      recognition.onend = () => {
-        console.log('Speech recognition ended');
-        // Only change the recording state if we're not immediately restarting
-        if (recognitionRef.current === recognition) {
-          setIsRecording(false);
-          recognitionRef.current = null;
-        }
-      };
-      
-      // Store the recognition instance
-      recognitionRef.current = recognition;
-      
-      // Start recognition
-      recognition.start();
       
       // Set a timeout to automatically stop if it runs too long
       setTimeout(() => {
-        if (isRecording && recognitionRef.current === recognition) {
-          stopRecording();
+        if (isRecording) {
+          stopRecording().catch(console.error);
         }
-      }, 30000);
+      }, 30000); // 30 seconds max
       
     } catch (error) {
-      console.error('Error starting speech recognition:', error);
+      console.error('Error starting audio recording:', error);
+      cleanupAudio();
+      setIsRecording(false);
       toast({
         variant: "destructive",
-        title: "Speech Recognition Error",
+        title: "Microphone Error",
         description: error instanceof Error 
           ? error.message 
           : "Please ensure your browser has permission to access the microphone."
@@ -112,27 +170,86 @@ export function useSpeech() {
 
   const stopRecording = async (): Promise<string> => {
     return new Promise((resolve, reject) => {
-      if (!recognitionRef.current) {
+      if (!mediaRecorderRef.current || !isRecording) {
         reject(new Error('No recording in progress'));
         return;
       }
       
-      // Capture the current transcript
+      // Stop media recorder
+      const mediaRecorder = mediaRecorderRef.current;
+      
+      // Capture current transcript
       const currentTranscript = transcript;
       
-      // Clean up
-      const recognition = recognitionRef.current;
-      recognition.stop();
-      recognitionRef.current = null;
-      setIsRecording(false);
-      
-      // Resolve with the captured transcript
-      if (currentTranscript && currentTranscript !== 'Listening...') {
-        resolve(currentTranscript.trim());
+      if (mediaRecorder.state !== 'inactive') {
+        mediaRecorder.onstop = async () => {
+          try {
+            if (audioChunksRef.current.length === 0) {
+              setIsRecording(false);
+              cleanupAudio();
+              reject(new Error('No audio data collected'));
+              return;
+            }
+            
+            // Create a blob from all chunks
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            
+            // Send to server for final transcription
+            const response = await fetch('/api/stt', {
+              method: 'POST',
+              body: audioBlob,
+            });
+            
+            // Update recording status
+            setIsRecording(false);
+            cleanupAudio();
+            
+            if (!response.ok) {
+              const errorData = await response.json();
+              throw new Error(errorData.error || 'Server error during speech recognition');
+            }
+            
+            const data = await response.json();
+            
+            if (data.text && data.text.trim()) {
+              setTranscript(data.text);
+              resolve(data.text);
+            } else if (currentTranscript && currentTranscript !== 'Listening...') {
+              // Fall back to what we already had
+              resolve(currentTranscript);
+            } else {
+              reject(new Error('No speech detected'));
+            }
+          } catch (error) {
+            console.error('Speech recognition error:', error);
+            setIsRecording(false);
+            setTranscript('');
+            cleanupAudio();
+            reject(error);
+          }
+        };
+        
+        mediaRecorder.stop();
       } else {
-        reject(new Error('No speech detected'));
+        setIsRecording(false);
+        cleanupAudio();
+        
+        if (currentTranscript && currentTranscript !== 'Listening...') {
+          resolve(currentTranscript);
+        } else {
+          reject(new Error('No speech detected'));
+        }
       }
     });
+  };
+  
+  // Helper function to calculate energy level of audio for voice activity detection
+  const calculateEnergy = (audioData: Float32Array): number => {
+    let sum = 0;
+    for (let i = 0; i < audioData.length; i++) {
+      sum += Math.abs(audioData[i]);
+    }
+    return sum / audioData.length;
   };
 
   const playText = async (text: string) => {
