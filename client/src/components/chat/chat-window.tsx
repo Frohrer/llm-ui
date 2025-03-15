@@ -412,11 +412,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
         </ScrollArea>
       </div>
       <div className="p-4 border-t">
-        <ChatInput 
-          onSendMessage={handleSendMessage} 
-          isLoading={isLoading} 
-          lastAssistantMessage={streamedText || messages[messages.length - 1]?.role === 'assistant' ? messages[messages.length - 1]?.content : undefined}
-        />
+        <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
       </div>
     </div>
   );
