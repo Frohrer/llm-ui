@@ -9,6 +9,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { useProviders } from '@/lib/llm/providers';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { Button } from '@/components/ui/button';
+import { Volume2, VolumeX } from 'lucide-react';
+import { speechService } from '@/lib/speech-service';
 
 interface ChatWindowProps {
   conversation?: Conversation;
