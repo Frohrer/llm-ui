@@ -9,12 +9,6 @@ import { transformDatabaseConversation } from "@/lib/llm/types";
 import { loadProviderConfigs } from "./config/loader";
 import { cloudflareAuthMiddleware } from "./middleware/auth";
 import type { SQL } from "drizzle-orm";
-import * as sdk from "microsoft-cognitiveservices-speech-sdk";
-import fs from 'fs';
-import path from 'path';
-import fluent from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
-import { transcribeAudioBuffer, synthesizeSpeech, convertAudioBuffer } from './speech-service';
 
 // Load provider configurations at startup
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -744,100 +738,6 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error("Database error:", error);
       res.status(500).json({ error: "Failed to fetch conversation" });
-    }
-  });
-
-  // Text-to-Speech endpoint
-  app.post("/api/tts", async (req, res) => {
-    try {
-      const { text, voice = "en-US-JennyNeural" } = req.body;
-      
-      if (!text || typeof text !== "string") {
-        return res.status(400).json({ error: "Invalid text" });
-      }
-      
-      if (!process.env.SPEECH_KEY || !process.env.SPEECH_REGION) {
-        return res.status(500).json({ 
-          error: "Speech service credentials not configured",
-          missing: !process.env.SPEECH_KEY ? "SPEECH_KEY" : "SPEECH_REGION"
-        });
-      }
-      
-      // Set up headers for audio streaming
-      res.setHeader("Content-Type", "audio/mpeg");
-      res.setHeader("Transfer-Encoding", "chunked");
-      
-      try {
-        // Use our improved speech service
-        const audioBuffer = await synthesizeSpeech(text);
-        
-        // Stream the audio data
-        res.write(audioBuffer);
-        res.end();
-      } catch (synthError) {
-        console.error("Speech synthesis error:", synthError);
-        res.status(500).json({ 
-          error: "Speech synthesis failed", 
-          reason: synthError instanceof Error ? synthError.message : "Unknown error" 
-        });
-      }
-    } catch (error) {
-      console.error("TTS Error:", error);
-      res.status(500).json({ 
-        error: "Failed to process text-to-speech request",
-        details: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  });
-
-  // Speech-to-Text streaming endpoint
-  app.post("/api/stt", (req, res) => {
-    try {
-      if (!process.env.SPEECH_KEY || !process.env.SPEECH_REGION) {
-        return res.status(500).json({ 
-          error: "Speech service credentials not configured",
-          missing: !process.env.SPEECH_KEY ? "SPEECH_KEY" : "SPEECH_REGION"
-        });
-      }
-      
-      // Get the audio data from request
-      const chunks: Buffer[] = [];
-      
-      req.on('data', (chunk) => {
-        chunks.push(chunk);
-      });
-      
-      req.on('end', async () => {
-        try {
-          const audioData = Buffer.concat(chunks);
-          
-          // Convert the audio data to the correct format for Azure
-          const convertedAudio = await convertAudioBuffer(audioData);
-          
-          // Use our improved speech service to transcribe
-          const transcription = await transcribeAudioBuffer(convertedAudio);
-          
-          res.json({ text: transcription });
-        } catch (processError) {
-          console.error("Error processing audio:", processError);
-          res.status(500).json({ 
-            error: "Speech recognition failed", 
-            reason: processError instanceof Error ? processError.message : "Unknown error" 
-          });
-        }
-      });
-      
-      req.on('error', (error) => {
-        console.error("Error receiving audio data:", error);
-        res.status(500).json({ error: "Error receiving audio data" });
-      });
-      
-    } catch (error) {
-      console.error("STT Error:", error);
-      res.status(500).json({ 
-        error: "Failed to process speech-to-text request",
-        details: error instanceof Error ? error.message : "Unknown error"
-      });
     }
   });
 
