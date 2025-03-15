@@ -1,8 +1,18 @@
-// Type definitions for Web Speech API
+// Type definitions for Web Speech API and Web Audio API
 interface Window {
   SpeechRecognition?: typeof SpeechRecognition;
   webkitSpeechRecognition?: typeof SpeechRecognition;
+  AudioContext: typeof AudioContext;
+  webkitAudioContext: typeof AudioContext;
 }
+
+// Web Audio API TypeScript declarations (for better compatibility)
+interface AudioContextOptions {
+  latencyHint?: AudioContextLatencyCategory | number;
+  sampleRate?: number;
+}
+
+type AudioContextLatencyCategory = "balanced" | "interactive" | "playback";
 
 interface SpeechRecognitionErrorEvent extends Event {
   error: string;
