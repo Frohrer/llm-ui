@@ -840,8 +840,12 @@ export function registerRoutes(app: Express): Server {
         // Configure recognition options
         speechConfig.speechRecognitionLanguage = "en-US";
         
-        // Create an audio config from the audio data
-        const audioConfig = sdk.AudioConfig.fromWavFileInput(audioData);
+        // Save the audio data to a temporary file
+        const tempFilePath = './temp-audio.wav';
+        require('fs').writeFileSync(tempFilePath, audioData);
+        
+        // Create an audio config from the temporary file
+        const audioConfig = sdk.AudioConfig.fromWavFileInput(require('fs').readFileSync(tempFilePath));
         
         // Create a recognizer
         const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
@@ -862,6 +866,12 @@ export function registerRoutes(app: Express): Server {
             
             // Clean up
             recognizer.close();
+            // Delete the temporary file
+            try {
+              require('fs').unlinkSync(tempFilePath);
+            } catch (err) {
+              console.error("Error deleting temporary file:", err);
+            }
           },
           (error) => {
             console.error("Error recognizing speech:", error);
@@ -869,6 +879,12 @@ export function registerRoutes(app: Express): Server {
             
             // Clean up
             recognizer.close();
+            // Delete the temporary file
+            try {
+              require('fs').unlinkSync(tempFilePath);
+            } catch (err) {
+              console.error("Error deleting temporary file:", err);
+            }
           }
         );
       });
