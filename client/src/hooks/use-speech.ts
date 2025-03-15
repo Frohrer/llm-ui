@@ -1,13 +1,11 @@
 import { useState, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
-// Define a type for the SpeechRecognition constructor
-type SpeechRecognitionConstructor = new () => SpeechRecognition;
-
 export function useSpeech() {
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const audioQueueRef = useRef<string[]>([]);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const { toast } = useToast();
@@ -17,84 +15,84 @@ export function useSpeech() {
   
   const startRecording = async () => {
     try {
-      // Check if the browser supports the Web Speech API
-      const SpeechRecognitionAPI = window.SpeechRecognition || 
-                                 window.webkitSpeechRecognition as unknown as SpeechRecognitionConstructor;
-      
-      if (!SpeechRecognitionAPI) {
-        // Fall back to our server-side audio recording approach
-        throw new Error('Speech recognition not available directly. Using server-side processing.');
-      }
-
-      // Request microphone permission
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Request microphone permission and get stream
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       // Clear any previous transcript
       setTranscript('');
       
-      // Initialize speech recognition
-      const recognition = new SpeechRecognitionAPI();
+      // Try to use webm format which is more widely supported
+      let options = {};
+      if (MediaRecorder.isTypeSupported('audio/webm')) {
+        options = { mimeType: 'audio/webm' };
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        options = { mimeType: 'audio/mp4' };
+      }
       
-      // Configure recognition
-      recognition.lang = 'en-US';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
+      // Initialize the media recorder
+      const mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
       
-      // Set up event handlers before starting
-      let finalTranscript = '';
-      
-      recognition.onstart = () => {
-        console.log('Speech recognition started');
-      };
-      
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        let interimTranscript = '';
-        
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          } else {
-            interimTranscript += event.results[i][0].transcript;
-          }
-        }
-        
-        // Update the transcript state with the current recognition results
-        setTranscript(finalTranscript + interimTranscript);
-      };
-      
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error('Speech recognition error:', event.error);
-        
-        // Don't stop for no-speech error as it might just need more time
-        if (event.error !== 'no-speech') {
-          recognition.stop();
+      // Set up event handlers
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
         }
       };
       
-      recognition.onend = () => {
-        console.log('Speech recognition ended');
-      };
-      
-      // Store the recognition instance
-      recognitionRef.current = recognition;
-      
-      // Start recognition
-      recognition.start();
+      // Start recording
+      mediaRecorder.start(1000); // Collect data every second
       setIsRecording(true);
       
       // Set a timeout to automatically stop if it runs too long
       setTimeout(() => {
-        if (isRecording && recognitionRef.current === recognition) {
+        if (isRecording && mediaRecorderRef.current === mediaRecorder) {
           stopRecording();
         }
       }, 30000);
+      
+      // Set placeholder transcript for better UX
+      setTranscript("Listening...");
+      
+      // Every 3 seconds, update the transcript with current audio
+      const transcriptUpdateInterval = setInterval(async () => {
+        if (audioChunksRef.current.length > 0 && isRecording) {
+          try {
+            // Create a copy of current audio chunks
+            const audioBlob = new Blob([...audioChunksRef.current], { type: 'audio/webm' });
+            
+            // Send to server for transcription
+            const formData = new FormData();
+            formData.append('audio', audioBlob);
+            
+            const response = await fetch('/api/stt', {
+              method: 'POST',
+              body: audioBlob,
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.text) {
+                setTranscript(data.text);
+              }
+            }
+          } catch (err) {
+            console.error('Error getting interim transcript:', err);
+          }
+        }
+      }, 3000);
+      
+      // Clear interval when recording stops
+      mediaRecorder.onstop = () => {
+        clearInterval(transcriptUpdateInterval);
+      };
       
     } catch (error) {
       console.error('Error starting speech recognition:', error);
       toast({
         variant: "destructive",
-        title: "Speech Recognition Error",
+        title: "Microphone Error",
         description: error instanceof Error 
           ? error.message 
           : "Please ensure your browser has permission to access the microphone."
@@ -104,26 +102,63 @@ export function useSpeech() {
 
   const stopRecording = async (): Promise<string> => {
     return new Promise((resolve, reject) => {
-      if (!recognitionRef.current) {
+      if (!mediaRecorderRef.current || !isRecording) {
         reject(new Error('No recording in progress'));
         return;
       }
       
-      // Capture the current transcript
-      const currentTranscript = transcript;
+      const mediaRecorder = mediaRecorderRef.current;
       
-      // Clean up
-      const recognition = recognitionRef.current;
-      recognition.stop();
-      recognitionRef.current = null;
-      setIsRecording(false);
+      // Set up onstop handler to process the audio
+      mediaRecorder.onstop = async () => {
+        try {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          
+          // Send to server for processing
+          const response = await fetch('/api/stt', {
+            method: 'POST',
+            body: audioBlob,
+          });
+          
+          if (!response.ok) {
+            throw new Error('Server speech recognition failed');
+          }
+          
+          const data = await response.json();
+          
+          if (data.error) {
+            throw new Error(data.error);
+          }
+          
+          // Clean up recording state
+          setIsRecording(false);
+          mediaRecorderRef.current = null;
+          
+          // Stop all tracks in the stream
+          mediaRecorder.stream.getTracks().forEach(track => track.stop());
+          
+          if (data.text && data.text.trim()) {
+            // Update the transcript one last time with the final result
+            setTranscript(data.text);
+            resolve(data.text);
+          } else {
+            setTranscript('');
+            reject(new Error('No speech detected'));
+          }
+        } catch (error) {
+          console.error('Speech recognition error:', error);
+          setIsRecording(false);
+          setTranscript('');
+          
+          // Stop all tracks in the stream
+          mediaRecorder.stream.getTracks().forEach(track => track.stop());
+          
+          reject(error);
+        }
+      };
       
-      // Resolve with the captured transcript
-      if (currentTranscript.trim()) {
-        resolve(currentTranscript.trim());
-      } else {
-        reject(new Error('No speech detected'));
-      }
+      // Stop the recording
+      mediaRecorder.stop();
     });
   };
 
