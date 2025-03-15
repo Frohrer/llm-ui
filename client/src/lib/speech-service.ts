@@ -3,9 +3,11 @@ import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 class SpeechService {
   private recognizer: sdk.SpeechRecognizer | null = null;
   private synthesizer: sdk.SpeechSynthesizer | null = null;
+  private speechConfig: sdk.SpeechConfig | null = null;
   private isListening = false;
   private isInitialized = false;
   private initializationPromise: Promise<void>;
+  private hasMicrophonePermission = false;
 
   constructor() {
     this.initializationPromise = this.initialize();
@@ -17,12 +19,11 @@ class SpeechService {
       if (!response.ok) throw new Error('Failed to fetch speech credentials');
       const { key, region } = await response.json();
       
-      const speechConfig = sdk.SpeechConfig.fromSubscription(key, region);
-      speechConfig.speechRecognitionLanguage = "en-US";
+      this.speechConfig = sdk.SpeechConfig.fromSubscription(key, region);
+      this.speechConfig.speechRecognitionLanguage = "en-US";
       
-      const audioConfig = sdk.AudioConfig.fromDefaultMicrophoneInput();
-      this.recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
-      this.synthesizer = new sdk.SpeechSynthesizer(speechConfig);
+      // Initialize only the synthesizer initially (doesn't require mic permission)
+      this.synthesizer = new sdk.SpeechSynthesizer(this.speechConfig);
       
       this.isInitialized = true;
     } catch (error) {
@@ -30,10 +31,43 @@ class SpeechService {
       throw error;
     }
   }
+  
+  async checkMicrophonePermission(): Promise<boolean> {
+    if (this.hasMicrophonePermission) return true;
+    
+    try {
+      // This will trigger the browser's permission dialog
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // If we get here, permission was granted
+      this.hasMicrophonePermission = true;
+      
+      // Clean up the stream since we don't need it right now
+      stream.getTracks().forEach(track => track.stop());
+      
+      return true;
+    } catch (error) {
+      console.error('Microphone permission denied:', error);
+      this.hasMicrophonePermission = false;
+      return false;
+    }
+  }
 
   async startListening(onResult: (text: string) => void): Promise<void> {
     if (!this.isInitialized) {
       await this.initializationPromise;
+    }
+    
+    // Check for microphone permission first
+    const hasPermission = await this.checkMicrophonePermission();
+    if (!hasPermission) {
+      throw new Error('Microphone permission is required for speech recognition');
+    }
+    
+    // Create recognizer if we don't have one yet
+    if (!this.recognizer && this.speechConfig) {
+      const audioConfig = sdk.AudioConfig.fromDefaultMicrophoneInput();
+      this.recognizer = new sdk.SpeechRecognizer(this.speechConfig, audioConfig);
     }
     
     if (!this.recognizer || this.isListening) return;
@@ -53,6 +87,7 @@ class SpeechService {
           resolve();
         },
         (error) => {
+          this.isListening = false;
           console.error("Error starting speech recognition:", error);
           reject(error);
         }
