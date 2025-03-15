@@ -821,6 +821,15 @@ export function registerRoutes(app: Express): Server {
         });
       }
       
+      // Import the necessary modules
+      const fs = require('fs');
+      const path = require('path');
+      const ffmpeg = require('fluent-ffmpeg');
+      const ffmpegPath = require('ffmpeg-static');
+      
+      // Set ffmpeg path
+      ffmpeg.setFfmpegPath(ffmpegPath);
+      
       // Get the audio data from request
       const chunks: Buffer[] = [];
       
@@ -831,62 +840,88 @@ export function registerRoutes(app: Express): Server {
       req.on('end', async () => {
         const audioData = Buffer.concat(chunks);
         
-        // Set up speech config
-        const speechConfig = sdk.SpeechConfig.fromSubscription(
-          process.env.SPEECH_KEY,
-          process.env.SPEECH_REGION
-        );
+        // Generate unique filenames for temporary files
+        const tempId = Date.now().toString();
+        const webmFilePath = `./temp-audio-${tempId}.webm`;
+        const wavFilePath = `./temp-audio-${tempId}.wav`;
         
-        // Configure recognition options
-        speechConfig.speechRecognitionLanguage = "en-US";
+        // Save the audio data to a temporary webm file
+        fs.writeFileSync(webmFilePath, audioData);
         
-        // Save the audio data to a temporary file
-        const tempFilePath = './temp-audio.wav';
-        require('fs').writeFileSync(tempFilePath, audioData);
-        
-        // Create an audio config from the temporary file
-        const audioConfig = sdk.AudioConfig.fromWavFileInput(require('fs').readFileSync(tempFilePath));
-        
-        // Create a recognizer
-        const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
-        
-        // Start recognition
-        recognizer.recognizeOnceAsync(
-          (result) => {
-            if (result.reason === sdk.ResultReason.RecognizedSpeech) {
-              res.json({ text: result.text });
-            } else {
-              console.error("Speech recognition failed", result);
-              res.status(500).json({ 
-                error: "Speech recognition failed", 
-                reason: result.reason, 
-                errorDetails: result.errorDetails || "No speech detected"
-              });
-            }
-            
-            // Clean up
-            recognizer.close();
-            // Delete the temporary file
-            try {
-              require('fs').unlinkSync(tempFilePath);
-            } catch (err) {
-              console.error("Error deleting temporary file:", err);
-            }
-          },
-          (error) => {
-            console.error("Error recognizing speech:", error);
-            res.status(500).json({ error: "Error recognizing speech" });
-            
-            // Clean up
-            recognizer.close();
-            // Delete the temporary file
-            try {
-              require('fs').unlinkSync(tempFilePath);
-            } catch (err) {
-              console.error("Error deleting temporary file:", err);
-            }
+        // Helper function to clean up temporary files
+        function cleanupFiles() {
+          try {
+            if (fs.existsSync(webmFilePath)) fs.unlinkSync(webmFilePath);
+            if (fs.existsSync(wavFilePath)) fs.unlinkSync(wavFilePath);
+          } catch (err) {
+            console.error("Error removing temporary files:", err);
           }
-        );
+        }
+        
+        // Convert webm to wav using ffmpeg
+        ffmpeg(webmFilePath)
+          .outputOptions('-acodec pcm_s16le') // Use standard PCM format
+          .outputOptions('-ar 16000') // 16kHz sample rate (good for speech)
+          .outputOptions('-ac 1') // Mono channel
+          .on('error', (err: Error) => {
+            console.error('FFmpeg conversion error: ', err);
+            res.status(500).json({ error: "Failed to convert audio format" });
+            
+            // Cleanup
+            cleanupFiles();
+          })
+          .on('end', () => {
+            // Now process with Azure Speech Services
+            try {
+              // Set up speech config
+              const speechConfig = sdk.SpeechConfig.fromSubscription(
+                process.env.SPEECH_KEY as string,
+                process.env.SPEECH_REGION as string
+              );
+              
+              // Configure recognition options
+              speechConfig.speechRecognitionLanguage = "en-US";
+              
+              // Create an audio config from the WAV file
+              const audioConfig = sdk.AudioConfig.fromWavFileInput(fs.readFileSync(wavFilePath));
+              
+              // Create a recognizer
+              const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
+              
+              // Start recognition
+              recognizer.recognizeOnceAsync(
+                (result) => {
+                  if (result.reason === sdk.ResultReason.RecognizedSpeech) {
+                    res.json({ text: result.text });
+                  } else {
+                    console.error("Speech recognition failed", result);
+                    res.status(500).json({ 
+                      error: "Speech recognition failed", 
+                      reason: result.reason, 
+                      errorDetails: result.errorDetails || "No speech detected"
+                    });
+                  }
+                  
+                  // Clean up
+                  recognizer.close();
+                  cleanupFiles();
+                },
+                (error) => {
+                  console.error("Error recognizing speech:", error);
+                  res.status(500).json({ error: "Error recognizing speech" });
+                  
+                  // Clean up
+                  recognizer.close();
+                  cleanupFiles();
+                }
+              );
+            } catch (error) {
+              console.error("Speech recognition setup error:", error);
+              res.status(500).json({ error: "Failed to set up speech recognition" });
+              cleanupFiles();
+            }
+          })
+          .save(wavFilePath);
       });
       
       req.on('error', (error) => {
