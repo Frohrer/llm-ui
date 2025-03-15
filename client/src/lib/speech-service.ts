@@ -19,18 +19,35 @@ class SpeechService {
       if (!response.ok) throw new Error('Failed to fetch speech credentials');
       const { key, region } = await response.json();
       
+      if (!key || !region) {
+        console.error('Invalid speech credentials received from server');
+        throw new Error('Invalid speech credentials');
+      }
+      
+      console.log(`Initializing speech services with region: ${region}`);
       this.speechConfig = sdk.SpeechConfig.fromSubscription(key, region);
       this.speechConfig.speechRecognitionLanguage = "en-US";
       this.speechConfig.speechSynthesisLanguage = "en-US"; 
       this.speechConfig.speechSynthesisVoiceName = "en-US-AriaNeural"; // Use a high-quality neural voice
       
-      // Initialize only the synthesizer initially (doesn't require mic permission)
-      // Default audio output to the default speaker device
-      const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
-      console.log("Creating speech synthesizer with audio output configuration");
-      this.synthesizer = new sdk.SpeechSynthesizer(this.speechConfig, audioConfig);
+      // Set output format for better browser compatibility
+      this.speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3;
+      
+      try {
+        // Initialize only the synthesizer initially (doesn't require mic permission)
+        // Default audio output to the default speaker device
+        const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
+        console.log("Creating speech synthesizer with audio output configuration");
+        this.synthesizer = new sdk.SpeechSynthesizer(this.speechConfig, audioConfig);
+        console.log("Speech synthesizer created successfully");
+      } catch (synthError) {
+        console.error('Error creating speech synthesizer:', synthError);
+        // We'll attempt to create it on-demand in the speak method if needed
+        this.synthesizer = null;
+      }
       
       this.isInitialized = true;
+      console.log("Speech service initialization complete");
     } catch (error) {
       console.error('Error initializing speech service:', error);
       throw error;
@@ -128,9 +145,15 @@ class SpeechService {
       await this.initializationPromise;
     }
 
-    if (!this.synthesizer) {
-      console.error("Speech synthesizer is not available");
-      throw new Error("Speech synthesizer is not available");
+    // Recreate synthesizer if it doesn't exist
+    if (!this.synthesizer && this.speechConfig) {
+      console.log("Creating synthesizer...");
+      const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
+      this.synthesizer = new sdk.SpeechSynthesizer(this.speechConfig, audioConfig);
+      console.log("Synthesizer created successfully");
+    } else if (!this.synthesizer) {
+      console.error("Failed to create synthesizer - speech config is not available");
+      throw new Error("Speech synthesizer could not be created");
     }
     
     console.log("Starting text-to-speech synthesis...");
