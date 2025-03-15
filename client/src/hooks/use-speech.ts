@@ -13,7 +13,16 @@ export function useSpeech() {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      
+      // Try to use webm format which is more widely supported
+      let options = {};
+      if (MediaRecorder.isTypeSupported('audio/webm')) {
+        options = { mimeType: 'audio/webm' };
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        options = { mimeType: 'audio/mp4' };
+      }
+      
+      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -23,8 +32,17 @@ export function useSpeech() {
         }
       };
 
-      mediaRecorder.start();
+      // Collect data every second or so to improve real-time capabilities
+      mediaRecorder.start(1000);
       setIsRecording(true);
+      
+      // Set up a fallback mechanism if no data is received after 30 seconds
+      setTimeout(() => {
+        if (isRecording && mediaRecorderRef.current === mediaRecorder) {
+          mediaRecorder.stop();
+        }
+      }, 30000);
+      
     } catch (error) {
       console.error('Error accessing microphone:', error);
       toast({
@@ -44,24 +62,72 @@ export function useSpeech() {
 
       mediaRecorderRef.current.onstop = async () => {
         try {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-          
-          // Send audio data to the server for speech-to-text
-          const response = await fetch('/api/stt', {
-            method: 'POST',
-            body: audioBlob,
-          });
+          // Using the Web Speech API directly for client-side speech recognition
+          // as an alternative to server-side processing
+          if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            // Use browser's built-in speech recognition
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+            
+            // Create an audio element to play back the recording for the recognizer
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            
+            let recognitionStarted = false;
+            audio.onplay = () => {
+              if (!recognitionStarted) {
+                recognition.start();
+                recognitionStarted = true;
+              }
+            };
+            
+            recognition.onresult = (event: SpeechRecognitionEvent) => {
+              const transcript = event.results[0][0].transcript;
+              resolve(transcript);
+            };
+            
+            recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+              console.error('Speech recognition error:', event.error);
+              reject(new Error(`Recognition error: ${event.error}`));
+            };
+            
+            recognition.onend = () => {
+              if (!recognitionStarted) {
+                reject(new Error('Recognition ended without starting'));
+              }
+              URL.revokeObjectURL(audioUrl);
+            };
+            
+            // Start playing the audio to trigger recognition
+            audio.play().catch(error => {
+              console.error('Error playing audio:', error);
+              reject(error);
+            });
+          } else {
+            // Fallback to server-side processing if Web Speech API is not available
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            
+            // Send audio data to the server for speech-to-text
+            const response = await fetch('/api/stt', {
+              method: 'POST',
+              body: audioBlob,
+            });
 
-          if (!response.ok) {
-            throw new Error('Speech recognition failed');
+            if (!response.ok) {
+              throw new Error('Speech recognition failed');
+            }
+
+            const data = await response.json();
+            if (data.error) {
+              throw new Error(data.error);
+            }
+
+            resolve(data.text);
           }
-
-          const data = await response.json();
-          if (data.error) {
-            throw new Error(data.error);
-          }
-
-          resolve(data.text);
         } catch (error) {
           console.error('Speech recognition error:', error);
           reject(error);
