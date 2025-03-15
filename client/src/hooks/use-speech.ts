@@ -77,14 +77,35 @@ export function useSpeech() {
 
   const speak = useCallback(async (text: string) => {
     try {
+      if (!text || text.trim() === '') {
+        console.warn('Attempted to speak empty text');
+        return;
+      }
+      
       setIsSpeaking(true);
-      await speechService.speak(text);
+      console.log('Starting speech synthesis...');
+      
+      // Try to speak the text in smaller chunks if it's very long
+      const maxChunkSize = 500; // Characters per chunk
+      
+      if (text.length > maxChunkSize) {
+        // If text is very long, just speak a reasonable portion
+        const truncatedText = text.substring(0, maxChunkSize) + '...';
+        console.log(`Text too long (${text.length} chars), truncating to ${truncatedText.length} chars`);
+        await speechService.speak(truncatedText);
+      } else {
+        await speechService.speak(text);
+      }
+      
+      console.log('Speech synthesis completed');
     } catch (error) {
       console.error('Failed to speak text:', error);
       toast({
         variant: "destructive",
         title: "Text-to-Speech Error",
-        description: "Failed to speak the message. Please try again."
+        description: error instanceof Error 
+          ? `Error: ${error.message}` 
+          : "Failed to speak the message. Please try again."
       });
     } finally {
       setIsSpeaking(false);
