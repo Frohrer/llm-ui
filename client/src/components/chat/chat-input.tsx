@@ -4,18 +4,22 @@ import { Textarea } from '@/components/ui/textarea';
 import { SendHorizonal } from 'lucide-react';
 
 interface ChatInputProps {
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string) => Promise<boolean | void>;
   isLoading: boolean;
 }
 
 export function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
   const [message, setMessage] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim() && !isLoading) {
-      onSendMessage(message);
-      setMessage('');
+      // Only clear the message if the submission was successful
+      // The onSendMessage function will return true if submission was successful
+      const success = await onSendMessage(message);
+      if (success) {
+        setMessage('');
+      }
     }
   };
 

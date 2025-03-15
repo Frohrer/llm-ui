@@ -175,6 +175,16 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   };
 
   const handleSendMessage = async (content: string) => {
+    // Check if a model is selected
+    if (!selectedModel) {
+      toast({
+        variant: "destructive",
+        title: "No model selected",
+        description: "Please select a model before sending a message."
+      });
+      return;
+    }
+
     // Cancel any existing request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -188,6 +198,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       timestamp
     };
 
+    // Add the message to the UI
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     setStreamedText('');
@@ -221,6 +232,9 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
         throw new Error('No response body received');
       }
 
+      // The rest of the function deals with handling the successful response
+      // Signal to ChatInput that the message was sent successfully
+      // This will be handled by returning true at the end of this try block
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       const currentStreamId = streamIdRef.current;
@@ -325,6 +339,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           }
         }
 
+        // Successfully handled the message, return true to signal to ChatInput that it was successful
+        return true;
       } catch (error) {
         console.error('Error reading stream:', error);
         throw error;
@@ -334,7 +350,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         console.log('Request aborted');
-        return;
+        return false;
       }
       console.error('Error sending message:', error);
       toast({
@@ -344,6 +360,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       });
       // Remove the user message if the request failed
       setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
+      return false;
     } finally {
       setIsLoading(false);
       setStreamedText('');
