@@ -31,7 +31,8 @@ class SpeechService {
       this.speechConfig.speechSynthesisVoiceName = "en-US-AriaNeural"; // Use a high-quality neural voice
       
       // Set output format for better browser compatibility
-      this.speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3;
+      // Use a WAV format that's widely supported in browsers
+      this.speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Riff16Khz16BitMonoPcm;
       
       try {
         // Initialize only the synthesizer initially (doesn't require mic permission)
@@ -140,6 +141,34 @@ class SpeechService {
   }
 
   async speak(text: string): Promise<void> {
+    // Try to use the browser's built-in speech synthesis as a fallback
+    if ('speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) {
+      try {
+        console.log("Using browser's built-in speech synthesis");
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        utterance.lang = 'en-US';
+        
+        return new Promise((resolve, reject) => {
+          utterance.onend = () => {
+            console.log("Browser speech synthesis completed");
+            resolve();
+          };
+          utterance.onerror = (event) => {
+            console.error("Browser speech synthesis error:", event);
+            reject(new Error("Browser speech synthesis failed"));
+          };
+          window.speechSynthesis.speak(utterance);
+        });
+      } catch (browserSpeechError) {
+        console.error("Browser speech synthesis failed, falling back to Azure:", browserSpeechError);
+        // Continue to Azure speech synthesis if browser speech synthesis fails
+      }
+    }
+
+    // Azure Speech SDK synthesis
     if (!this.isInitialized) {
       console.log("Speech service not initialized, initializing now...");
       await this.initializationPromise;
@@ -148,6 +177,10 @@ class SpeechService {
     // Recreate synthesizer if it doesn't exist
     if (!this.synthesizer && this.speechConfig) {
       console.log("Creating synthesizer...");
+      
+      // Make sure we have the right output format 
+      this.speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Riff16Khz16BitMonoPcm;
+      
       const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
       this.synthesizer = new sdk.SpeechSynthesizer(this.speechConfig, audioConfig);
       console.log("Synthesizer created successfully");
@@ -156,7 +189,7 @@ class SpeechService {
       throw new Error("Speech synthesizer could not be created");
     }
     
-    console.log("Starting text-to-speech synthesis...");
+    console.log("Starting Azure text-to-speech synthesis...");
     
     // Limit text length to avoid long synthesis times and potential errors
     const maxLength = 2000;
@@ -168,27 +201,27 @@ class SpeechService {
           truncatedText,
           (result) => {
             if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-              console.log("Text-to-speech synthesis completed successfully");
+              console.log("Azure text-to-speech synthesis completed successfully");
               resolve();
             } else if (result.reason === sdk.ResultReason.Canceled) {
               const cancellationDetails = sdk.CancellationDetails.fromResult(result);
-              console.error(`Speech synthesis canceled: ${cancellationDetails.reason}`);
+              console.error(`Azure speech synthesis canceled: ${cancellationDetails.reason}`);
               if (cancellationDetails.reason === sdk.CancellationReason.Error) {
                 console.error(`Error details: ${cancellationDetails.errorDetails}`);
               }
-              reject(new Error(`Speech synthesis canceled: ${cancellationDetails.reason}`));
+              reject(new Error(`Azure speech synthesis canceled: ${cancellationDetails.reason}`));
             } else {
-              console.error(`Speech synthesis failed with reason: ${result.reason}`);
-              reject(new Error(`Speech synthesis failed: ${result.errorDetails || "Unknown error"}`));
+              console.error(`Azure speech synthesis failed with reason: ${result.reason}`);
+              reject(new Error(`Azure speech synthesis failed: ${result.errorDetails || "Unknown error"}`));
             }
           },
           (error) => {
-            console.error("Speech synthesis error:", error);
+            console.error("Azure speech synthesis error:", error);
             reject(error);
           }
         );
       } catch (error) {
-        console.error("Exception during speech synthesis:", error);
+        console.error("Exception during Azure speech synthesis:", error);
         reject(error);
       }
     });
