@@ -1,6 +1,9 @@
 import { useState, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
+// Define a type for the SpeechRecognition constructor
+type SpeechRecognitionConstructor = new () => SpeechRecognition;
+
 export function useSpeech() {
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -14,9 +17,13 @@ export function useSpeech() {
   
   const startRecording = async () => {
     try {
-      // First check if the browser supports the Web Speech API
-      if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        throw new Error('Speech recognition not supported in this browser');
+      // Check if the browser supports the Web Speech API
+      const SpeechRecognitionAPI = window.SpeechRecognition || 
+                                 window.webkitSpeechRecognition as unknown as SpeechRecognitionConstructor;
+      
+      if (!SpeechRecognitionAPI) {
+        // Fall back to our server-side audio recording approach
+        throw new Error('Speech recognition not available directly. Using server-side processing.');
       }
 
       // Request microphone permission
@@ -26,8 +33,7 @@ export function useSpeech() {
       setTranscript('');
       
       // Initialize speech recognition
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
+      const recognition = new SpeechRecognitionAPI();
       
       // Configure recognition
       recognition.lang = 'en-US';
