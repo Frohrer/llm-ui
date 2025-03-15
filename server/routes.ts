@@ -47,6 +47,13 @@ if (process.env.DEEPSEEK_API_KEY) {
 }
 
 export function registerRoutes(app: Express): Server {
+  // Speech credentials route
+  app.get('/api/speech-credentials', (req, res) => {
+    res.json({
+      key: process.env.AZURE_SPEECH_KEY,
+      region: process.env.AZURE_SPEECH_REGION
+    });
+  });
   // Apply authentication middleware to all /api routes
   app.use("/api", cloudflareAuthMiddleware);
 
