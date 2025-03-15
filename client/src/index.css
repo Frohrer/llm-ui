@@ -7,7 +7,8 @@
     @apply border-border;
   }
 
-  body {
+  html, body {
     @apply font-sans antialiased bg-background text-foreground;
+    touch-action: pan-x pan-y;
   }
 }
