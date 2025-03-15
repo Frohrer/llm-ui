@@ -10,6 +10,10 @@ import { loadProviderConfigs } from "./config/loader";
 import { cloudflareAuthMiddleware } from "./middleware/auth";
 import type { SQL } from "drizzle-orm";
 import * as sdk from "microsoft-cognitiveservices-speech-sdk";
+import fs from 'fs';
+import path from 'path';
+import fluent_ffmpeg from 'fluent-ffmpeg';
+import ffmpeg_static from 'ffmpeg-static';
 
 // Load provider configurations at startup
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -821,14 +825,8 @@ export function registerRoutes(app: Express): Server {
         });
       }
       
-      // Import the necessary modules
-      const fs = require('fs');
-      const path = require('path');
-      const ffmpeg = require('fluent-ffmpeg');
-      const ffmpegPath = require('ffmpeg-static');
-      
       // Set ffmpeg path
-      ffmpeg.setFfmpegPath(ffmpegPath);
+      fluent_ffmpeg.setFfmpegPath(ffmpeg_static);
       
       // Get the audio data from request
       const chunks: Buffer[] = [];
@@ -859,15 +857,13 @@ export function registerRoutes(app: Express): Server {
         }
         
         // Convert webm to wav using ffmpeg
-        ffmpeg(webmFilePath)
+        fluent_ffmpeg(webmFilePath)
           .outputOptions('-acodec pcm_s16le') // Use standard PCM format
           .outputOptions('-ar 16000') // 16kHz sample rate (good for speech)
           .outputOptions('-ac 1') // Mono channel
           .on('error', (err: Error) => {
             console.error('FFmpeg conversion error: ', err);
             res.status(500).json({ error: "Failed to convert audio format" });
-            
-            // Cleanup
             cleanupFiles();
           })
           .on('end', () => {
@@ -883,7 +879,8 @@ export function registerRoutes(app: Express): Server {
               speechConfig.speechRecognitionLanguage = "en-US";
               
               // Create an audio config from the WAV file
-              const audioConfig = sdk.AudioConfig.fromWavFileInput(fs.readFileSync(wavFilePath));
+              const wavFileData = fs.readFileSync(wavFilePath);
+              const audioConfig = sdk.AudioConfig.fromWavFileInput(wavFileData);
               
               // Create a recognizer
               const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
@@ -917,7 +914,10 @@ export function registerRoutes(app: Express): Server {
               );
             } catch (error) {
               console.error("Speech recognition setup error:", error);
-              res.status(500).json({ error: "Failed to set up speech recognition" });
+              res.status(500).json({ 
+                error: "Failed to set up speech recognition", 
+                details: error instanceof Error ? error.message : "Unknown error" 
+              });
               cleanupFiles();
             }
           })
