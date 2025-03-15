@@ -21,9 +21,14 @@ class SpeechService {
       
       this.speechConfig = sdk.SpeechConfig.fromSubscription(key, region);
       this.speechConfig.speechRecognitionLanguage = "en-US";
+      this.speechConfig.speechSynthesisLanguage = "en-US"; 
+      this.speechConfig.speechSynthesisVoiceName = "en-US-AriaNeural"; // Use a high-quality neural voice
       
       // Initialize only the synthesizer initially (doesn't require mic permission)
-      this.synthesizer = new sdk.SpeechSynthesizer(this.speechConfig);
+      // Default audio output to the default speaker device
+      const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
+      console.log("Creating speech synthesizer with audio output configuration");
+      this.synthesizer = new sdk.SpeechSynthesizer(this.speechConfig, audioConfig);
       
       this.isInitialized = true;
     } catch (error) {
@@ -119,25 +124,50 @@ class SpeechService {
 
   async speak(text: string): Promise<void> {
     if (!this.isInitialized) {
+      console.log("Speech service not initialized, initializing now...");
       await this.initializationPromise;
     }
 
-    if (!this.synthesizer) return;
+    if (!this.synthesizer) {
+      console.error("Speech synthesizer is not available");
+      throw new Error("Speech synthesizer is not available");
+    }
+    
+    console.log("Starting text-to-speech synthesis...");
+    
+    // Limit text length to avoid long synthesis times and potential errors
+    const maxLength = 2000;
+    const truncatedText = text.length > maxLength ? text.substring(0, maxLength) + "..." : text;
 
     return new Promise((resolve, reject) => {
-      this.synthesizer!.speakTextAsync(
-        text,
-        (result) => {
-          if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-            resolve();
-          } else {
-            reject(new Error(`Speech synthesis failed: ${result.errorDetails}`));
+      try {
+        this.synthesizer!.speakTextAsync(
+          truncatedText,
+          (result) => {
+            if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+              console.log("Text-to-speech synthesis completed successfully");
+              resolve();
+            } else if (result.reason === sdk.ResultReason.Canceled) {
+              const cancellationDetails = sdk.CancellationDetails.fromResult(result);
+              console.error(`Speech synthesis canceled: ${cancellationDetails.reason}`);
+              if (cancellationDetails.reason === sdk.CancellationReason.Error) {
+                console.error(`Error details: ${cancellationDetails.errorDetails}`);
+              }
+              reject(new Error(`Speech synthesis canceled: ${cancellationDetails.reason}`));
+            } else {
+              console.error(`Speech synthesis failed with reason: ${result.reason}`);
+              reject(new Error(`Speech synthesis failed: ${result.errorDetails || "Unknown error"}`));
+            }
+          },
+          (error) => {
+            console.error("Speech synthesis error:", error);
+            reject(error);
           }
-        },
-        (error) => {
-          reject(error);
-        }
-      );
+        );
+      } catch (error) {
+        console.error("Exception during speech synthesis:", error);
+        reject(error);
+      }
     });
   }
 
