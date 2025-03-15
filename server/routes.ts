@@ -9,6 +9,7 @@ import { transformDatabaseConversation } from "@/lib/llm/types";
 import { loadProviderConfigs } from "./config/loader";
 import { cloudflareAuthMiddleware } from "./middleware/auth";
 import type { SQL } from "drizzle-orm";
+import * as sdk from "microsoft-cognitiveservices-speech-sdk";
 
 // Load provider configurations at startup
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -738,6 +739,151 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error("Database error:", error);
       res.status(500).json({ error: "Failed to fetch conversation" });
+    }
+  });
+
+  // Text-to-Speech endpoint
+  app.post("/api/tts", async (req, res) => {
+    try {
+      const { text, voice = "en-US-JennyNeural" } = req.body;
+      
+      if (!text || typeof text !== "string") {
+        return res.status(400).json({ error: "Invalid text" });
+      }
+      
+      if (!process.env.SPEECH_KEY || !process.env.SPEECH_REGION) {
+        return res.status(500).json({ 
+          error: "Speech service credentials not configured",
+          missing: !process.env.SPEECH_KEY ? "SPEECH_KEY" : "SPEECH_REGION"
+        });
+      }
+      
+      // Set up headers for audio streaming
+      res.setHeader("Content-Type", "audio/mpeg");
+      res.setHeader("Transfer-Encoding", "chunked");
+      
+      // Initialize speech config
+      const speechConfig = sdk.SpeechConfig.fromSubscription(
+        process.env.SPEECH_KEY,
+        process.env.SPEECH_REGION
+      );
+      
+      // Set the output format to MP3
+      speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio24Khz96KBitRateMonoMp3;
+      speechConfig.speechSynthesisVoiceName = voice;
+      
+      // Create a synthesizer
+      const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
+      
+      // Start synthesis
+      synthesizer.speakTextAsync(
+        text,
+        (result) => {
+          if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+            // Stream the audio data
+            res.write(Buffer.from(result.audioData));
+            res.end();
+          } else {
+            console.error("Speech synthesis canceled or failed", result);
+            res.status(500).json({ 
+              error: "Speech synthesis failed", 
+              reason: result.errorDetails || "Unknown error" 
+            });
+          }
+          
+          // Clean up
+          synthesizer.close();
+        },
+        (error) => {
+          console.error("Error synthesizing speech:", error);
+          res.status(500).json({ error: "Error synthesizing speech" });
+          
+          // Clean up
+          synthesizer.close();
+        }
+      );
+    } catch (error) {
+      console.error("TTS Error:", error);
+      res.status(500).json({ 
+        error: "Failed to process text-to-speech request",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Speech-to-Text streaming endpoint
+  app.post("/api/stt", (req, res) => {
+    try {
+      if (!process.env.SPEECH_KEY || !process.env.SPEECH_REGION) {
+        return res.status(500).json({ 
+          error: "Speech service credentials not configured",
+          missing: !process.env.SPEECH_KEY ? "SPEECH_KEY" : "SPEECH_REGION"
+        });
+      }
+      
+      // Get the audio data from request
+      const chunks: Buffer[] = [];
+      
+      req.on('data', (chunk) => {
+        chunks.push(chunk);
+      });
+      
+      req.on('end', async () => {
+        const audioData = Buffer.concat(chunks);
+        
+        // Set up speech config
+        const speechConfig = sdk.SpeechConfig.fromSubscription(
+          process.env.SPEECH_KEY,
+          process.env.SPEECH_REGION
+        );
+        
+        // Configure recognition options
+        speechConfig.speechRecognitionLanguage = "en-US";
+        
+        // Create an audio config from the audio data
+        const audioConfig = sdk.AudioConfig.fromWavFileInput(audioData);
+        
+        // Create a recognizer
+        const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
+        
+        // Start recognition
+        recognizer.recognizeOnceAsync(
+          (result) => {
+            if (result.reason === sdk.ResultReason.RecognizedSpeech) {
+              res.json({ text: result.text });
+            } else {
+              console.error("Speech recognition failed", result);
+              res.status(500).json({ 
+                error: "Speech recognition failed", 
+                reason: result.reason, 
+                errorDetails: result.errorDetails || "No speech detected"
+              });
+            }
+            
+            // Clean up
+            recognizer.close();
+          },
+          (error) => {
+            console.error("Error recognizing speech:", error);
+            res.status(500).json({ error: "Error recognizing speech" });
+            
+            // Clean up
+            recognizer.close();
+          }
+        );
+      });
+      
+      req.on('error', (error) => {
+        console.error("Error receiving audio data:", error);
+        res.status(500).json({ error: "Error receiving audio data" });
+      });
+      
+    } catch (error) {
+      console.error("STT Error:", error);
+      res.status(500).json({ 
+        error: "Failed to process speech-to-text request",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 
