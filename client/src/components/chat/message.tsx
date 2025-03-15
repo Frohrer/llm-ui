@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Copy, Volume2, VolumeX } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { speechService } from '@/lib/speech-service';
+import { useSpeech } from '@/hooks/use-speech';
 
 interface MessageProps {
   message: MessageType;
@@ -17,17 +17,20 @@ interface MessageProps {
 
 export function Message({ message }: MessageProps) {
   const { toast } = useToast();
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const { speak, isSpeaking } = useSpeech();
+  const [localIsSpeaking, setLocalIsSpeaking] = useState(false);
 
   const handleSpeakMessage = async () => {
     try {
-      if (isSpeaking) {
-        await speechService.dispose();
-        setIsSpeaking(false);
+      if (localIsSpeaking) {
+        // Stop speaking (this needs additional implementation to interrupt active speech)
+        setLocalIsSpeaking(false);
+        // Here we could add a method to interrupt speech, but we'll handle this differently for now
       } else {
-        setIsSpeaking(true);
-        await speechService.speak(message.content);
-        setIsSpeaking(false);
+        setLocalIsSpeaking(true);
+        console.log("Starting text-to-speech...");
+        await speak(message.content);
+        setLocalIsSpeaking(false);
       }
     } catch (error) {
       console.error('Error with speech:', error);
@@ -36,7 +39,7 @@ export function Message({ message }: MessageProps) {
         description: "Failed to speak message",
         duration: 2000,
       });
-      setIsSpeaking(false);
+      setLocalIsSpeaking(false);
     }
   };
 
@@ -163,7 +166,7 @@ export function Message({ message }: MessageProps) {
           className="absolute right-4 top-4"
           onClick={handleSpeakMessage}
         >
-          {isSpeaking ? (
+          {localIsSpeaking || isSpeaking ? (
             <VolumeX className="h-4 w-4" />
           ) : (
             <Volume2 className="h-4 w-4" />
