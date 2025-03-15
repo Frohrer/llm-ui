@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -6,8 +7,9 @@ import { cn } from '@/lib/utils';
 import type { Message as MessageType } from '@/lib/llm/types';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Copy } from 'lucide-react';
+import { Copy, Volume2, VolumeX } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { speechService } from '@/lib/speech-service';
 
 interface MessageProps {
   message: MessageType;
@@ -15,6 +17,28 @@ interface MessageProps {
 
 export function Message({ message }: MessageProps) {
   const { toast } = useToast();
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  const handleSpeakMessage = async () => {
+    try {
+      if (isSpeaking) {
+        await speechService.dispose();
+        setIsSpeaking(false);
+      } else {
+        setIsSpeaking(true);
+        await speechService.speak(message.content);
+        setIsSpeaking(false);
+      }
+    } catch (error) {
+      console.error('Error with speech:', error);
+      toast({
+        variant: "destructive",
+        description: "Failed to speak message",
+        duration: 2000,
+      });
+      setIsSpeaking(false);
+    }
+  };
 
   const handleCopyCode = async (code: string) => {
     try {
@@ -127,11 +151,25 @@ export function Message({ message }: MessageProps) {
 
   return (
     <Card className={cn(
-      "mb-4 p-4",
+      "mb-4 p-4 relative",
       message.role === 'assistant' 
         ? "bg-secondary" 
         : "bg-primary/10 dark:bg-primary/20" 
     )}>
+      {message.role === 'assistant' && (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="absolute right-4 top-4"
+          onClick={handleSpeakMessage}
+        >
+          {isSpeaking ? (
+            <VolumeX className="h-4 w-4" />
+          ) : (
+            <Volume2 className="h-4 w-4" />
+          )}
+        </Button>
+      )}
       {messageContent}
     </Card>
   );
