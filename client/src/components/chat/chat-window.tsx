@@ -434,11 +434,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
         {/* Input area */}
         <ResizablePanel defaultSize={25} minSize={15}>
           <div className="p-4 h-full border-t">
-            <ChatInput 
-              onSendMessage={handleSendMessage} 
-              isLoading={isLoading} 
-              selectedModel={selectedModel}
-            />
+            <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
