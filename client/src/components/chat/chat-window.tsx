@@ -129,29 +129,43 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   }, [providers, selectedModel, conversation]);
 
   const isNearBottom = () => {
-    const container = containerRef.current;
-    if (!container) return true;
+    // Check scroll position in the ScrollArea viewport element
+    const viewport = document.querySelector('.scrollarea-viewport');
+    if (!viewport) return true;
+    
     const threshold = 100;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
     return distanceFromBottom <= threshold;
   };
 
   const scrollToBottom = () => {
-    const container = containerRef.current;
+    const container = document.querySelector('.scrollarea-viewport-view');
     if (container) {
-      container.scrollTop = container.scrollHeight;
+      // Firefox compatibility - use scrollIntoView for better cross-browser compatibility
+      const lastMessage = container.lastElementChild?.lastElementChild;
+      
+      if (lastMessage) {
+        lastMessage.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      } else {
+        // Fallback to direct scroll if we can't find the last message
+        container.scrollTop = container.scrollHeight;
+      }
+      
       setShouldAutoScroll(true);
       setShowScrollButton(false);
     }
   };
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    // Force show the scroll button initially if we have messages
+    // Add scroll event listener to the viewport
+    const viewport = document.querySelector('.scrollarea-viewport');
+    
+    if (!viewport) return;
+    
+    // Force show the scroll button initially if we have messages and we're not at the bottom
     if (messages.length > 0) {
-      setShowScrollButton(true);
+      const isAtBottom = isNearBottom();
+      setShowScrollButton(!isAtBottom);
     }
 
     const handleScroll = () => {
@@ -160,16 +174,30 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       setShowScrollButton(!isBottom);
     };
 
-    // Use both container and document for scroll events
-    container.addEventListener('scroll', handleScroll);
-    document.addEventListener('scroll', handleScroll);
+    // Use both viewport scroll events and mutations for detecting scroll position
+    viewport.addEventListener('scroll', handleScroll);
+    
+    // Create mutation observer to watch for content changes that might affect scroll position
+    const mutationObserver = new MutationObserver(() => {
+      handleScroll();
+    });
+    
+    // Watch for changes to the message container
+    const messageContainer = document.querySelector('.scrollarea-viewport-view');
+    if (messageContainer) {
+      mutationObserver.observe(messageContainer, { 
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+    }
     
     // Initial check
     handleScroll();
     
     return () => {
-      container.removeEventListener('scroll', handleScroll);
-      document.removeEventListener('scroll', handleScroll);
+      viewport.removeEventListener('scroll', handleScroll);
+      mutationObserver.disconnect();
     };
   }, [messages.length]);
 
@@ -498,14 +526,16 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
             </ScrollArea>
             
             {/* Scroll to bottom button - fixed position outside ScrollArea */}
-            <Button
-              className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground z-10"
-              size="icon"
-              onClick={scrollToBottom}
-              aria-label="Scroll to bottom"
-            >
-              <ChevronDown className="h-5 w-5" />
-            </Button>
+            {showScrollButton && (
+              <Button
+                className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px]"
+                size="icon"
+                onClick={scrollToBottom}
+                aria-label="Scroll to bottom"
+              >
+                <ChevronDown className="h-5 w-5" />
+              </Button>
+            )}
           </div>
         </ResizablePanel>
         
