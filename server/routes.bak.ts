@@ -15,9 +15,7 @@ import {
   uploadMiddleware, 
   handleUploadErrors, 
   extractTextFromFile, 
-  isImageFile,
-  cleanupDocumentFile,
-  cleanupImageFile
+  isImageFile 
 } from "./file-handler";
 import type { SQL } from "drizzle-orm";
 
@@ -247,7 +245,12 @@ export function registerRoutes(app: Express): Server {
           console.log("Image successfully processed and added to API messages");
           
           // Delete the file after processing
-          cleanupImageFile(attachment.url);
+          try {
+            fs.unlinkSync(imagePath);
+            console.log(`Deleted processed image: ${imagePath}`);
+          } catch (deleteError) {
+            console.error(`Error deleting processed image ${imagePath}:`, deleteError);
+          }
         } catch (imageError) {
           console.error("Error processing image:", imageError);
           // Fallback to text-only if image processing fails
@@ -259,8 +262,19 @@ export function registerRoutes(app: Express): Server {
         apiMessages.push({ role: "user", content: userContent });
         
         // Clean up document file after processing
-        if (attachment.url) {
-          cleanupDocumentFile(attachment.url);
+        try {
+          if (attachment.url) {
+            const fileName = attachment.url.split("/").pop();
+            if (fileName) {
+              const docPath = path.join(process.cwd(), "uploads", "documents", fileName);
+              if (fs.existsSync(docPath)) {
+                fs.unlinkSync(docPath);
+                console.log(`Deleted processed document: ${docPath}`);
+              }
+            }
+          }
+        } catch (deleteError) {
+          console.error("Error deleting document file:", deleteError);
         }
       } else {
         // Regular text message without attachments
@@ -525,7 +539,27 @@ export function registerRoutes(app: Express): Server {
           console.log("Image successfully processed and added to Anthropic API messages");
           
           // Delete the file after processing
-          cleanupImageFile(attachment.url);
+          try {
+            fs.unlinkSync(imagePath);
+            console.log(`Deleted processed image: ${imagePath}`);
+        // Clean up document file after processing
+        try {
+          if (attachment.url) {
+            const fileName = attachment.url.split("/").pop();
+            if (fileName) {
+              const docPath = path.join(process.cwd(), "uploads", "documents", fileName);
+              if (fs.existsSync(docPath)) {
+                fs.unlinkSync(docPath);
+                console.log(`Deleted processed document: ${docPath}`);
+              }
+            }
+          }
+        } catch (deleteError) {
+          console.error("Error deleting document file:", deleteError);
+        }
+          } catch (deleteError) {
+            console.error(`Error deleting processed image ${imagePath}:`, deleteError);
+          }
         } catch (imageError) {
           console.error("Error processing image for Anthropic:", imageError);
           // Fallback to text-only if image processing fails
@@ -538,11 +572,6 @@ export function registerRoutes(app: Express): Server {
         // Handle document attachment
         const userContent = `${message}\n\nDocument content: ${attachment.text}`;
         apiMessages.push({ role: "user", content: userContent });
-
-        // Clean up the document file
-        if (attachment.url) {
-          cleanupDocumentFile(attachment.url);
-        }
       } else {
         // Regular text message without attachments
         apiMessages.push({ role: "user", content: message });
@@ -753,6 +782,22 @@ export function registerRoutes(app: Express): Server {
           const base64Image = imageBuffer.toString('base64');
           const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
           const dataUri = `data:${mimeType};base64,${base64Image}`;
+          
+        // Clean up document file after processing
+        try {
+          if (attachment.url) {
+            const fileName = attachment.url.split("/").pop();
+            if (fileName) {
+              const docPath = path.join(process.cwd(), "uploads", "documents", fileName);
+              if (fs.existsSync(docPath)) {
+                fs.unlinkSync(docPath);
+                console.log(`Deleted processed document: ${docPath}`);
+              }
+            }
+          }
+        } catch (deleteError) {
+          console.error("Error deleting document file:", deleteError);
+        }
           // Add user message with image to API messages
           apiMessages.push({
             role: "user",
@@ -765,7 +810,12 @@ export function registerRoutes(app: Express): Server {
           console.log("Image successfully processed and added to DeepSeek API messages");
           
           // Delete the file after processing
-          cleanupImageFile(attachment.url);
+          try {
+            fs.unlinkSync(imagePath);
+            console.log(`Deleted processed image: ${imagePath}`);
+          } catch (deleteError) {
+            console.error(`Error deleting processed image ${imagePath}:`, deleteError);
+          }
         } catch (imageError) {
           console.error("Error processing image for DeepSeek:", imageError);
           // Fallback to text-only if image processing fails
@@ -778,11 +828,6 @@ export function registerRoutes(app: Express): Server {
         // Handle document attachment
         const userContent = `${message}\n\nDocument content: ${attachment.text}`;
         apiMessages.push({ role: "user", content: userContent });
-
-        // Clean up the document file
-        if (attachment.url) {
-          cleanupDocumentFile(attachment.url);
-        }
       } else {
         // Regular text message without attachments
         apiMessages.push({ role: "user", content: message });
@@ -1316,7 +1361,12 @@ export function registerRoutes(app: Express): Server {
           console.log("Image successfully processed and added to Gemini parts");
           
           // Delete the file after processing
-          cleanupImageFile(attachment.url);
+          try {
+            fs.unlinkSync(imagePath);
+            console.log(`Deleted processed image: ${imagePath}`);
+          } catch (deleteError) {
+            console.error(`Error deleting processed image ${imagePath}:`, deleteError);
+          }
         } catch (imageError) {
           console.error("Error processing image for Gemini:", imageError);
         }
@@ -1325,8 +1375,19 @@ export function registerRoutes(app: Express): Server {
         currentMessageParts.push({ text: `Document content: ${attachment.text}` });
         
         // Clean up document file after processing
-        if (attachment.url) {
-          cleanupDocumentFile(attachment.url);
+        try {
+          if (attachment.url) {
+            const fileName = attachment.url.split('/').pop();
+            if (fileName) {
+              const docPath = path.join(process.cwd(), 'uploads', 'documents', fileName);
+              if (fs.existsSync(docPath)) {
+                fs.unlinkSync(docPath);
+                console.log(`Deleted processed document: ${docPath}`);
+              }
+            }
+          }
+        } catch (deleteError) {
+          console.error('Error deleting document file:', deleteError);
         }
       }
 

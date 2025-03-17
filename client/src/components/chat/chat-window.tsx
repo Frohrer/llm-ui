@@ -12,6 +12,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
 import { Volume2, VolumeX } from 'lucide-react';
 import { speechService } from '@/lib/speech-service';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -177,7 +178,12 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
     throw new Error(`No provider found for model: ${modelId}`);
   };
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, attachment?: {
+    type: 'document' | 'image';
+    url: string;
+    text?: string;
+    name: string;
+  }) => {
     // Check if a model is selected
     if (!selectedModel) {
       toast({
@@ -198,7 +204,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       id: nanoid(),
       role: 'user',
       content,
-      timestamp
+      timestamp,
+      attachment
     };
 
     // Add the message to the UI
@@ -222,7 +229,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           message: content,
           conversationId: conversation?.id,
           context: messages,
-          model: selectedModel
+          model: selectedModel,
+          attachment: userMessage.attachment
         }),
         signal: abortControllerRef.current.signal
       });
@@ -388,35 +396,48 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           <ThemeToggle />
         </div>
       </div>
-      <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div
-            className="p-4 space-y-4"
-            ref={containerRef}
-            style={{ height: 'calc(100vh - 140px)', overflow: 'auto' }}
-          >
-            {messages.map(message => (
-              <Message key={message.id} message={message} />
-            ))}
-            {streamedText && (
-              <Message
-                message={{
-                  id: 'streaming',
-                  role: 'assistant',
-                  content: streamedText,
-                  timestamp: Date.now()
-                }}
-              />
-            )}
-            {isLoading && !streamedText && (
-              <div className="animate-pulse">Thinking...</div>
-            )}
+      
+      <ResizablePanelGroup direction="vertical" className="flex-1">
+        {/* Messages area */}
+        <ResizablePanel defaultSize={75} minSize={30}>
+          <ScrollArea className="h-full">
+            <div
+              className="p-4 space-y-4"
+              ref={containerRef}
+              style={{ overflow: 'auto' }}
+            >
+              {messages.map(message => (
+                <Message key={message.id} message={message} />
+              ))}
+              {streamedText && (
+                <Message
+                  message={{
+                    id: 'streaming',
+                    role: 'assistant',
+                    content: streamedText,
+                    timestamp: Date.now(),
+                    // Explicitly passing undefined to prevent attachment handling during streaming
+                    attachment: undefined
+                  }}
+                />
+              )}
+              {isLoading && !streamedText && (
+                <div className="animate-pulse">Thinking...</div>
+              )}
+            </div>
+          </ScrollArea>
+        </ResizablePanel>
+        
+        {/* Resizable handle with visible grip */}
+        <ResizableHandle withHandle />
+        
+        {/* Input area */}
+        <ResizablePanel defaultSize={25} minSize={15}>
+          <div className="p-4 h-full border-t">
+            <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
           </div>
-        </ScrollArea>
-      </div>
-      <div className="p-4 border-t">
-        <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }

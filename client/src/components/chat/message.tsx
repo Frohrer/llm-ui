@@ -7,9 +7,10 @@ import { cn } from '@/lib/utils';
 import type { Message as MessageType } from '@/lib/llm/types';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Copy, Volume2, VolumeX } from 'lucide-react';
+import { Copy, Volume2, VolumeX, FileText, ExternalLink } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useSpeech } from '@/hooks/use-speech';
+import { Badge } from '@/components/ui/badge';
 
 interface MessageProps {
   message: MessageType;
@@ -152,6 +153,106 @@ export function Message({ message }: MessageProps) {
     <div className="text-base whitespace-pre-wrap">{message.content}</div>
   );
 
+  // Render attachment if present
+  const [imageLoading, setImageLoading] = useState(true);
+  const [imageError, setImageError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 3;
+  
+  const handleImageRetry = () => {
+    if (retryCount < maxRetries) {
+      setImageLoading(true);
+      setImageError(false);
+      setRetryCount(prev => prev + 1);
+    }
+  };
+  
+  const renderAttachment = () => {
+    if (!message.attachment) return null;
+    
+    if (message.attachment.type === 'image') {
+      // Ensure the URL has a timestamp to bypass browser cache if retrying
+      const imageUrl = `${message.attachment.url}${retryCount > 0 ? `?retry=${retryCount}` : ''}`;
+      
+      return (
+        <div className="mt-3 mb-2">
+          <div className="rounded-md overflow-hidden border border-border max-w-md relative">
+            {imageLoading && (
+              <div className="w-full h-32 flex items-center justify-center bg-muted/20">
+                <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
+              </div>
+            )}
+            {imageError && (
+              <div className="w-full h-32 flex flex-col items-center justify-center gap-2 bg-muted/20 p-4">
+                <span className="text-destructive text-center">Failed to load image</span>
+                {retryCount < maxRetries && (
+                  <Button 
+                    variant="secondary" 
+                    size="sm"
+                    onClick={handleImageRetry}
+                  >
+                    Retry
+                  </Button>
+                )}
+              </div>
+            )}
+            <img 
+              src={imageUrl} 
+              alt={message.attachment.name} 
+              className={`w-full h-auto object-contain max-h-96 ${imageLoading ? 'hidden' : ''}`}
+              onLoad={() => setImageLoading(false)}
+              onError={() => {
+                console.error(`Failed to load image: ${imageUrl}`);
+                setImageLoading(false);
+                setImageError(true);
+              }}
+            />
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground flex items-center">
+            <span className="truncate">{message.attachment.name}</span>
+            {!imageLoading && !imageError && (
+              <a 
+                href={message.attachment.url} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="ml-2 hover:text-primary inline-flex items-center"
+              >
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+          </div>
+        </div>
+      );
+    } else {
+      return (
+        <div className="mt-3 mb-2">
+          <Badge variant="outline" className="flex items-center gap-2 py-1.5 px-3">
+            <FileText className="h-4 w-4" />
+            <span className="truncate max-w-[200px]">{message.attachment.name}</span>
+            <a 
+              href={message.attachment.url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="ml-2 hover:text-primary"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </Badge>
+          {message.attachment.text && (
+            <div className="mt-2 text-sm text-muted-foreground max-h-32 overflow-y-auto border border-border rounded p-2 bg-muted/10">
+              <div className="font-medium mb-1">Document content:</div>
+              <div className="whitespace-pre-wrap line-clamp-4">
+                {message.attachment.text.length > 300 
+                  ? message.attachment.text.substring(0, 300) + '...' 
+                  : message.attachment.text}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+  };
+
   return (
     <Card className={cn(
       "mb-4 p-4 relative",
@@ -174,6 +275,7 @@ export function Message({ message }: MessageProps) {
         </Button>
       )}
       {messageContent}
+      {renderAttachment()}
     </Card>
   );
 }
