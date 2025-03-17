@@ -139,21 +139,41 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   };
 
   const scrollToBottom = () => {
-    const container = document.querySelector('.scrollarea-viewport-view');
-    if (container) {
-      // Firefox compatibility - use scrollIntoView for better cross-browser compatibility
-      const lastMessage = container.lastElementChild?.lastElementChild;
+    // Try multiple approaches to ensure cross-browser compatibility
+    
+    // Try the viewport (should work in Chrome/Safari)
+    const viewport = document.querySelector('.scrollarea-viewport');
+    if (viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+    
+    // Try the viewport view (should work in some browsers)
+    const viewportView = document.querySelector('.scrollarea-viewport-view');
+    if (viewportView) {
+      // Firefox compatibility - use scrollIntoView for better compatibility
+      const lastMessage = viewportView.lastElementChild;
       
       if (lastMessage) {
-        lastMessage.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        try {
+          lastMessage.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        } catch (e) {
+          console.error('Error using scrollIntoView:', e);
+          // Fallback method
+          viewportView.scrollTop = viewportView.scrollHeight;
+        }
       } else {
-        // Fallback to direct scroll if we can't find the last message
-        container.scrollTop = container.scrollHeight;
+        // Fallback to direct scroll if we can't find a message
+        viewportView.scrollTop = viewportView.scrollHeight;
       }
-      
-      setShouldAutoScroll(true);
-      setShowScrollButton(false);
     }
+    
+    // Try the containing div as another approach
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+    
+    setShouldAutoScroll(true);
+    setShowScrollButton(false);
   };
 
   useEffect(() => {
@@ -525,17 +545,15 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
               </div>
             </ScrollArea>
             
-            {/* Scroll to bottom button - fixed position outside ScrollArea */}
-            {showScrollButton && (
-              <Button
-                className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px]"
-                size="icon"
-                onClick={scrollToBottom}
-                aria-label="Scroll to bottom"
-              >
-                <ChevronDown className="h-5 w-5" />
-              </Button>
-            )}
+            {/* Scroll to bottom button - fixed position outside ScrollArea, always visible */}
+            <Button
+              className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px]"
+              size="icon"
+              onClick={scrollToBottom}
+              aria-label="Scroll to bottom"
+            >
+              <ChevronDown className="h-5 w-5" />
+            </Button>
           </div>
         </ResizablePanel>
         
