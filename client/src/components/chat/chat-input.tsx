@@ -34,11 +34,12 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   const pendingAttachmentRef = useRef<typeof attachment>(null);
   const { toast } = useToast();
   
-  // Token limit for user input - we reserve 1/4 of the context for user messages
-  // The rest is used for system prompts, assistant responses, and context
-  // Add a debug log to track model context length changes
+  // Log the model context length for debugging
   console.log('Model context length:', modelContextLength);
-  const userTokenLimit = modelContextLength ? Math.floor(modelContextLength / 4) : 5000;
+  
+  // We're now displaying the full context length in the UI instead of the 1/4 reserved for user messages
+  // This gives users a better understanding of the model's total capacity
+  const userTokenLimit = modelContextLength || 20000;
   
   // Recalculate token limits when model context length changes
   useEffect(() => {
@@ -115,8 +116,8 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
     
     if (totalTokens > userTokenLimit) {
       toast({
-        title: "Token limit approached",
-        description: `Your message is approaching the token limit. The AI might truncate very long inputs.`,
+        title: "Token limit exceeded",
+        description: `Your message exceeds the model's context length of ${userTokenLimit.toLocaleString()} tokens. The AI might truncate very long inputs.`,
         variant: "destructive",
         duration: 3000,
       });
@@ -186,7 +187,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         if (totalTokens > userTokenLimit) {
           toast({
             title: "Document size warning",
-            description: `The uploaded document contains approximately ${documentTokens.toLocaleString()} tokens. This may exceed the model's context limit.`,
+            description: `The uploaded document contains approximately ${documentTokens.toLocaleString()} tokens, which exceeds the model's context length of ${userTokenLimit.toLocaleString()} tokens.`,
             variant: "destructive"
           });
         }
