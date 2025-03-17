@@ -1,9 +1,10 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { SendHorizonal, FileText, Image, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
+import { estimateTokenCount, exceedsTokenLimit } from '@/lib/llm/token-counter';
 
 interface ChatInputProps {
   onSendMessage: (message: string, attachment?: {
@@ -13,9 +14,11 @@ interface ChatInputProps {
     name: string;
   }) => Promise<boolean | void>;
   isLoading: boolean;
+  /** The context length of the current model in tokens (default: 128000) */
+  modelContextLength?: number;
 }
 
-export function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
+export function ChatInput({ onSendMessage, isLoading, modelContextLength = 128000 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
   const [attachment, setAttachment] = useState<{
@@ -24,10 +27,16 @@ export function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
     text?: string;
     name: string;
   } | null>(null);
+  const [tokenCount, setTokenCount] = useState(0);
+  const [isOverLimit, setIsOverLimit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingMessageRef = useRef<string>('');
   const pendingAttachmentRef = useRef<typeof attachment>(null);
   const { toast } = useToast();
+  
+  // Token limit for user input - we reserve 1/4 of the context for user messages
+  // The rest is used for system prompts, assistant responses, and context
+  const userTokenLimit = Math.floor(modelContextLength / 4);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,8 +80,31 @@ export function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
   }, [handleSubmit]);
 
   const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setMessage(e.target.value);
-  }, []);
+    const newMessage = e.target.value;
+    setMessage(newMessage);
+    
+    // Calculate token count and check if it exceeds the limit
+    const estimatedTokens = estimateTokenCount(newMessage);
+    setTokenCount(estimatedTokens);
+    
+    // If we have a document attachment, we need to estimate its tokens too
+    let totalTokens = estimatedTokens;
+    if (attachment?.type === 'document' && attachment.text) {
+      // For documents, we'll add an approximate token count (this is a rough estimate)
+      totalTokens += estimateTokenCount(attachment.text);
+    }
+    
+    setIsOverLimit(totalTokens > userTokenLimit);
+    
+    if (totalTokens > userTokenLimit) {
+      toast({
+        title: "Token limit approached",
+        description: `Your message is approaching the token limit. The AI might truncate very long inputs.`,
+        variant: "warning",
+        duration: 3000,
+      });
+    }
+  }, [attachment, userTokenLimit, toast]);
 
   const renderUploadButton = useCallback(() => (
     <Button
