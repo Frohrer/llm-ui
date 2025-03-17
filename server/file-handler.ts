@@ -50,7 +50,7 @@ const storage = multer.diskStorage({
         // Documents
         'application/pdf': '.pdf',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-        'application/msword': '.doc',
+        // Legacy formats removed: 'application/msword': '.doc',
         'application/vnd.oasis.opendocument.text': '.odt',
         'application/rtf': '.rtf',
         'text/plain': '.txt',
@@ -61,7 +61,7 @@ const storage = multer.diskStorage({
         'text/csv': '.csv',
         // Presentations
         'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-        'application/vnd.ms-powerpoint': '.ppt',
+        // Legacy formats removed: 'application/vnd.ms-powerpoint': '.ppt',
         'application/vnd.oasis.opendocument.presentation': '.odp'
       };
       ext = mimeToExt[file.mimetype] || '';
@@ -86,7 +86,7 @@ const upload = multer({
       // Documents
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
-      'application/msword', // .doc
+      // 'application/msword', // .doc - legacy format removed
       'application/vnd.oasis.opendocument.text', // .odt
       'application/rtf', // .rtf
       'text/plain', // .txt
@@ -99,15 +99,22 @@ const upload = multer({
       
       // Presentations
       'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
-      'application/vnd.ms-powerpoint', // .ppt
+      // 'application/vnd.ms-powerpoint', // .ppt - legacy format removed
       'application/vnd.oasis.opendocument.presentation' // .odp
     ];
+    
+    // Explicitly check for legacy formats that we don't support
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (['.doc', '.ppt'].includes(ext)) {
+      cb(new Error(`Legacy format ${ext} is not supported. Please convert to ${ext === '.doc' ? '.docx' : '.pptx'} format.`), false);
+      return;
+    }
     
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
       cb(null, false);
-      return new Error('Invalid file type. Supported formats include: documents (.pdf, .docx, .doc, .odt, .rtf, .txt), spreadsheets (.xlsx, .xls, .ods, .csv), presentations (.pptx, .ppt, .odp), and images (.jpg, .png, .gif, .svg).');
+      return new Error('Invalid file type. Supported formats include: documents (.pdf, .docx, .odt, .rtf, .txt), spreadsheets (.xlsx, .xls, .ods, .csv), presentations (.pptx, .odp), and images (.jpg, .png, .gif, .svg).');
     }
   }
 });
