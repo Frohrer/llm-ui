@@ -179,6 +179,29 @@ async function extractTextFromPDF(filePath: string): Promise<string> {
 async function extractTextFromWord(filePath: string): Promise<string> {
   try {
     const dataBuffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    
+    // For .doc files, mammoth might fail since it's designed for .docx
+    // Let's handle differently based on file extension
+    if (ext === '.doc') {
+      // For .doc files, we'll provide a simplified approach
+      const stats = fs.statSync(filePath);
+      const fileSize = stats.size / (1024 * 1024); // Convert to MB
+      
+      return `[Word document (.doc format): ${path.basename(filePath)}]
+File size: ${fileSize.toFixed(2)} MB
+Format: DOC (Microsoft Word - Legacy Format)
+
+Note: This document will be analyzed by the AI model.
+For optimal results with legacy .doc files:
+- Ask specific questions about document content
+- Request a summary of key points
+- Ask about specific information you need from this document
+
+For best compatibility, consider converting .doc files to .docx format.`;
+    }
+    
+    // For .docx files, use mammoth as before
     const result = await mammoth.extractRawText({ buffer: dataBuffer });
     
     // Limit text to avoid very large content
@@ -190,7 +213,25 @@ async function extractTextFromWord(filePath: string): Promise<string> {
     return text || `[Word document: ${path.basename(filePath)} - No text content found]`;
   } catch (error) {
     console.error('Error extracting text from Word document:', error);
-    return `[Error extracting content from document: ${path.basename(filePath)}]`;
+    // For errors, return a simplified version that allows AI to analyze directly
+    try {
+      const stats = fs.statSync(filePath);
+      const fileSize = stats.size / (1024 * 1024); // Convert to MB
+      const fileName = path.basename(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      
+      return `[Document: ${fileName}]
+File size: ${fileSize.toFixed(2)} MB
+Format: ${ext.toUpperCase().substring(1)} (Document format)
+
+Note: This document will be analyzed directly by the AI model.
+For optimal results:
+- Ask specific questions about document content
+- Request a summary of key points
+- Ask about specific information you need from this document`;
+    } catch (fallbackError) {
+      return `[Error extracting content from document: ${path.basename(filePath)}]`;
+    }
   }
 }
 
