@@ -148,12 +148,32 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       
       // Set the attachment data based on the file type
       const isImage = file.type.startsWith('image/');
-      setAttachment({
-        type: isImage ? 'image' : 'document',
+      const attachmentData = {
+        type: isImage ? 'image' as const : 'document' as const,
         url: data.file.url,
         text: isImage ? undefined : data.file.text,
         name: file.name
-      });
+      };
+      
+      setAttachment(attachmentData);
+      
+      // If it's a document, update the token count to include the document text
+      if (!isImage && attachmentData.text) {
+        const documentTokens = estimateTokenCount(attachmentData.text);
+        const messageTokens = estimateTokenCount(message);
+        const totalTokens = messageTokens + documentTokens;
+        
+        setTokenCount(totalTokens);
+        setIsOverLimit(totalTokens > userTokenLimit);
+        
+        if (totalTokens > userTokenLimit) {
+          toast({
+            title: "Document size warning",
+            description: `The uploaded document contains approximately ${documentTokens.toLocaleString()} tokens. This may exceed the model's context limit.`,
+            variant: "destructive"
+          });
+        }
+      }
       
       // We don't add document text to the user input message anymore
       // It will be included in the attachment and passed to the AI model
@@ -181,7 +201,22 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   };
   
   const removeAttachment = () => {
+    // If we had a document attachment, recalculate token count without it
+    if (attachment?.type === 'document' && attachment.text) {
+      const messageTokens = estimateTokenCount(message);
+      setTokenCount(messageTokens);
+      setIsOverLimit(messageTokens > userTokenLimit);
+    }
+    
     setAttachment(null);
+    
+    // If removing attachment resolved a token limit issue, show a success message
+    if (isOverLimit) {
+      toast({
+        title: "Token limit reduced",
+        description: "Removing the attachment has reduced the token count.",
+      });
+    }
   };
 
   return (
