@@ -106,8 +106,10 @@ const upload = multer({
     // Explicitly check for legacy formats that we don't support
     const ext = path.extname(file.originalname).toLowerCase();
     if (['.doc', '.ppt'].includes(ext)) {
-      cb(new Error(`Legacy format ${ext} is not supported. Please convert to ${ext === '.doc' ? '.docx' : '.pptx'} format.`), false);
-      return;
+      // We need to pass null as the first parameter to indicate there's no error with the request itself
+      // but we reject the file and provide an error message
+      cb(null, false);
+      return new Error(`Legacy format ${ext} is not supported. Please convert to ${ext === '.doc' ? '.docx' : '.pptx'} format.`);
     }
     
     if (allowedMimes.includes(file.mimetype)) {
@@ -188,27 +190,7 @@ async function extractTextFromWord(filePath: string): Promise<string> {
     const dataBuffer = fs.readFileSync(filePath);
     const ext = path.extname(filePath).toLowerCase();
     
-    // For .doc files, mammoth might fail since it's designed for .docx
-    // Let's handle differently based on file extension
-    if (ext === '.doc') {
-      // For .doc files, we'll provide a simplified approach
-      const stats = fs.statSync(filePath);
-      const fileSize = stats.size / (1024 * 1024); // Convert to MB
-      
-      return `[Word document (.doc format): ${path.basename(filePath)}]
-File size: ${fileSize.toFixed(2)} MB
-Format: DOC (Microsoft Word - Legacy Format)
-
-Note: This document will be analyzed by the AI model.
-For optimal results with legacy .doc files:
-- Ask specific questions about document content
-- Request a summary of key points
-- Ask about specific information you need from this document
-
-For best compatibility, consider converting .doc files to .docx format.`;
-    }
-    
-    // For .docx files, use mammoth as before
+    // We now only support .docx and .odt, not .doc
     const result = await mammoth.extractRawText({ buffer: dataBuffer });
     
     // Limit text to avoid very large content
@@ -463,9 +445,8 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
     // Document types
     else if (ext === '.pdf' || fileType?.mime === 'application/pdf') {
       return await extractTextFromPDF(filePath);
-    } else if (ext === '.docx' || ext === '.doc' || ext === '.odt' ||
+    } else if (ext === '.docx' || ext === '.odt' ||
                fileType?.mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
-               fileType?.mime === 'application/msword' ||
                fileType?.mime === 'application/vnd.oasis.opendocument.text') {
       return await extractTextFromWord(filePath);
     } else if (ext === '.rtf' || fileType?.mime === 'application/rtf') {
@@ -488,10 +469,6 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
     else if (ext === '.pptx' || 
              fileType?.mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
       return await extractTextFromPPTX(filePath);
-    } else if (ext === '.ppt' || 
-             fileType?.mime === 'application/vnd.ms-powerpoint') {
-      // For .ppt files we can't extract as much as for .pptx files
-      return `[PowerPoint: ${path.basename(filePath)} - Legacy PowerPoint format (.ppt)]`;
     } else if (ext === '.odp' || 
              fileType?.mime === 'application/vnd.oasis.opendocument.presentation') {
       return `[Presentation: ${path.basename(filePath)} - OpenDocument Presentation format (.odp)]`;
