@@ -134,7 +134,7 @@ export function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
       console.error('Error uploading file:', error);
       toast({
         title: 'Upload failed',
-        description: 'Failed to upload file. Please try again.',
+        description: 'Failed to upload file. Supported formats include documents (.pdf, .doc, .docx, .odt, .rtf, .txt), spreadsheets (.xlsx, .xls, .ods, .csv), presentations (.pptx, .ppt, .odp), and images (.jpg, .png, .gif, .svg).',
         variant: 'destructive'
       });
     } finally {
@@ -181,7 +181,7 @@ export function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
           ref={fileInputRef} 
           onChange={handleFileInputChange} 
           className="hidden" 
-          accept="image/*,.pdf,.doc,.docx,.txt"
+          accept="image/*,.pdf,.doc,.docx,.odt,.rtf,.txt,.xlsx,.xls,.ods,.csv,.pptx,.ppt,.odp"
         />
         
         <div className="relative flex-1 mb-2">
