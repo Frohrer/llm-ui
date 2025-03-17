@@ -455,7 +455,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       <ResizablePanelGroup direction="vertical" className="flex-1">
         {/* Messages area */}
         <ResizablePanel defaultSize={75} minSize={30}>
-          <ScrollArea className="h-full">
+          <ScrollArea className="h-full relative">
             <div
               className="p-4 space-y-4"
               ref={containerRef}
@@ -480,6 +480,18 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                 <div className="animate-pulse">Thinking...</div>
               )}
             </div>
+            
+            {/* Scroll to bottom button */}
+            {showScrollButton && (
+              <Button
+                className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary/80 hover:bg-primary text-primary-foreground z-10"
+                size="icon"
+                onClick={scrollToBottom}
+                aria-label="Scroll to bottom"
+              >
+                <ChevronDown className="h-5 w-5" />
+              </Button>
+            )}
           </ScrollArea>
         </ResizablePanel>
         
