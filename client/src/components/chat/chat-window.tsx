@@ -167,6 +167,17 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
     }
     return modelId;
   };
+  
+  const getModelContextLength = (modelId: string): number => {
+    if (!providers) return 128000; // Default to a reasonable value
+    for (const provider of Object.values(providers)) {
+      const model = provider.models.find(m => m.id === modelId);
+      if (model) {
+        return model.contextLength;
+      }
+    }
+    return 128000; // Default fallback value
+  };
 
   const getProviderForModel = (modelId: string): string => {
     if (!providers) return '';

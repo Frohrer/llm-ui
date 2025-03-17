@@ -100,7 +100,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       toast({
         title: "Token limit approached",
         description: `Your message is approaching the token limit. The AI might truncate very long inputs.`,
-        variant: "warning",
+        variant: "destructive",
         duration: 3000,
       });
     }
@@ -227,7 +227,15 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
           />
         </div>
         
-        <div className="flex flex-row gap-2 justify-end">
+        <div className="flex flex-row gap-2 items-center justify-end">
+          <div className="text-xs text-muted-foreground mr-2">
+            <span className={isOverLimit ? "text-destructive font-medium" : ""}>
+              {tokenCount.toLocaleString()}
+            </span>
+            <span> / </span>
+            <span>{userTokenLimit.toLocaleString()}</span>
+            <span> tokens</span>
+          </div>
           {renderUploadButton()}
           {renderSendButton()}
         </div>
