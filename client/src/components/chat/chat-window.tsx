@@ -92,6 +92,9 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
     };
   }, [queryClient, toast]);
 
+  const [selectedModel, setSelectedModel] = useState<string>('');
+  
+  // Update messages when conversation changes
   useEffect(() => {
     const sortedMessages = transformMessages(conversation);
     setMessages(sortedMessages);
@@ -99,21 +102,30 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       setSelectedModel(conversation.model);
     }
   }, [conversation]);
-
-  const [selectedModel, setSelectedModel] = useState<string>(() => {
-    if (conversation) {
-      return conversation.model;
+  
+  // Set default model when providers are loaded
+  useEffect(() => {
+    if (!providers || selectedModel || conversation) {
+      return;
     }
-    if (providers) {
-      for (const provider of Object.values(providers)) {
-        const defaultModel = provider.models.find(m => m.defaultModel);
-        if (defaultModel) return defaultModel.id;
+      
+    // Find the first default model
+    for (const provider of Object.values(providers)) {
+      const defaultModel = provider.models.find(m => m.defaultModel);
+      if (defaultModel) {
+        console.log('Setting default model:', defaultModel.id);
+        setSelectedModel(defaultModel.id);
+        return;
       }
-      const firstProvider = Object.values(providers)[0];
-      if (firstProvider) return firstProvider.models[0].id;
     }
-    return '';
-  });
+    
+    // If no default model is found, use the first available model
+    const firstProvider = Object.values(providers)[0];
+    if (firstProvider && firstProvider.models.length > 0) {
+      console.log('Setting first available model:', firstProvider.models[0].id);
+      setSelectedModel(firstProvider.models[0].id);
+    }
+  }, [providers, selectedModel, conversation]);
 
   const isNearBottom = () => {
     const container = containerRef.current;
@@ -169,13 +181,26 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   };
   
   const getModelContextLength = (modelId: string): number => {
-    if (!providers) return 128000; // Default to a reasonable value
+    if (!providers) {
+      console.log('No providers available yet, using default context length');
+      return 128000; // Default to a reasonable value
+    }
+    
+    console.log('All providers:', providers);
+    console.log('Looking for model:', modelId);
+    
     for (const provider of Object.values(providers)) {
+      console.log(`Checking provider ${provider.id}:`, provider);
+      console.log('Provider models:', provider.models);
+      
       const model = provider.models.find(m => m.id === modelId);
       if (model) {
+        console.log(`Found model ${model.id} with context length:`, model.contextLength);
         return model.contextLength;
       }
     }
+    
+    console.log(`Model ${modelId} not found in any provider, using default context length`);
     return 128000; // Default fallback value
   };
 
