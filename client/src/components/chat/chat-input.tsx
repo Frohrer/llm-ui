@@ -36,7 +36,9 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   
   // Token limit for user input - we reserve 1/4 of the context for user messages
   // The rest is used for system prompts, assistant responses, and context
-  const userTokenLimit = Math.floor(modelContextLength / 4);
+  // Add a debug log to track model context length changes
+  console.log('Model context length:', modelContextLength);
+  const userTokenLimit = modelContextLength ? Math.floor(modelContextLength / 4) : 5000;
   
   // Recalculate token limits when model context length changes
   useEffect(() => {

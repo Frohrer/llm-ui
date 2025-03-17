@@ -426,8 +426,19 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           <ModelSelector
             selectedModel={selectedModel}
             onModelChange={(modelId) => {
+              console.log(`Model changed to: ${modelId}`);
               setSelectedModel(modelId);
-              // Removed notification toast as requested
+              
+              // Log the context length of the newly selected model
+              if (providers) {
+                for (const provider of Object.values(providers)) {
+                  const model = provider.models.find(m => m.id === modelId);
+                  if (model) {
+                    console.log(`Selected model ${model.name} with context length: ${model.contextLength}`);
+                    break;
+                  }
+                }
+              }
             }}
             disabled={!!conversation || isLoading || isLoadingProviders}
             getModelDisplayName={getModelDisplayName}
