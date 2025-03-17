@@ -335,78 +335,160 @@ function extractTextFromExcel(filePath: string): string {
 // Helper to extract text from PPTX files
 async function extractTextFromPPTX(filePath: string): Promise<string> {
   try {
-    // Read the PPTX file
-    const fileData = fs.readFileSync(filePath);
-    
-    // Parse the PPTX file
-    const presentation = await parseAsync(fileData);
+    // PowerPoint files are zip archives containing XML files
+    // We'll use unzipper to extract text content from slide XMLs
+    const fs = require('fs');
+    const unzipper = require('unzipper');
+    const path = require('path');
+    const { DOMParser } = require('xmldom');
     
     // Create a string to hold the extracted text
     let extractedText = '';
+    let slideCount = 0;
+    let processedSlides = 0;
     
-    // Process each slide
-    if (presentation && presentation.slides) {
-      // Add presentation metadata if available
-      if (presentation.coreProperties) {
-        const props = presentation.coreProperties;
-        extractedText += `Title: ${props.title || 'Untitled'}\n`;
-        if (props.creator) extractedText += `Author: ${props.creator}\n`;
-        if (props.description) extractedText += `Description: ${props.description}\n`;
-        extractedText += '\n';
-      }
+    // Create a directory parser from the PowerPoint file
+    const directory = await fs.createReadStream(filePath)
+      .pipe(unzipper.Parse())
+      .promise();
+    
+    // Extract files from the presentation archive
+    const entries = await directory;
+    
+    // First, count slides for progress information (they're in /ppt/slides/slide*.xml)
+    // Also look for presentation.xml to get metadata
+    const slideEntries = [];
+    let presentationXml = '';
+    let corePropsXml = '';
+    
+    // Process each file in the archive
+    for (const entry of entries) {
+      const fileName = entry.path;
+      const type = entry.type;
       
-      // Add the total slide count
-      extractedText += `Presentation contains ${presentation.slides.length} slides.\n\n`;
-      
-      // Maximum slides to process to prevent excessive processing
-      const maxSlides = Math.min(presentation.slides.length, 30);
-      
-      // Process each slide (up to maxSlides)
-      for (let i = 0; i < maxSlides; i++) {
-        const slide = presentation.slides[i];
-        
-        // Add slide number
-        extractedText += `------- Slide ${i + 1} -------\n`;
-        
-        // Extract slide title if available
-        if (slide.title) {
-          extractedText += `Title: ${slide.title}\n`;
+      if (type === 'File') {
+        // Get slide files
+        if (fileName.match(/ppt\/slides\/slide[0-9]+\.xml/i)) {
+          slideCount++;
+          slideEntries.push({
+            name: fileName,
+            content: await entry.buffer(),
+            index: parseInt(fileName.match(/slide([0-9]+)\.xml/i)[1], 10)
+          });
         }
-        
-        // Extract texts from slide
-        if (slide.texts && slide.texts.length > 0) {
-          for (const text of slide.texts) {
-            if (text && text.text) {
-              // Clean up and format the text
-              const cleanText = text.text
-                .replace(/\n\s*\n/g, '\n')  // Remove extra blank lines
-                .trim();
-                
-              if (cleanText) {
-                extractedText += cleanText + '\n';
-              }
+        // Get presentation metadata
+        else if (fileName === 'docProps/core.xml') {
+          corePropsXml = await entry.buffer().then(buffer => buffer.toString());
+        }
+        // Get content types to identify the number of slides
+        else if (fileName === '[Content_Types].xml') {
+          const contentTypesBuffer = await entry.buffer();
+          const contentTypesXml = contentTypesBuffer.toString();
+          
+          // Count slides by looking for slide content type declarations
+          const slideMatches = contentTypesXml.match(/PartName="\/ppt\/slides\/slide[0-9]+\.xml"/g);
+          if (slideMatches) {
+            slideCount = slideMatches.length;
+          }
+        }
+        else {
+          await entry.autodrain();
+        }
+      } else {
+        await entry.autodrain();
+      }
+    }
+    
+    // Sort slides by index to ensure proper order
+    slideEntries.sort((a, b) => a.index - b.index);
+    
+    // Extract metadata from core properties if available
+    if (corePropsXml) {
+      const parser = new DOMParser();
+      const coreDoc = parser.parseFromString(corePropsXml, 'text/xml');
+      
+      // Extract common metadata (Dublin Core and Office namespaces)
+      const nsMap = {
+        'dc': 'http://purl.org/dc/elements/1.1/',
+        'cp': 'http://schemas.openxmlformats.org/package/2006/metadata/core-properties',
+        'dcterms': 'http://purl.org/dc/terms/'
+      };
+      
+      // Function to get element text with namespace support
+      const getElementText = (doc, elementName, namespace) => {
+        const elements = doc.getElementsByTagNameNS(namespace, elementName);
+        return elements.length > 0 ? elements[0].textContent : '';
+      };
+      
+      // Extract metadata
+      const title = getElementText(coreDoc, 'title', nsMap.dc);
+      const creator = getElementText(coreDoc, 'creator', nsMap.dc);
+      const description = getElementText(coreDoc, 'description', nsMap.dc);
+      
+      // Add metadata to extracted text
+      if (title) extractedText += `Title: ${title}\n`;
+      if (creator) extractedText += `Author: ${creator}\n`;
+      if (description) extractedText += `Description: ${description}\n`;
+      if (title || creator || description) extractedText += '\n';
+    }
+    
+    // Add the total slide count
+    extractedText += `Presentation contains ${slideCount} slides.\n\n`;
+    
+    // Maximum slides to process to prevent excessive processing
+    const maxSlides = Math.min(slideCount, 30);
+    
+    // Process each slide content
+    for (const slideEntry of slideEntries) {
+      if (processedSlides >= maxSlides) break;
+      
+      const parser = new DOMParser();
+      const slideContent = slideEntry.content.toString();
+      const slideDoc = parser.parseFromString(slideContent, 'text/xml');
+      
+      // Add slide number
+      extractedText += `------- Slide ${slideEntry.index} -------\n`;
+      processedSlides++;
+      
+      // Extract text from this slide - look for text elements
+      // PowerPoint puts text in <a:t> elements inside <a:p> paragraphs
+      const paragraphs = slideDoc.getElementsByTagName('a:p');
+      
+      if (paragraphs.length > 0) {
+        for (let i = 0; i < paragraphs.length; i++) {
+          let paragraphText = '';
+          const textElements = paragraphs[i].getElementsByTagName('a:t');
+          
+          // Extract and concatenate all text elements in this paragraph
+          for (let j = 0; j < textElements.length; j++) {
+            const text = textElements[j].textContent;
+            if (text && text.trim().length > 0) {
+              paragraphText += text + ' ';
             }
           }
-        } else {
-          extractedText += '(No text content on this slide)\n';
+          
+          // If paragraph has text, add it to the extracted content
+          if (paragraphText.trim().length > 0) {
+            extractedText += paragraphText.trim() + '\n';
+          }
         }
-        
-        // Add a separator between slides
-        extractedText += '\n';
-        
-        // Limit text extraction to avoid too large responses
-        if (extractedText.length > 40000) {
-          extractedText += `\n[Presentation truncated at ${i + 1} of ${presentation.slides.length} slides due to size]\n`;
-          break;
-        }
+      } else {
+        extractedText += '(No text content on this slide)\n';
       }
       
-      // If there are more slides than we processed, add a note
-      if (presentation.slides.length > maxSlides) {
-        extractedText += `\n[Presentation truncated, showing ${maxSlides} of ${presentation.slides.length} total slides]\n`;
+      // Add a separator between slides
+      extractedText += '\n';
+      
+      // Limit text extraction to avoid too large responses
+      if (extractedText.length > 40000) {
+        extractedText += `\n[Presentation truncated at ${processedSlides} of ${slideCount} slides due to size]\n`;
+        break;
       }
-    } else {
-      extractedText = `[PowerPoint file: ${path.basename(filePath)} - No slides found]`;
+    }
+    
+    // If there are more slides than we processed, add a note
+    if (slideCount > maxSlides) {
+      extractedText += `\n[Presentation truncated, showing ${maxSlides} of ${slideCount} total slides]\n`;
     }
     
     // Limit overall text size
