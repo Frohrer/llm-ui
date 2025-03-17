@@ -139,37 +139,20 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   };
 
   const scrollToBottom = () => {
-    // Try multiple approaches to ensure cross-browser compatibility
+    // This is a very direct approach that will work in all browsers
+    window.scrollTo(0, document.body.scrollHeight);
     
-    // Try the viewport (should work in Chrome/Safari)
-    const viewport = document.querySelector('.scrollarea-viewport');
-    if (viewport) {
-      viewport.scrollTop = viewport.scrollHeight;
-    }
-    
-    // Try the viewport view (should work in some browsers)
-    const viewportView = document.querySelector('.scrollarea-viewport-view');
-    if (viewportView) {
-      // Firefox compatibility - use scrollIntoView for better compatibility
-      const lastMessage = viewportView.lastElementChild;
-      
+    // Also try to find any messages and scroll the last one into view
+    const messagesContainer = document.querySelector('.p-4.space-y-4');
+    if (messagesContainer && messagesContainer.children.length > 0) {
+      const lastMessage = messagesContainer.children[messagesContainer.children.length - 1];
       if (lastMessage) {
         try {
-          lastMessage.scrollIntoView({ behavior: 'smooth', block: 'end' });
+          lastMessage.scrollIntoView({ behavior: 'smooth' });
         } catch (e) {
           console.error('Error using scrollIntoView:', e);
-          // Fallback method
-          viewportView.scrollTop = viewportView.scrollHeight;
         }
-      } else {
-        // Fallback to direct scroll if we can't find a message
-        viewportView.scrollTop = viewportView.scrollHeight;
       }
-    }
-    
-    // Try the containing div as another approach
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
     
     setShouldAutoScroll(true);
@@ -542,18 +525,16 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                 {isLoading && !streamedText && (
                   <div className="animate-pulse">Thinking...</div>
                 )}
+                
+                {/* Hidden anchor for scroll functionality */}
+                <div id="bottom-anchor" className="h-1 w-full"></div>
               </div>
             </ScrollArea>
             
             {/* Scroll to bottom button - fixed position outside ScrollArea, always visible */}
-            <Button
-              className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px]"
-              size="icon"
-              onClick={scrollToBottom}
-              aria-label="Scroll to bottom"
-            >
+            <a href="#bottom-anchor" className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px] flex items-center justify-center" style={{ width: "35px", height: "35px" }}>
               <ChevronDown className="h-5 w-5" />
-            </Button>
+            </a>
           </div>
         </ResizablePanel>
         
