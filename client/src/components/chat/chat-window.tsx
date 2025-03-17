@@ -402,12 +402,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
             selectedModel={selectedModel}
             onModelChange={(modelId) => {
               setSelectedModel(modelId);
-              if (!conversation && !isLoading) {
-                toast({
-                  title: "Model changed",
-                  description: `Now using ${getModelDisplayName(modelId)} with context limit of ${getModelContextLength(modelId).toLocaleString()} tokens.`,
-                });
-              }
+              // Removed notification toast as requested
             }}
             disabled={!!conversation || isLoading || isLoadingProviders}
             getModelDisplayName={getModelDisplayName}

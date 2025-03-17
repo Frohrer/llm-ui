@@ -37,6 +37,21 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   // Token limit for user input - we reserve 1/4 of the context for user messages
   // The rest is used for system prompts, assistant responses, and context
   const userTokenLimit = Math.floor(modelContextLength / 4);
+  
+  // Recalculate token limits when model context length changes
+  useEffect(() => {
+    // Update the token count when the model context length changes
+    const messageTokens = estimateTokenCount(message);
+    let totalTokens = messageTokens;
+    
+    // If we have a document attachment, add its tokens too
+    if (attachment?.type === 'document' && attachment.text) {
+      totalTokens += estimateTokenCount(attachment.text);
+    }
+    
+    setTokenCount(totalTokens);
+    setIsOverLimit(totalTokens > userTokenLimit);
+  }, [modelContextLength, message, attachment]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
