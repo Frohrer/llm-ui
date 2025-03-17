@@ -149,15 +149,29 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
     const container = containerRef.current;
     if (!container) return;
 
+    // Force show the scroll button initially if we have messages
+    if (messages.length > 0) {
+      setShowScrollButton(true);
+    }
+
     const handleScroll = () => {
       const isBottom = isNearBottom();
       setShouldAutoScroll(isBottom);
       setShowScrollButton(!isBottom);
     };
 
+    // Use both container and document for scroll events
     container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, []);
+    document.addEventListener('scroll', handleScroll);
+    
+    // Initial check
+    handleScroll();
+    
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('scroll', handleScroll);
+    };
+  }, [messages.length]);
 
   useEffect(() => {
     if (shouldAutoScroll) {
@@ -455,44 +469,44 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       <ResizablePanelGroup direction="vertical" className="flex-1">
         {/* Messages area */}
         <ResizablePanel defaultSize={75} minSize={30}>
-          <ScrollArea className="h-full relative">
-            <div
-              className="p-4 space-y-4"
-              ref={containerRef}
-              style={{ overflow: 'auto' }}
-            >
-              {messages.map(message => (
-                <Message key={message.id} message={message} />
-              ))}
-              {streamedText && (
-                <Message
-                  message={{
-                    id: 'streaming',
-                    role: 'assistant',
-                    content: streamedText,
-                    timestamp: Date.now(),
-                    // Explicitly passing undefined to prevent attachment handling during streaming
-                    attachment: undefined
-                  }}
-                />
-              )}
-              {isLoading && !streamedText && (
-                <div className="animate-pulse">Thinking...</div>
-              )}
-            </div>
-            
-            {/* Scroll to bottom button */}
-            {showScrollButton && (
-              <Button
-                className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary/80 hover:bg-primary text-primary-foreground z-10"
-                size="icon"
-                onClick={scrollToBottom}
-                aria-label="Scroll to bottom"
+          <div className="relative h-full">
+            <ScrollArea className="h-full">
+              <div
+                className="p-4 space-y-4"
+                ref={containerRef}
+                style={{ overflow: 'auto' }}
               >
-                <ChevronDown className="h-5 w-5" />
-              </Button>
-            )}
-          </ScrollArea>
+                {messages.map(message => (
+                  <Message key={message.id} message={message} />
+                ))}
+                {streamedText && (
+                  <Message
+                    message={{
+                      id: 'streaming',
+                      role: 'assistant',
+                      content: streamedText,
+                      timestamp: Date.now(),
+                      // Explicitly passing undefined to prevent attachment handling during streaming
+                      attachment: undefined
+                    }}
+                  />
+                )}
+                {isLoading && !streamedText && (
+                  <div className="animate-pulse">Thinking...</div>
+                )}
+              </div>
+            </ScrollArea>
+            
+            {/* Scroll to bottom button - fixed position outside ScrollArea */}
+            <Button
+              className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground z-10"
+              size="icon"
+              onClick={scrollToBottom}
+              aria-label="Scroll to bottom"
+            >
+              <ChevronDown className="h-5 w-5" />
+            </Button>
+          </div>
         </ResizablePanel>
         
         {/* Resizable handle with visible grip */}
