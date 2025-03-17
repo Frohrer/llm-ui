@@ -1,11 +1,11 @@
 import type { LLMProvider, ModelConfig, Message, Attachment } from "../types";
-import { SiOpenai } from "react-icons/si";
+import { SiGoogle } from "react-icons/si";
 import type { ProviderConfig } from "./config.types";
 
-export class DeepSeekProvider implements LLMProvider {
+export class GeminiProvider implements LLMProvider {
   id: string;
   name: string;
-  icon = SiOpenai;
+  icon = SiGoogle;
   models: ModelConfig[];
 
   constructor(config: ProviderConfig) {
@@ -20,9 +20,9 @@ export class DeepSeekProvider implements LLMProvider {
     context: Message[] = [],
     attachment?: Attachment
   ): Promise<string> {
-    console.log("DeepSeek Provider sending message with attachment:", attachment);
+    console.log("Gemini Provider sending message with attachment:", attachment);
     
-    const response = await fetch("/api/chat/deepseek", {
+    const response = await fetch("/api/chat/gemini", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -35,7 +35,7 @@ export class DeepSeekProvider implements LLMProvider {
     });
 
     if (!response.ok) {
-      throw new Error("Failed to send message to DeepSeek");
+      throw new Error("Failed to send message to Gemini");
     }
 
     const data = await response.json();

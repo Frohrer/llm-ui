@@ -18,7 +18,15 @@ export class OpenAIProvider implements LLMProvider {
     message: string,
     conversationId?: string,
     context: Message[] = [],
+    attachment?: {
+      type: 'document' | 'image';
+      url: string;
+      text?: string;
+      name: string;
+    }
   ): Promise<string> {
+    console.log("OpenAI Provider sending message with attachment:", attachment);
+    
     const response = await fetch("/api/chat/openai", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -27,6 +35,7 @@ export class OpenAIProvider implements LLMProvider {
         conversationId,
         context,
         model: this.models.find((m) => m.defaultModel)?.id || this.models[0].id,
+        attachment
       }),
     });
 

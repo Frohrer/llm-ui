@@ -1,11 +1,19 @@
 import type { SelectConversation, SelectMessage } from '@db/schema';
 import type { IconType } from 'react-icons';
 
+export interface Attachment {
+  type: 'document' | 'image';
+  url: string;
+  text?: string;
+  name: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  attachment?: Attachment;
 }
 
 export interface Conversation {
@@ -35,7 +43,12 @@ export interface LLMProvider {
   name: string;
   icon: IconType;  // Updated to use IconType from react-icons
   models: ModelConfig[];
-  sendMessage(message: string, conversationId?: string, context?: Message[]): Promise<string>;
+  sendMessage(
+    message: string, 
+    conversationId?: string, 
+    context?: Message[],
+    attachment?: Attachment
+  ): Promise<string>;
 }
 
 export interface LLMConfig {

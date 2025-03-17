@@ -1,4 +1,4 @@
-import type { LLMProvider, ModelConfig, Message } from "../types";
+import type { LLMProvider, ModelConfig, Message, Attachment } from "../types";
 import { SiAntdesign } from "react-icons/si";
 import type { ProviderConfig } from "./config.types";
 
@@ -18,7 +18,10 @@ export class AnthropicProvider implements LLMProvider {
     message: string,
     conversationId?: string,
     context: Message[] = [],
+    attachment?: Attachment
   ): Promise<string> {
+    console.log("Anthropic Provider sending message with attachment:", attachment);
+    
     const response = await fetch("/api/chat/anthropic", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -27,6 +30,7 @@ export class AnthropicProvider implements LLMProvider {
         conversationId,
         context,
         model: this.models.find((m) => m.defaultModel)?.id || this.models[0].id,
+        attachment
       }),
     });
 
