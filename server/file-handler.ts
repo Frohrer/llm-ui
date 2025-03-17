@@ -332,6 +332,95 @@ function extractTextFromExcel(filePath: string): string {
   }
 }
 
+// Helper to extract text from PPTX files
+async function extractTextFromPPTX(filePath: string): Promise<string> {
+  try {
+    // Read the PPTX file
+    const fileData = fs.readFileSync(filePath);
+    
+    // Parse the PPTX file
+    const presentation = await parseAsync(fileData);
+    
+    // Create a string to hold the extracted text
+    let extractedText = '';
+    
+    // Process each slide
+    if (presentation && presentation.slides) {
+      // Add presentation metadata if available
+      if (presentation.coreProperties) {
+        const props = presentation.coreProperties;
+        extractedText += `Title: ${props.title || 'Untitled'}\n`;
+        if (props.creator) extractedText += `Author: ${props.creator}\n`;
+        if (props.description) extractedText += `Description: ${props.description}\n`;
+        extractedText += '\n';
+      }
+      
+      // Add the total slide count
+      extractedText += `Presentation contains ${presentation.slides.length} slides.\n\n`;
+      
+      // Maximum slides to process to prevent excessive processing
+      const maxSlides = Math.min(presentation.slides.length, 30);
+      
+      // Process each slide (up to maxSlides)
+      for (let i = 0; i < maxSlides; i++) {
+        const slide = presentation.slides[i];
+        
+        // Add slide number
+        extractedText += `------- Slide ${i + 1} -------\n`;
+        
+        // Extract slide title if available
+        if (slide.title) {
+          extractedText += `Title: ${slide.title}\n`;
+        }
+        
+        // Extract texts from slide
+        if (slide.texts && slide.texts.length > 0) {
+          for (const text of slide.texts) {
+            if (text && text.text) {
+              // Clean up and format the text
+              const cleanText = text.text
+                .replace(/\n\s*\n/g, '\n')  // Remove extra blank lines
+                .trim();
+                
+              if (cleanText) {
+                extractedText += cleanText + '\n';
+              }
+            }
+          }
+        } else {
+          extractedText += '(No text content on this slide)\n';
+        }
+        
+        // Add a separator between slides
+        extractedText += '\n';
+        
+        // Limit text extraction to avoid too large responses
+        if (extractedText.length > 40000) {
+          extractedText += `\n[Presentation truncated at ${i + 1} of ${presentation.slides.length} slides due to size]\n`;
+          break;
+        }
+      }
+      
+      // If there are more slides than we processed, add a note
+      if (presentation.slides.length > maxSlides) {
+        extractedText += `\n[Presentation truncated, showing ${maxSlides} of ${presentation.slides.length} total slides]\n`;
+      }
+    } else {
+      extractedText = `[PowerPoint file: ${path.basename(filePath)} - No slides found]`;
+    }
+    
+    // Limit overall text size
+    if (extractedText.length > 50000) {
+      extractedText = extractedText.substring(0, 50000) + '\n[Presentation truncated due to size]';
+    }
+    
+    return extractedText.trim() || `[PowerPoint file: ${path.basename(filePath)} - No content found]`;
+  } catch (error) {
+    console.error('Error extracting data from PowerPoint file:', error);
+    return `[Error extracting content from PowerPoint file: ${path.basename(filePath)}]`;
+  }
+}
+
 // Helper to extract text from RTF files
 function extractTextFromRTF(filePath: string): string {
   try {
@@ -409,11 +498,16 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
       return extractTextFromExcel(filePath);
     }
     // Presentation types
-    else if (ext === '.pptx' || ext === '.ppt' || ext === '.odp' ||
-             fileType?.mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
-             fileType?.mime === 'application/vnd.ms-powerpoint' ||
+    else if (ext === '.pptx' || 
+             fileType?.mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+      return await extractTextFromPPTX(filePath);
+    } else if (ext === '.ppt' || 
+             fileType?.mime === 'application/vnd.ms-powerpoint') {
+      // For .ppt files we can't extract as much as for .pptx files
+      return `[PowerPoint: ${path.basename(filePath)} - Legacy PowerPoint format (.ppt)]`;
+    } else if (ext === '.odp' || 
              fileType?.mime === 'application/vnd.oasis.opendocument.presentation') {
-      return `[Presentation: ${path.basename(filePath)} - Presentation content extracted]`;
+      return `[Presentation: ${path.basename(filePath)} - OpenDocument Presentation format (.odp)]`;
     } 
     // Default for unsupported types
     else {
