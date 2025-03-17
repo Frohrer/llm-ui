@@ -5,6 +5,7 @@ import mammoth from 'mammoth';
 import { Request, Response, NextFunction } from 'express';
 import multer, { FileFilterCallback } from 'multer';
 import { nanoid } from 'nanoid';
+import * as XLSX from 'xlsx';
 
 // Make sure the upload directories exist
 try {
@@ -210,29 +211,124 @@ function extractTextFromTextFile(filePath: string): string {
   }
 }
 
-// Helper to extract text from CSV and other spreadsheet files
-function extractTextFromSpreadsheet(filePath: string): string {
+// Helper to extract text from CSV files
+function extractTextFromCSV(filePath: string): string {
   try {
     let text = fs.readFileSync(filePath, 'utf8');
     
     // Basic formatting for CSV to make it more readable in text form
-    if (path.extname(filePath).toLowerCase() === '.csv') {
-      // Split by lines and process each row
-      const rows = text.split('\n').map(row => row.trim()).filter(row => row.length > 0);
-      if (rows.length > 0) {
-        text = rows.map(row => row.replace(/,/g, ' | ')).join('\n');
-      }
+    // Split by lines and process each row
+    const rows = text.split('\n').map(row => row.trim()).filter(row => row.length > 0);
+    if (rows.length > 0) {
+      text = rows.map(row => row.replace(/,/g, ' | ')).join('\n');
     }
     
     // Limit text file size
     if (text.length > 50000) {
-      text = text.substring(0, 50000) + '\n[Spreadsheet truncated due to size]';
+      text = text.substring(0, 50000) + '\n[CSV file truncated due to size]';
     }
     
-    return text || `[Spreadsheet file: ${path.basename(filePath)} - Empty file]`;
+    return text || `[CSV file: ${path.basename(filePath)} - Empty file]`;
   } catch (error) {
-    console.error('Error reading spreadsheet file:', error);
-    return `[Error reading spreadsheet file: ${path.basename(filePath)}]`;
+    console.error('Error reading CSV file:', error);
+    return `[Error reading CSV file: ${path.basename(filePath)}]`;
+  }
+}
+
+// Helper to extract text from Excel files (XLSX/XLS)
+function extractTextFromExcel(filePath: string): string {
+  try {
+    // Read the Excel file
+    const workbook = XLSX.readFile(filePath);
+    
+    // Create a string to hold the extracted text
+    let extractedText = '';
+    
+    // Get all worksheet names from the workbook
+    const sheetNames = workbook.SheetNames;
+    
+    // Maximum sheets to process to prevent excessive processing
+    const maxSheets = Math.min(sheetNames.length, 5);
+    
+    // Process each worksheet (up to maxSheets)
+    for (let i = 0; i < maxSheets; i++) {
+      const sheetName = sheetNames[i];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Extract the data as an array of arrays
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      
+      if (data && data.length > 0) {
+        // Add sheet name as header
+        extractedText += `=== Sheet: ${sheetName} ===\n\n`;
+        
+        // Process each row of data
+        // Find the maximum number of columns in the first 10 rows to set table width
+        const sampleRows = data.slice(0, Math.min(10, data.length));
+        const maxColumns = sampleRows.reduce((max: number, row: any) => 
+          Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+        
+        // Process maximum 100 rows to avoid excessively large output
+        const maxRows = Math.min(data.length, 100);
+        
+        for (let rowIndex = 0; rowIndex < maxRows; rowIndex++) {
+          const row = data[rowIndex];
+          
+          if (Array.isArray(row) && row.length > 0) {
+            // Format each row with fixed width columns
+            let rowText = '';
+            for (let colIndex = 0; colIndex < Math.min(row.length, 10); colIndex++) {
+              // Format the cell value as a string
+              const cellValue = row[colIndex] !== undefined && row[colIndex] !== null 
+                ? String(row[colIndex]) 
+                : '';
+              // Truncate cell content if too long (max 50 chars)
+              const cellText = cellValue.length > 50 
+                ? cellValue.substring(0, 47) + '...' 
+                : cellValue;
+              rowText += cellText + ' | ';
+            }
+            
+            // Add indicator if row has more columns than we're showing
+            if (row.length > 10) {
+              rowText += `... (${row.length - 10} more columns)`;
+            }
+            
+            extractedText += rowText + '\n';
+          }
+        }
+        
+        // Add indicator if there are more rows than we're showing
+        if (data.length > maxRows) {
+          extractedText += `\n... (${data.length - maxRows} more rows)\n`;
+        }
+        
+        extractedText += '\n\n';
+      } else {
+        extractedText += `=== Sheet: ${sheetName} === (empty)\n\n`;
+      }
+      
+      // Check if we've already extracted a lot of text
+      if (extractedText.length > 40000) {
+        extractedText += `\n[Excel file truncated, showing ${i + 1} of ${sheetNames.length} sheets due to size]\n`;
+        break;
+      }
+    }
+    
+    // If there are more sheets than we processed, add a note
+    if (sheetNames.length > maxSheets) {
+      extractedText += `\n[Excel file truncated, showing ${maxSheets} of ${sheetNames.length} total sheets]\n`;
+    }
+    
+    // Limit overall text size
+    if (extractedText.length > 50000) {
+      extractedText = extractedText.substring(0, 50000) + '\n[Excel document truncated due to size]';
+    }
+    
+    return extractedText.trim() || `[Excel file: ${path.basename(filePath)} - No data found]`;
+  } catch (error) {
+    console.error('Error extracting data from Excel file:', error);
+    return `[Error extracting content from Excel file: ${path.basename(filePath)}]`;
   }
 }
 
@@ -303,12 +399,14 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
     }
     // Spreadsheet types
     else if (ext === '.csv' || fileType?.mime === 'text/csv') {
-      return extractTextFromSpreadsheet(filePath);
-    } else if (ext === '.xlsx' || ext === '.xls' || ext === '.ods' ||
+      return extractTextFromCSV(filePath);
+    } else if (ext === '.xlsx' || ext === '.xls' ||
                fileType?.mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-               fileType?.mime === 'application/vnd.ms-excel' ||
-               fileType?.mime === 'application/vnd.oasis.opendocument.spreadsheet') {
-      return `[Spreadsheet: ${path.basename(filePath)} - Spreadsheet data extracted]`;
+               fileType?.mime === 'application/vnd.ms-excel') {
+      return extractTextFromExcel(filePath);
+    } else if (ext === '.ods' || fileType?.mime === 'application/vnd.oasis.opendocument.spreadsheet') {
+      // For ODS files, we also use the Excel parser as XLSX can handle them
+      return extractTextFromExcel(filePath);
     }
     // Presentation types
     else if (ext === '.pptx' || ext === '.ppt' || ext === '.odp' ||
