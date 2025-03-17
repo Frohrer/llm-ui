@@ -1,4 +1,4 @@
-import { encoding_for_model } from 'tiktoken';
+import { encoding_for_model, TiktokenModel } from 'tiktoken';
 
 /**
  * Get the encoding for a specific model or a default one
@@ -6,7 +6,8 @@ import { encoding_for_model } from 'tiktoken';
 function getEncodingForModel(model: string) {
   try {
     // Try to get an encoding specifically for this model
-    return encoding_for_model(model);
+    // Cast to TiktokenModel type since only specific models are supported by the library
+    return encoding_for_model(model as TiktokenModel);
   } catch (error) {
     // If that fails, use a reasonable default based on the model family
     if (model.includes('gpt-4')) {
