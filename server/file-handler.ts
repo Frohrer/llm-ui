@@ -5,7 +5,7 @@ import mammoth from 'mammoth';
 import { Request, Response, NextFunction } from 'express';
 import multer, { FileFilterCallback } from 'multer';
 import { nanoid } from 'nanoid';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx';
 
 // Make sure the upload directories exist
 try {
