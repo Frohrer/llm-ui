@@ -4,7 +4,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { SendHorizonal, FileText, Image, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
-import { TokenCounter } from './token-counter';
 
 interface ChatInputProps {
   onSendMessage: (message: string, attachment?: {
@@ -14,10 +13,9 @@ interface ChatInputProps {
     name: string;
   }) => Promise<boolean | void>;
   isLoading: boolean;
-  selectedModel: string;
 }
 
-export function ChatInput({ onSendMessage, isLoading, selectedModel }: ChatInputProps) {
+export function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
   const [attachment, setAttachment] = useState<{
@@ -197,14 +195,9 @@ export function ChatInput({ onSendMessage, isLoading, selectedModel }: ChatInput
           />
         </div>
         
-        <div className="flex flex-row items-center justify-between">
-          <div className="ml-1">
-            {selectedModel && <TokenCounter text={message} modelId={selectedModel} />}
-          </div>
-          <div className="flex gap-2">
-            {renderUploadButton()}
-            {renderSendButton()}
-          </div>
+        <div className="flex flex-row gap-2 justify-end">
+          {renderUploadButton()}
+          {renderSendButton()}
         </div>
       </form>
     </div>
