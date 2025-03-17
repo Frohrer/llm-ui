@@ -10,7 +10,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useProviders } from '@/lib/llm/providers';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Volume2, VolumeX, ChevronDown } from 'lucide-react';
 import { speechService } from '@/lib/speech-service';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
@@ -40,6 +40,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   const abortControllerRef = useRef<AbortController>();
   const containerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   const { data: providers, isLoading: isLoadingProviders } = useProviders();
   const { toast } = useToast();
@@ -137,8 +138,10 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
 
   const scrollToBottom = () => {
     const container = containerRef.current;
-    if (shouldAutoScroll && container) {
+    if (container) {
       container.scrollTop = container.scrollHeight;
+      setShouldAutoScroll(true);
+      setShowScrollButton(false);
     }
   };
 
@@ -147,7 +150,9 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
     if (!container) return;
 
     const handleScroll = () => {
-      setShouldAutoScroll(isNearBottom());
+      const isBottom = isNearBottom();
+      setShouldAutoScroll(isBottom);
+      setShowScrollButton(!isBottom);
     };
 
     container.addEventListener('scroll', handleScroll);
