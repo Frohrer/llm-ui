@@ -300,7 +300,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       role: 'user',
       content,
       timestamp,
-      attachment // This can be undefined or a single attachment
+      attachment, // This can be undefined or a single attachment
+      attachments: allAttachments // Include all attachments for display
     };
 
     // Add the message to the UI
@@ -534,7 +535,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                       content: streamedText,
                       timestamp: Date.now(),
                       // Explicitly passing undefined to prevent attachment handling during streaming
-                      attachment: undefined
+                      attachment: undefined,
+                      attachments: undefined
                     }}
                   />
                 )}

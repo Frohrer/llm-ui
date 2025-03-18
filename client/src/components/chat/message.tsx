@@ -153,7 +153,7 @@ export function Message({ message }: MessageProps) {
     <div className="text-base whitespace-pre-wrap">{message.content}</div>
   );
 
-  // Render attachment if present
+  // Render attachments if present
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
@@ -167,15 +167,29 @@ export function Message({ message }: MessageProps) {
     }
   };
   
-  const renderAttachment = () => {
-    if (!message.attachment) return null;
+  // Determine which attachments to display
+  const getAttachmentsToDisplay = () => {
+    // If we have an attachments array, use that
+    if (message.attachments && message.attachments.length > 0) {
+      return message.attachments;
+    }
+    // Otherwise fall back to the single attachment if it exists
+    else if (message.attachment) {
+      return [message.attachment];
+    }
+    // If no attachments, return empty array
+    return [];
+  };
+  
+  const renderSingleAttachment = (attachment: MessageType['attachment'], index: number) => {
+    if (!attachment) return null;
     
-    if (message.attachment.type === 'image') {
+    if (attachment.type === 'image') {
       // Ensure the URL has a timestamp to bypass browser cache if retrying
-      const imageUrl = `${message.attachment.url}${retryCount > 0 ? `?retry=${retryCount}` : ''}`;
+      const imageUrl = `${attachment.url}${retryCount > 0 ? `?retry=${retryCount}` : ''}`;
       
       return (
-        <div className="mt-3 mb-2">
+        <div key={`img-${attachment.url}-${index}`} className="mt-3 mb-2">
           <div className="rounded-md overflow-hidden border border-border max-w-md relative">
             {imageLoading && (
               <div className="w-full h-32 flex items-center justify-center bg-muted/20">
@@ -198,7 +212,7 @@ export function Message({ message }: MessageProps) {
             )}
             <img 
               src={imageUrl} 
-              alt={message.attachment.name} 
+              alt={attachment.name} 
               className={`w-full h-auto object-contain max-h-96 ${imageLoading ? 'hidden' : ''}`}
               onLoad={() => setImageLoading(false)}
               onError={() => {
@@ -209,10 +223,10 @@ export function Message({ message }: MessageProps) {
             />
           </div>
           <div className="mt-1 text-sm text-muted-foreground flex items-center">
-            <span className="truncate">{message.attachment.name}</span>
+            <span className="truncate">{attachment.name}</span>
             {!imageLoading && !imageError && (
               <a 
-                href={message.attachment.url} 
+                href={attachment.url} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="ml-2 hover:text-primary inline-flex items-center"
@@ -225,12 +239,12 @@ export function Message({ message }: MessageProps) {
       );
     } else {
       return (
-        <div className="mt-3 mb-2">
+        <div key={`doc-${attachment.url}-${index}`} className="mt-3 mb-2">
           <Badge variant="outline" className="flex items-center gap-2 py-1.5 px-3">
             <FileText className="h-4 w-4" />
-            <span className="truncate max-w-[200px]">{message.attachment.name}</span>
+            <span className="truncate max-w-[200px]">{attachment.name}</span>
             <a 
-              href={message.attachment.url} 
+              href={attachment.url} 
               target="_blank" 
               rel="noopener noreferrer"
               className="ml-2 hover:text-primary"
@@ -238,19 +252,31 @@ export function Message({ message }: MessageProps) {
               <ExternalLink className="h-3 w-3" />
             </a>
           </Badge>
-          {message.attachment.text && (
+          {attachment.text && (
             <div className="mt-2 text-sm text-muted-foreground max-h-32 overflow-y-auto border border-border rounded p-2 bg-muted/10">
               <div className="font-medium mb-1">Document content:</div>
               <div className="whitespace-pre-wrap line-clamp-4">
-                {message.attachment.text.length > 300 
-                  ? message.attachment.text.substring(0, 300) + '...' 
-                  : message.attachment.text}
+                {attachment.text.length > 300 
+                  ? attachment.text.substring(0, 300) + '...' 
+                  : attachment.text}
               </div>
             </div>
           )}
         </div>
       );
     }
+  };
+  
+  const renderAttachments = () => {
+    const attachmentsToDisplay = getAttachmentsToDisplay();
+    
+    if (attachmentsToDisplay.length === 0) return null;
+    
+    return (
+      <div className="mt-3 mb-2 space-y-3">
+        {attachmentsToDisplay.map((attachment, index) => renderSingleAttachment(attachment, index))}
+      </div>
+    );
   };
 
   return (
@@ -275,7 +301,7 @@ export function Message({ message }: MessageProps) {
         </Button>
       )}
       {messageContent}
-      {renderAttachment()}
+      {renderAttachments()}
     </Card>
   );
 }
