@@ -8,6 +8,7 @@ import { Loader2 } from "lucide-react";
 import Home from "@/pages/home";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth";
+import KnowledgePage from "@/pages/knowledge";
 
 function Router() {
   const { user, isLoading } = useUser();
@@ -27,6 +28,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/knowledge" component={KnowledgePage} />
       <Route component={NotFound} />
     </Switch>
   );
