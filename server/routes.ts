@@ -678,6 +678,11 @@ export function registerRoutes(app: Express): Server {
           textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
         }
         
+        // Add knowledge content if available
+        if (knowledgeContent) {
+          textContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
+        }
+        
         // Add the text part
         contentArray.push({
           type: "text",
@@ -689,16 +694,25 @@ export function registerRoutes(app: Express): Server {
           content: contentArray
         });
         
-        console.log("Multimodal message with image and documents added for Anthropic");
+        console.log("Multimodal message with image, documents, and knowledge added for Anthropic");
       } 
-      else if (documentTexts.length > 0) {
-        // Text-only message with documents
-        const userContent = `${message}\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
+      else if (documentTexts.length > 0 || knowledgeContent) {
+        // Text-only message with documents or knowledge
+        let userContent = message;
+        
+        if (documentTexts.length > 0) {
+          userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+        }
+        
+        if (knowledgeContent) {
+          userContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
+        }
+        
         apiMessages.push({ role: "user", content: userContent });
-        console.log("Message with document content added for Anthropic");
+        console.log("Message with document/knowledge content added for Anthropic");
       } 
       else {
-        // Regular text message without attachments
+        // Regular text message without attachments or knowledge
         apiMessages.push({ role: "user", content: message });
         console.log("Plain text message added for Anthropic");
       }
@@ -909,6 +923,19 @@ export function registerRoutes(app: Express): Server {
       let imageAttachmentContent = null;
       let documentTexts: string[] = [];
       
+      // Get knowledge content if requested
+      let knowledgeContent = '';
+      if (useKnowledge && dbConversation) {
+        try {
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          if (knowledgeContent) {
+            console.log("Retrieved knowledge content for conversation");
+          }
+        } catch (knowledgeError) {
+          console.error("Error retrieving knowledge content:", knowledgeError);
+        }
+      }
+      
       // Process each attachment
       for (const att of allAttachmentsToProcess) {
         // Handle image attachments
@@ -976,6 +1003,11 @@ export function registerRoutes(app: Express): Server {
           textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
         }
         
+        // Add knowledge content if available
+        if (knowledgeContent) {
+          textContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
+        }
+        
         contentArray.push({ type: "text", text: textContent });
         
         // Add the image
@@ -988,16 +1020,25 @@ export function registerRoutes(app: Express): Server {
           content: contentArray
         });
         
-        console.log("Multimodal message with image and documents added for DeepSeek");
+        console.log("Multimodal message with image, documents, and knowledge added for DeepSeek");
       } 
-      else if (documentTexts.length > 0) {
-        // Text-only message with documents
-        const userContent = `${message}\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
+      else if (documentTexts.length > 0 || knowledgeContent) {
+        // Text-only message with documents or knowledge
+        let userContent = message;
+        
+        if (documentTexts.length > 0) {
+          userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+        }
+        
+        if (knowledgeContent) {
+          userContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
+        }
+        
         apiMessages.push({ role: "user", content: userContent });
-        console.log("Message with document content added for DeepSeek");
+        console.log("Message with document/knowledge content added for DeepSeek");
       } 
       else {
-        // Regular text message without attachments
+        // Regular text message without attachments or knowledge
         apiMessages.push({ role: "user", content: message });
         console.log("Plain text message added for DeepSeek");
       }
