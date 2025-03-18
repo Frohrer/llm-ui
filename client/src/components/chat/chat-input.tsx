@@ -1,12 +1,11 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Textarea } from '@/components/ui/textarea';
-import { SendHorizonal, FileText, Image, X } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { estimateTokenCount, exceedsTokenLimit } from '@/lib/llm/token-counter';
+import { FileText, Image, SendHorizonal, X } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { estimateTokenCount } from '@/lib/llm/token-counter';
 
-// Type for a single attachment
 type Attachment = {
   type: 'document' | 'image';
   url: string;
@@ -24,10 +23,8 @@ interface ChatInputProps {
 export function ChatInput({ onSendMessage, isLoading, modelContextLength = 128000 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
-  // Changed to store an array of attachments
+  // Store an array of attachments - all are always sent with the message
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  // Active attachment is the one that will be sent with the message
-  const [activeAttachment, setActiveAttachment] = useState<number | null>(null);
   const [tokenCount, setTokenCount] = useState(0);
   const [isOverLimit, setIsOverLimit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -42,21 +39,27 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   // This gives users a better understanding of the model's total capacity
   const userTokenLimit = modelContextLength || 20000;
   
-  // Recalculate token limits when model context length changes
-  useEffect(() => {
-    // Update the token count when the model context length changes
+  // Calculate token count based on message and all document attachments
+  const calculateTokenCount = useCallback(() => {
     const messageTokens = estimateTokenCount(message);
     let totalTokens = messageTokens;
     
-    // If we have an active document attachment, add its tokens too
-    const attachment = activeAttachment !== null ? attachments[activeAttachment] : null;
-    if (attachment?.type === 'document' && attachment.text) {
-      totalTokens += estimateTokenCount(attachment.text);
+    // Add token count for all document attachments
+    for (const attachment of attachments) {
+      if (attachment.type === 'document' && attachment.text) {
+        totalTokens += estimateTokenCount(attachment.text);
+      }
     }
     
+    return totalTokens;
+  }, [message, attachments]);
+  
+  // Recalculate token limits when relevant values change
+  useEffect(() => {
+    const totalTokens = calculateTokenCount();
     setTokenCount(totalTokens);
     setIsOverLimit(totalTokens > userTokenLimit);
-  }, [modelContextLength, message, attachments, activeAttachment]);
+  }, [modelContextLength, message, attachments, calculateTokenCount, userTokenLimit]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,8 +67,8 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       // Store the current message in memory before clearing the input
       pendingMessageRef.current = message;
       
-      // Get the active attachment if one is selected, otherwise use undefined
-      const primaryAttachment = activeAttachment !== null ? attachments[activeAttachment] : undefined;
+      // Use the first attachment as primary for display purposes
+      const primaryAttachment = attachments.length > 0 ? attachments[0] : undefined;
       pendingAttachmentRef.current = primaryAttachment;
       
       // Clear the input immediately for better UX
@@ -109,17 +112,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
     setMessage(newMessage);
     
     // Calculate token count and check if it exceeds the limit
-    const estimatedTokens = estimateTokenCount(newMessage);
-    
-    // Count tokens for all document attachments, not just the active one
-    let totalTokens = estimatedTokens;
-    
-    // Add token count for all document attachments
-    for (const attachment of attachments) {
-      if (attachment.type === 'document' && attachment.text) {
-        totalTokens += estimateTokenCount(attachment.text);
-      }
-    }
+    const totalTokens = calculateTokenCount();
     
     setTokenCount(totalTokens);
     setIsOverLimit(totalTokens > userTokenLimit);
@@ -132,7 +125,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         duration: 3000,
       });
     }
-  }, [attachments, activeAttachment, userTokenLimit, toast]);
+  }, [calculateTokenCount, userTokenLimit, toast]);
 
   const renderUploadButton = useCallback(() => (
     <Button
@@ -186,16 +179,8 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       // Add the new attachment to the attachments array
       setAttachments(prev => [...prev, attachmentData]);
       
-      // Set the newly added attachment as the active one
-      setActiveAttachment(prevAttachments => 
-        prevAttachments === null ? 0 : prevAttachments
-      );
-      
-      // If it's a document, update the token count to include ALL document texts
+      // If it's a document, update the token count 
       if (!isImage && attachmentData.text) {
-        // Calculate tokens for the message
-        const messageTokens = estimateTokenCount(message);
-        
         // Calculate tokens for all documents, including the new one
         let documentTokens = 0;
         for (const att of [...attachments, attachmentData]) {
@@ -204,14 +189,10 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
           }
         }
         
-        const totalTokens = messageTokens + documentTokens;
-        setTokenCount(totalTokens);
-        setIsOverLimit(totalTokens > userTokenLimit);
-        
-        if (totalTokens > userTokenLimit) {
+        if (documentTokens + estimateTokenCount(message) > userTokenLimit) {
           toast({
             title: "Document size warning",
-            description: `The uploaded document contains approximately ${documentTokens.toLocaleString()} tokens, which exceeds the model's context length of ${userTokenLimit.toLocaleString()} tokens.`,
+            description: `The uploaded documents contain approximately ${documentTokens.toLocaleString()} tokens, which may exceed the model's context length of ${userTokenLimit.toLocaleString()} tokens.`,
             variant: "destructive"
           });
         }
@@ -235,56 +216,12 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
     }
   };
   
-  const handleAttachmentClick = (index: number) => {
-    // Toggle active attachment
-    setActiveAttachment(prev => prev === index ? null : index);
-    
-    // Update token count for all documents
-    const messageTokens = estimateTokenCount(message);
-    let totalTokens = messageTokens;
-    
-    // Add token count for all document attachments
-    for (const attachment of attachments) {
-      if (attachment.type === 'document' && attachment.text) {
-        totalTokens += estimateTokenCount(attachment.text);
-      }
-    }
-    
-    setTokenCount(totalTokens);
-    setIsOverLimit(totalTokens > userTokenLimit);
-  };
-  
   const removeAttachment = (index: number) => {
-    // Check if we're removing the active attachment
-    const isRemovingActive = activeAttachment === index;
-    
     // Create new attachment array without the removed item
     const newAttachments = attachments.filter((_, i) => i !== index);
     
     // Update attachments array
     setAttachments(newAttachments);
-    
-    // Update active attachment index
-    if (isRemovingActive) {
-      setActiveAttachment(null);
-    } else if (activeAttachment !== null && index < activeAttachment) {
-      // If we removed an attachment before the active one, adjust the active index
-      setActiveAttachment(activeAttachment - 1);
-    }
-    
-    // Recalculate token count with all remaining documents
-    const messageTokens = estimateTokenCount(message);
-    let totalTokens = messageTokens;
-    
-    // Add token count for all remaining document attachments
-    for (const attachment of newAttachments) {
-      if (attachment.type === 'document' && attachment.text) {
-        totalTokens += estimateTokenCount(attachment.text);
-      }
-    }
-    
-    setTokenCount(totalTokens);
-    setIsOverLimit(totalTokens > userTokenLimit);
     
     toast({
       title: "Attachment removed",
@@ -299,9 +236,8 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
           {attachments.map((attachment, index) => (
             <Badge 
               key={`${attachment.url}-${index}`}
-              variant={activeAttachment === index ? "default" : "outline"} 
-              className={`flex items-center gap-1 py-1.5 cursor-pointer ${activeAttachment === index ? 'bg-primary text-primary-foreground' : ''}`}
-              onClick={() => handleAttachmentClick(index)}
+              variant="outline" 
+              className="flex items-center gap-1 py-1.5"
             >
               {attachment.type === 'image' ? (
                 <Image className="h-4 w-4" />
