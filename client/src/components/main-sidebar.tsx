@@ -4,18 +4,15 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "./theme-toggle";
 import { 
-  MessageCircle, 
-  Book, 
-  LogOut,
+  MessageCircle,
+  LogOut, 
   BookOpen,
   Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { ConversationList } from "./conversation-list";
 import { Conversation } from "@/lib/llm/types";
-import { useProviders } from "@/lib/llm/providers";
-import { ProviderSidebar } from "./provider-sidebar";
 
 interface MainSidebarProps {
   activeConversation?: Conversation;
@@ -34,7 +31,6 @@ export function MainSidebar({
 }: MainSidebarProps) {
   const { user } = useUser();
   const [location, setLocation] = useLocation();
-  const { providers, activeProvider, setActiveProvider } = useProviders();
   
   // Close sidebar on navigation if mobile
   useEffect(() => {
@@ -91,18 +87,6 @@ export function MainSidebar({
           
           {location === "/" && (
             <>
-              <Separator />
-              <div className="px-2">
-                <h3 className="text-xs font-medium text-muted-foreground mb-2 px-2">Provider</h3>
-                {/* Only show providers sidebar if activeProvider is set */}
-                {activeProvider && (
-                  <ProviderSidebar 
-                    providers={providers}
-                    activeProvider={activeProvider}
-                    onProviderChange={setActiveProvider}
-                  />
-                )}
-              </div>
               <Separator />
               <div className="px-2">
                 <h3 className="text-xs font-medium text-muted-foreground mb-2 px-2">Conversations</h3>
