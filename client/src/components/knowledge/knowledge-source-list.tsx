@@ -18,7 +18,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import { Trash, FileText, Globe, PlusCircle, Unlink, Link } from "lucide-react";
+import { Trash, FileText, Globe, PlusCircle, Unlink, Link, Check } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { KnowledgeSourceUpload } from "@/components/knowledge/knowledge-source-upload";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -262,11 +262,17 @@ export function KnowledgeSourceList({
                       {source.use_rag ? "RAG" : "Full Text"}
                     </Badge>
                     <Badge variant="outline">{source.type}</Badge>
-                    {selectedSourceIds.includes(source.id) && (
-                      <Badge variant="default" className="bg-primary">
-                        Selected
-                      </Badge>
-                    )}
+                    <Badge 
+                      variant={selectedSourceIds.includes(source.id) ? "default" : "outline"}
+                      className={selectedSourceIds.includes(source.id) ? "bg-green-500" : "text-gray-400"}
+                    >
+                      {selectedSourceIds.includes(source.id) ? (
+                        <Check className="h-3.5 w-3.5 mr-1" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      {selectedSourceIds.includes(source.id) ? "Selected" : "Select"}
+                    </Badge>
                   </div>
                 </div>
               </CardHeader>
