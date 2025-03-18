@@ -18,9 +18,10 @@ export class DeepSeekProvider implements LLMProvider {
     message: string,
     conversationId?: string,
     context: Message[] = [],
-    attachment?: Attachment
+    attachment?: Attachment,
+    allAttachments?: Attachment[]
   ): Promise<string> {
-    console.log("DeepSeek Provider sending message with attachment:", attachment);
+    console.log("DeepSeek Provider sending message with attachments:", allAttachments?.length || 0);
     
     const response = await fetch("/api/chat/deepseek", {
       method: "POST",
@@ -30,7 +31,8 @@ export class DeepSeekProvider implements LLMProvider {
         conversationId,
         context,
         model: this.models.find((m) => m.defaultModel)?.id || this.models[0].id,
-        attachment
+        attachment,
+        allAttachments
       }),
     });
 

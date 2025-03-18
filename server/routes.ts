@@ -214,61 +214,111 @@ export function registerRoutes(app: Express): Server {
       const maxRetries = 3;
       let retryCount = 0;
       
-      // Handle different types of attachments
-      if (attachment && attachment.type === 'image') {
-        try {
-          console.log("Processing image attachment:", attachment.url);
-          
-          // Extract filename from URL
-          const fileName = attachment.url.split('/').pop();
-          if (!fileName) {
-            throw new Error('Invalid image URL');
+      // Get all attachments (prioritize the allAttachments array if it exists)
+      const allAttachmentsToProcess = allAttachments.length > 0 ? allAttachments : (attachment ? [attachment] : []);
+      
+      console.log(`Processing ${allAttachmentsToProcess.length} attachments for OpenAI`);
+      
+      // Variables to track attachment types
+      let hasImageAttachment = false;
+      let imageAttachmentContent = null;
+      let documentTexts: string[] = [];
+      
+      // Process each attachment
+      for (const att of allAttachmentsToProcess) {
+        // Handle image attachments
+        if (att.type === 'image') {
+          try {
+            console.log("Processing image attachment for OpenAI:", att.url);
+            
+            // Extract filename from URL
+            const fileName = att.url.split('/').pop();
+            if (!fileName) {
+              throw new Error('Invalid image URL');
+            }
+            
+            // Determine the image path
+            const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
+            
+            // Check if file exists
+            if (!fs.existsSync(imagePath)) {
+              throw new Error('Image file not found on server');
+            }
+            
+            // Read the image as base64
+            const imageBuffer = fs.readFileSync(imagePath);
+            const base64Image = imageBuffer.toString('base64');
+            const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
+            const dataUri = `data:${mimeType};base64,${base64Image}`;
+            
+            // Save for later use
+            imageAttachmentContent = { 
+              type: "image_url", 
+              image_url: { url: dataUri } 
+            };
+            
+            hasImageAttachment = true;
+            console.log("Image successfully processed for OpenAI");
+            
+            // Delete the file after processing
+            cleanupImageFile(att.url);
+          } catch (imageError) {
+            console.error("Error processing image for OpenAI:", imageError);
+            // Add error to document texts
+            if (imageError instanceof Error) {
+              documentTexts.push(`[Image processing failed: ${imageError.message}]`);
+            } else {
+              documentTexts.push('[Image processing failed: Unknown error]');
+            }
           }
+        } 
+        // Handle document attachments
+        else if (att.type === 'document' && att.text) {
+          console.log(`Processing document attachment for OpenAI: ${att.name}`);
+          documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
           
-          // Determine the image path
-          const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
-          
-          // Check if file exists
-          if (!fs.existsSync(imagePath)) {
-            throw new Error('Image file not found on server');
+          // Clean up the document file
+          if (att.url) {
+            cleanupDocumentFile(att.url);
           }
-          
-          // Read the image as base64
-          const imageBuffer = fs.readFileSync(imagePath);
-          const base64Image = imageBuffer.toString('base64');
-          const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
-          const dataUri = `data:${mimeType};base64,${base64Image}`;
-          
-          // Add user message with image to API messages
-          apiMessages.push({
-            role: "user",
-            content: [
-              { type: "text", text: message },
-              { type: "image_url", image_url: { url: dataUri } }
-            ]
-          });
-          
-          console.log("Image successfully processed and added to API messages");
-          
-          // Delete the file after processing
-          cleanupImageFile(attachment.url);
-        } catch (imageError) {
-          console.error("Error processing image:", imageError);
-          // Fallback to text-only if image processing fails
-          apiMessages.push({ role: "user", content: `${message}\n\n[Image processing failed: ${imageError.message}]` });
         }
-      } else if (attachment && attachment.type === 'document' && attachment.text) {
-        // Handle document attachment
-        const userContent = `${message}\n\nDocument content: ${attachment.text}`;
-        apiMessages.push({ role: "user", content: userContent });
+      }
+      
+      // Create the message content based on what we have
+      if (hasImageAttachment) {
+        // For OpenAI, we use a different format with content array
+        let contentArray: any[] = [];
         
-        // Clean up document file after processing
-        if (attachment.url) {
-          cleanupDocumentFile(attachment.url);
+        // Add text first with any document content
+        let textContent = message;
+        if (documentTexts.length > 0) {
+          textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
         }
-      } else {
+        
+        contentArray.push({ type: "text", text: textContent });
+        
+        // Add the image
+        if (imageAttachmentContent) {
+          contentArray.push(imageAttachmentContent);
+        }
+        
+        apiMessages.push({
+          role: "user",
+          content: contentArray
+        });
+        
+        console.log("Multimodal message with image and documents added for OpenAI");
+      } 
+      else if (documentTexts.length > 0) {
+        // Text-only message with documents
+        const userContent = `${message}\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
+        apiMessages.push({ role: "user", content: userContent });
+        console.log("Message with document content added for OpenAI");
+      } 
+      else {
         // Regular text message without attachments
         apiMessages.push({ role: "user", content: message });
+        console.log("Plain text message added for OpenAI");
       }
 
       // Stream the completion with retries
@@ -691,6 +741,7 @@ export function registerRoutes(app: Express): Server {
         context = [],
         model = "deepseek-chat",
         attachment = null,
+        allAttachments = [],
       } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
@@ -776,63 +827,107 @@ export function registerRoutes(app: Express): Server {
           content: msg.content,
         }));
 
-      // Process attachments based on type
-      if (attachment && attachment.type === 'image') {
-        try {
-          console.log("Processing image attachment for DeepSeek:", attachment.url);
-          
-          // Extract filename from URL
-          const fileName = attachment.url.split('/').pop();
-          if (!fileName) {
-            throw new Error('Invalid image URL');
+      // Get all attachments (prioritize the allAttachments array if it exists)
+      const allAttachmentsToProcess = allAttachments.length > 0 ? allAttachments : (attachment ? [attachment] : []);
+      
+      console.log(`Processing ${allAttachmentsToProcess.length} attachments for DeepSeek`);
+      
+      // Variables to track attachment types
+      let hasImageAttachment = false;
+      let imageAttachmentContent = null;
+      let documentTexts: string[] = [];
+      
+      // Process each attachment
+      for (const att of allAttachmentsToProcess) {
+        // Handle image attachments
+        if (att.type === 'image') {
+          try {
+            console.log("Processing image attachment for DeepSeek:", att.url);
+            
+            // Extract filename from URL
+            const fileName = att.url.split('/').pop();
+            if (!fileName) {
+              throw new Error('Invalid image URL');
+            }
+            
+            // Determine the image path
+            const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
+            
+            // Check if file exists
+            if (!fs.existsSync(imagePath)) {
+              throw new Error('Image file not found on server');
+            }
+            
+            // Read the image as base64
+            const imageBuffer = fs.readFileSync(imagePath);
+            const base64Image = imageBuffer.toString('base64');
+            const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
+            const dataUri = `data:${mimeType};base64,${base64Image}`;
+            
+            // Save for later use
+            imageAttachmentContent = { 
+              type: "image_url", 
+              image_url: { url: dataUri } 
+            };
+            
+            hasImageAttachment = true;
+            console.log("Image successfully processed for DeepSeek");
+            
+            // Delete the file after processing
+            cleanupImageFile(att.url);
+          } catch (imageError) {
+            console.error("Error processing image for DeepSeek:", imageError);
+            // Add error to document texts
+            documentTexts.push(`[Image processing failed: ${imageError instanceof Error ? imageError.message : 'Unknown error'}]`);
           }
+        } 
+        // Handle document attachments
+        else if (att.type === 'document' && att.text) {
+          console.log(`Processing document attachment for DeepSeek: ${att.name}`);
+          documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
           
-          // Determine the image path
-          const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
-          
-          // Check if file exists
-          if (!fs.existsSync(imagePath)) {
-            throw new Error('Image file not found on server');
+          // Clean up the document file
+          if (att.url) {
+            cleanupDocumentFile(att.url);
           }
-          
-          // Read the image as base64
-          const imageBuffer = fs.readFileSync(imagePath);
-          const base64Image = imageBuffer.toString('base64');
-          const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
-          const dataUri = `data:${mimeType};base64,${base64Image}`;
-          // Add user message with image to API messages
-          apiMessages.push({
-            role: "user",
-            content: [
-              { type: "text", text: message },
-              { type: "image_url", image_url: { url: dataUri } }
-            ]
-          });
-          
-          console.log("Image successfully processed and added to DeepSeek API messages");
-          
-          // Delete the file after processing
-          cleanupImageFile(attachment.url);
-        } catch (imageError) {
-          console.error("Error processing image for DeepSeek:", imageError);
-          // Fallback to text-only if image processing fails
-          apiMessages.push({ 
-            role: "user", 
-            content: `${message}\n\n[Image processing failed: ${imageError instanceof Error ? imageError.message : 'Unknown error'}]` 
-          });
         }
-      } else if (attachment && attachment.type === 'document' && attachment.text) {
-        // Handle document attachment
-        const userContent = `${message}\n\nDocument content: ${attachment.text}`;
+      }
+      
+      // Create the message content based on what we have
+      if (hasImageAttachment) {
+        // For DeepSeek, we use a different format with content array
+        let contentArray: any[] = [];
+        
+        // Add text first with any document content
+        let textContent = message;
+        if (documentTexts.length > 0) {
+          textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+        }
+        
+        contentArray.push({ type: "text", text: textContent });
+        
+        // Add the image
+        if (imageAttachmentContent) {
+          contentArray.push(imageAttachmentContent);
+        }
+        
+        apiMessages.push({
+          role: "user",
+          content: contentArray
+        });
+        
+        console.log("Multimodal message with image and documents added for DeepSeek");
+      } 
+      else if (documentTexts.length > 0) {
+        // Text-only message with documents
+        const userContent = `${message}\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
         apiMessages.push({ role: "user", content: userContent });
-
-        // Clean up the document file
-        if (attachment.url) {
-          cleanupDocumentFile(attachment.url);
-        }
-      } else {
+        console.log("Message with document content added for DeepSeek");
+      } 
+      else {
         // Regular text message without attachments
         apiMessages.push({ role: "user", content: message });
+        console.log("Plain text message added for DeepSeek");
       }
 
       // Stream the completion using DeepSeek
