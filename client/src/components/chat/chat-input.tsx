@@ -140,8 +140,11 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       variant="secondary"
       onClick={() => fileInputRef.current?.click()}
       disabled={uploadingFile}
+      title="Upload multiple files"
+      className="relative"
     >
       <FileText className="h-4 w-4" />
+      <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-semibold">+</span>
     </Button>
   ), [uploadingFile]);
 
@@ -377,7 +380,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
             >
               <div className="flex flex-col items-center gap-2 text-center">
                 <FileText className="h-8 w-8 text-primary" />
-                <p className="font-medium text-sm">Drop files here to upload</p>
+                <p className="font-medium text-sm">Drop files here to upload (up to 5)</p>
               </div>
             </div>
           )}
