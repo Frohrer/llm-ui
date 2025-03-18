@@ -12,7 +12,8 @@ import { transformDatabaseConversation } from "@/lib/llm/types";
 import { loadProviderConfigs } from "./config/loader";
 import { cloudflareAuthMiddleware } from "./middleware/auth";
 import { 
-  uploadMiddleware, 
+  uploadSingleMiddleware, 
+  uploadMultipleMiddleware, 
   handleUploadErrors, 
   extractTextFromFile, 
   isImageFile,
@@ -952,7 +953,8 @@ export function registerRoutes(app: Express): Server {
   });
 
   // File upload endpoint
-  app.post('/api/upload', uploadMiddleware, handleUploadErrors, async (req, res) => {
+  // Single file upload endpoint
+  app.post('/api/upload', uploadSingleMiddleware, handleUploadErrors, async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });

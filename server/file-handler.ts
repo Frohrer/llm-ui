@@ -567,4 +567,8 @@ export function cleanupImageFile(url: string): void {
 }
 
 // Export multer middleware
-export const uploadMiddleware = upload.single('file');
+// Single file upload middleware
+export const uploadSingleMiddleware = upload.single('file');
+
+// Multiple file upload middleware (max 5 files at once)
+export const uploadMultipleMiddleware = upload.array('files', 5);
