@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid';
 import { db } from '../db';
 import { knowledgeSources, knowledgeContent, conversationKnowledge } from '../db/schema';
 import { extractTextFromFile, isImageFile } from './file-handler';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc, asc } from 'drizzle-orm';
 
 // Constants for knowledge sources management
 const KNOWLEDGE_DIR = 'uploads/knowledge';
@@ -78,9 +78,9 @@ export async function createKnowledgeSourceFromFile(options: CreateKnowledgeSour
       try {
         contentText = await extractTextFromFile(filePath);
         isProcessed = true;
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error extracting text from file:', error);
-        contentText = `[Error extracting text: ${error.message}]`;
+        contentText = `[Error extracting text: ${error.message || 'Unknown error'}]`;
         isProcessed = false;
       }
     }
