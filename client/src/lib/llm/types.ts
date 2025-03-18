@@ -14,6 +14,7 @@ export interface Message {
   content: string;
   timestamp: number;
   attachment?: Attachment;
+  attachments?: Attachment[]; // Add support for multiple attachments
 }
 
 export interface Conversation {
