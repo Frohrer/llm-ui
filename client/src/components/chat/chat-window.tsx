@@ -45,6 +45,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
+
   const { data: providers, isLoading: isLoadingProviders } = useProviders();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -97,7 +98,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   }, [queryClient, toast]);
 
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [useKnowledge, setUseKnowledge] = useState<boolean>(false);
+  const [useKnowledge, setUseKnowledge] = useState<boolean>(true);
   const [showKnowledgePanel, setShowKnowledgePanel] = useState<boolean>(false);
   
   // Update messages when conversation changes
@@ -521,7 +522,17 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
               variant={useKnowledge ? "default" : "outline"}
               size="icon"
               className={`shrink-0 ${useKnowledge ? "bg-primary text-primary-foreground" : ""}`}
-              onClick={() => setUseKnowledge(!useKnowledge)}
+              onClick={() => {
+                const newValue = !useKnowledge;
+                setUseKnowledge(newValue);
+                toast({
+                  title: newValue ? "Knowledge Enabled" : "Knowledge Disabled",
+                  description: newValue 
+                    ? "AI responses will now use knowledge sources attached to this conversation." 
+                    : "AI responses will no longer use knowledge sources.",
+                  duration: 3000
+                });
+              }}
               title={useKnowledge ? "Knowledge enabled" : "Knowledge disabled"}
             >
               <Database className="h-[1.2rem] w-[1.2rem]" />
