@@ -1,0 +1,141 @@
+import { Link, useLocation } from "wouter";
+import { useUser } from "@/hooks/use-user";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { ThemeToggle } from "./theme-toggle";
+import { 
+  MessageCircle, 
+  Book, 
+  LogOut,
+  BookOpen,
+  Plus
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
+import { ConversationList } from "./conversation-list";
+import { Conversation } from "@/lib/llm/types";
+import { useProviders } from "@/lib/llm/providers";
+import { ProviderSidebar } from "./provider-sidebar";
+
+interface MainSidebarProps {
+  activeConversation?: Conversation;
+  onSelectConversation: (conversation: Conversation | undefined) => void;
+  onNewConversation: () => void;
+  isMobile?: boolean;
+  onClose?: () => void;
+}
+
+export function MainSidebar({ 
+  activeConversation, 
+  onSelectConversation,
+  onNewConversation, 
+  isMobile = false,
+  onClose
+}: MainSidebarProps) {
+  const { user } = useUser();
+  const [location, setLocation] = useLocation();
+  const { providers, activeProvider, setActiveProvider } = useProviders();
+  
+  // Close sidebar on navigation if mobile
+  useEffect(() => {
+    if (isMobile && onClose) {
+      onClose();
+    }
+  }, [location, isMobile, onClose]);
+
+  const isActive = (path: string) => {
+    return location === path;
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-background border-r">
+      <div className="px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center">
+          <h1 className="text-xl font-bold">Chat App</h1>
+        </div>
+        <div className="flex items-center space-x-2">
+          <ThemeToggle />
+        </div>
+      </div>
+      <Separator />
+      
+      <div className="py-2 px-4 flex">
+        <Button className="w-full" onClick={onNewConversation}>
+          <Plus className="mr-2 h-4 w-4" />
+          New Chat
+        </Button>
+      </div>
+      
+      <ScrollArea className="flex-1 px-2">
+        <div className="mt-2 space-y-6">
+          <div className="space-y-2">
+            <div className="px-2">
+              <Link href="/">
+                <a className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
+                  isActive("/") && !isActive("/knowledge") ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50"
+                }`}>
+                  <MessageCircle className="mr-2 h-4 w-4" />
+                  Conversations
+                </a>
+              </Link>
+              <Link href="/knowledge">
+                <a className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
+                  isActive("/knowledge") ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50"
+                }`}>
+                  <BookOpen className="mr-2 h-4 w-4" />
+                  Knowledge
+                </a>
+              </Link>
+            </div>
+          </div>
+          
+          {location === "/" && (
+            <>
+              <Separator />
+              <div className="px-2">
+                <h3 className="text-xs font-medium text-muted-foreground mb-2 px-2">Provider</h3>
+                {/* Only show providers sidebar if activeProvider is set */}
+                {activeProvider && (
+                  <ProviderSidebar 
+                    providers={providers}
+                    activeProvider={activeProvider}
+                    onProviderChange={setActiveProvider}
+                  />
+                )}
+              </div>
+              <Separator />
+              <div className="px-2">
+                <h3 className="text-xs font-medium text-muted-foreground mb-2 px-2">Conversations</h3>
+                <ConversationList 
+                  activeConversation={activeConversation}
+                  onSelectConversation={onSelectConversation}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </ScrollArea>
+      
+      <div className="p-3 mt-auto border-t">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary mr-2">
+              {user?.email?.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium truncate max-w-[140px]">
+                {user?.email}
+              </span>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" asChild>
+            <a href="/api/auth/logout">
+              <LogOut className="h-4 w-4" />
+              <span className="sr-only">Logout</span>
+            </a>
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

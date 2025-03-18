@@ -3,12 +3,11 @@ import { AnthropicProvider } from './anthropic';
 import { DeepSeekProvider } from './deepseek';
 import { GeminiProvider } from './gemini';
 import type { LLMProvider } from '../types';
-import { useQuery } from '@tanstack/react-query';
-
-let providers: Record<string, LLMProvider>;
+import { useState, useEffect } from 'react';
+let providersCache: Record<string, LLMProvider>;
 
 export async function initializeProviders() {
-  if (providers) return providers;
+  if (providersCache) return providersCache;
 
   const response = await fetch('/api/providers');
   if (!response.ok) {
@@ -16,50 +15,79 @@ export async function initializeProviders() {
   }
 
   const configs = await response.json();
-  providers = {};
+  providersCache = {};
 
   for (const config of configs) {
     switch (config.id) {
       case 'openai':
-        providers[config.id] = new OpenAIProvider(config);
+        providersCache[config.id] = new OpenAIProvider(config);
         break;
       case 'anthropic':
-        providers[config.id] = new AnthropicProvider(config);
+        providersCache[config.id] = new AnthropicProvider(config);
         break;
       case 'deepseek':
-        providers[config.id] = new DeepSeekProvider(config);
+        providersCache[config.id] = new DeepSeekProvider(config);
         break;
       case 'gemini':
-        providers[config.id] = new GeminiProvider(config);
+        providersCache[config.id] = new GeminiProvider(config);
         break;
       // New providers can be added here
     }
   }
 
-  return providers;
+  return providersCache;
 }
 
 export function useProviders() {
-  return useQuery({
-    queryKey: ['/api/providers'],
-    queryFn: initializeProviders,
-  });
+  const [providers, setProviders] = useState<Record<string, LLMProvider>>({});
+  const [activeProvider, setActiveProvider] = useState<LLMProvider | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    async function loadProviders() {
+      try {
+        setIsLoading(true);
+        const loadedProviders = await initializeProviders();
+        setProviders(loadedProviders);
+        
+        // Set the first provider as active by default
+        if (Object.keys(loadedProviders).length > 0 && !activeProvider) {
+          setActiveProvider(loadedProviders[Object.keys(loadedProviders)[0]]);
+        }
+        setIsLoading(false);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+        setIsLoading(false);
+      }
+    }
+    
+    loadProviders();
+  }, []);
+
+  return {
+    providers: Object.values(providers),
+    activeProvider,
+    setActiveProvider,
+    isLoading,
+    error
+  };
 }
 
 export async function getProvider(id: string): Promise<LLMProvider> {
-  if (!providers) {
+  if (!providersCache) {
     await initializeProviders();
   }
 
-  if (!(id in providers)) {
+  if (!(id in providersCache)) {
     throw new Error(`Unknown provider: ${id}`);
   }
-  return providers[id];
+  return providersCache[id];
 }
 
 export async function getAllProviders(): Promise<LLMProvider[]> {
-  if (!providers) {
+  if (!providersCache) {
     await initializeProviders();
   }
-  return Object.values(providers);
+  return Object.values(providersCache);
 }
