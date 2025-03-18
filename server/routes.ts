@@ -21,7 +21,7 @@ import {
   cleanupImageFile
 } from "./file-handler";
 import knowledgeRoutes from "./routes/knowledge";
-import { prepareKnowledgeContentForConversation } from "./knowledge-service";
+import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "./knowledge-service";
 import type { SQL } from "drizzle-orm";
 
 // Load provider configurations at startup
@@ -124,6 +124,7 @@ export function registerRoutes(app: Express): Server {
         attachment = null,
         allAttachments = [],
         useKnowledge = false,
+        pendingKnowledgeSources = [],
       } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
@@ -166,6 +167,19 @@ export function registerRoutes(app: Express): Server {
           content: message,
           created_at: timestamp,
         });
+
+        // Add any pending knowledge sources to the new conversation
+        if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+          console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
+          
+          for (const knowledgeSourceId of pendingKnowledgeSources) {
+            try {
+              await addKnowledgeToConversation(newConversation.id, knowledgeSourceId);
+            } catch (error) {
+              console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+            }
+          }
+        }
 
         dbConversation = newConversation;
       } else {
