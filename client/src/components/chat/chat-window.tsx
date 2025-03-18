@@ -619,7 +619,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
               <SheetContent side="right" className="w-[300px] sm:w-[400px] md:hidden">
                 <SheetHeader>
                   <div className="flex items-center justify-between">
-                    <SheetTitle>Knowledge Sources</SheetTitle>
+                    <SheetTitle>Conversation Knowledge</SheetTitle>
                     <Button 
                       variant="ghost" 
                       size="icon" 
@@ -633,7 +633,15 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                   {conversation ? (
                     <ConversationKnowledge conversationId={conversation.id} />
                   ) : (
-                    <KnowledgeSourceList showAttachButton={false} />
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold">Conversation Knowledge</h2>
+                      </div>
+                      <div className="text-center p-6">
+                        <p className="text-muted-foreground mb-2">Start a conversation to add knowledge sources</p>
+                        <p className="text-xs text-muted-foreground">Send your first message to create a conversation</p>
+                      </div>
+                    </div>
                   )}
                 </div>
               </SheetContent>
@@ -645,7 +653,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
             <div className="hidden md:block border-l w-[300px] overflow-auto">
               <div className="p-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold">Knowledge Sources</h3>
+                  <h3 className="text-lg font-semibold">Conversation Knowledge</h3>
                   <Button 
                     variant="ghost" 
                     size="icon" 
@@ -657,7 +665,15 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                 {conversation ? (
                   <ConversationKnowledge conversationId={conversation.id} />
                 ) : (
-                  <KnowledgeSourceList showAttachButton={false} />
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h2 className="text-xl font-bold">Conversation Knowledge</h2>
+                    </div>
+                    <div className="text-center p-6">
+                      <p className="text-muted-foreground mb-2">Start a conversation to add knowledge sources</p>
+                      <p className="text-xs text-muted-foreground">Send your first message to create a conversation</p>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
