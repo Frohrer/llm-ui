@@ -1,0 +1,44 @@
+1. First, ensure we have the proper import:
+import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "./knowledge-service";
+
+2. For Anthropic route handler (around line 537-539), add this after saving user message:
+        // Add any pending knowledge sources to the new conversation
+        if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+          console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
+          
+          for (const knowledgeSourceId of pendingKnowledgeSources) {
+            try {
+              await addKnowledgeToConversation(newConversation.id, knowledgeSourceId);
+            } catch (error) {
+              console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+            }
+          }
+        }
+
+3. For DeepSeek route handler (around line 830), add this after saving user message:
+        // Add any pending knowledge sources to the new conversation
+        if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+          console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
+          
+          for (const knowledgeSourceId of pendingKnowledgeSources) {
+            try {
+              await addKnowledgeToConversation(newConversation.id, knowledgeSourceId);
+            } catch (error) {
+              console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+            }
+          }
+        }
+
+4. For Gemini route handler (around line 1245-1250), add this after saving user message:
+        // Add any pending knowledge sources to the new conversation
+        if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+          console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
+          
+          for (const knowledgeSourceId of pendingKnowledgeSources) {
+            try {
+              await addKnowledgeToConversation(newConversation.id, knowledgeSourceId);
+            } catch (error) {
+              console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+            }
+          }
+        }
