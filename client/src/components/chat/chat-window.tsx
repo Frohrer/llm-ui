@@ -119,7 +119,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   }, [queryClient, toast]);
 
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [useKnowledge, setUseKnowledge] = useState<boolean>(true);
+  // Knowledge is always enabled now, but keeping for API compatibility
+  const useKnowledge = true;
   const [showKnowledgePanel, setShowKnowledgePanel] = useState<boolean>(false);
   
   // Update messages when conversation changes
