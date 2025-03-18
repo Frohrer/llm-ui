@@ -4,16 +4,18 @@ import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
 // Increase JSON body size limit for all routes
-app.use(express.json({ 
-  limit: '50mb',
-  verify: (req, res, buf) => {
-    // Store raw body buffer for potential reuse
-    if (buf && buf.length) {
-      (req as any).rawBody = buf;
-    }
-  }
-}));
-app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+app.use(
+  express.json({
+    limit: "50mb",
+    verify: (req, res, buf) => {
+      // Store raw body buffer for potential reuse
+      if (buf && buf.length) {
+        (req as any).rawBody = buf;
+      }
+    },
+  }),
+);
+app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -70,5 +72,6 @@ app.use((req, res, next) => {
   const PORT = 5000;
   server.listen(PORT, "0.0.0.0", () => {
     log(`serving on port ${PORT}`);
+    log(`Version 3`);
   });
 })();

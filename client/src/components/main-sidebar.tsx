@@ -20,7 +20,6 @@ interface MainSidebarProps {
 export function MainSidebar({
   activeConversation,
   onSelectConversation,
-  onNewConversation,
   isMobile = false,
   onClose,
 }: MainSidebarProps) {
@@ -42,10 +41,7 @@ export function MainSidebar({
     <div className="flex flex-col h-full bg-background border-r">
       <div className="px-4 py-3 flex items-center justify-between">
         <div className="flex items-center">
-          <h1 className="text-xl font-bold">Chat App</h1>
-        </div>
-        <div className="flex items-center space-x-2">
-          <ThemeToggle />
+          <h1 className="text-xl font-bold">AI Chat</h1>
         </div>
       </div>
       <Separator />
@@ -96,8 +92,10 @@ export function MainSidebar({
           {location === "/" && (
             <>
               <Separator />
-              <div className="px-2">
-                <h3 className="text-md font-medium mb-2 px-2">Chat History</h3>
+              <div className="px-0">
+                <h3 className="text-md font-medium mb-2 px-2 pl-5">
+                  Chat History
+                </h3>
                 <ConversationList
                   activeConversation={activeConversation}
                   onSelectConversation={onSelectConversation}
