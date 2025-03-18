@@ -6,7 +6,8 @@ export interface KnowledgeSource {
   id: number;
   name: string;
   description?: string;
-  type: 'file' | 'text' | 'url';
+  source_type: 'file' | 'text' | 'url';
+  type?: 'file' | 'text' | 'url'; // Keep for backward compatibility
   url?: string;
   content_length: number;
   use_rag: boolean;
