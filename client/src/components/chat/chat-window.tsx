@@ -538,38 +538,15 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
             disabled={!!conversation || isLoading || isLoadingProviders}
             getModelDisplayName={getModelDisplayName}
           />
-          {conversation && (
-            <Button
-              variant={useKnowledge ? "default" : "outline"}
-              size="icon"
-              className={`shrink-0 ${useKnowledge ? "bg-primary text-primary-foreground" : ""}`}
-              onClick={() => {
-                const newValue = !useKnowledge;
-                setUseKnowledge(newValue);
-                toast({
-                  title: newValue ? "Knowledge Enabled" : "Knowledge Disabled",
-                  description: newValue 
-                    ? "AI responses will now use knowledge sources attached to this conversation." 
-                    : "AI responses will no longer use knowledge sources.",
-                  duration: 3000
-                });
-              }}
-              title={useKnowledge ? "Knowledge enabled" : "Knowledge disabled"}
-            >
-              <Database className="h-[1.2rem] w-[1.2rem]" />
-            </Button>
-          )}
-          {conversation && (
-            <Button
-              variant="outline"
-              size="icon"
-              className={`shrink-0 ${showKnowledgePanel ? "border-primary" : ""}`}
-              onClick={() => setShowKnowledgePanel(!showKnowledgePanel)}
-              title="Knowledge panel"
-            >
-              <BookOpen className="h-[1.2rem] w-[1.2rem]" />
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="icon"
+            className={`shrink-0 ${showKnowledgePanel ? "border-primary" : ""}`}
+            onClick={() => setShowKnowledgePanel(!showKnowledgePanel)}
+            title="Knowledge panel"
+          >
+            <BookOpen className="h-[1.2rem] w-[1.2rem]" />
+          </Button>
           <ThemeToggle />
         </div>
       </div>
@@ -634,37 +611,14 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
         </ResizablePanelGroup>
 
         {/* Knowledge panel - shown as a sheet on mobile and as a sidebar on desktop */}
-        {conversation && (
-          <>
-            {/* Mobile view - show as a sheet */}
-            <div className="md:hidden">
-              <Sheet open={showKnowledgePanel} onOpenChange={setShowKnowledgePanel}>
-                <SheetContent side="right" className="w-[300px] sm:w-[400px] md:hidden">
-                  <SheetHeader>
-                    <div className="flex items-center justify-between">
-                      <SheetTitle>Knowledge Sources</SheetTitle>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => setShowKnowledgePanel(false)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </SheetHeader>
-                  <div className="py-4">
-                    <ConversationKnowledge conversationId={conversation.id} />
-                  </div>
-                </SheetContent>
-              </Sheet>
-            </div>
-
-            {/* Desktop view - show as a sidebar */}
-            {showKnowledgePanel && (
-              <div className="hidden md:block border-l w-[300px] overflow-auto">
-                <div className="p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold">Knowledge Sources</h3>
+        <>
+          {/* Mobile view - show as a sheet */}
+          <div className="md:hidden">
+            <Sheet open={showKnowledgePanel} onOpenChange={setShowKnowledgePanel}>
+              <SheetContent side="right" className="w-[300px] sm:w-[400px] md:hidden">
+                <SheetHeader>
+                  <div className="flex items-center justify-between">
+                    <SheetTitle>Knowledge Sources</SheetTitle>
                     <Button 
                       variant="ghost" 
                       size="icon" 
@@ -673,12 +627,41 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
-                  <ConversationKnowledge conversationId={conversation.id} />
+                </SheetHeader>
+                <div className="py-4">
+                  {conversation ? (
+                    <ConversationKnowledge conversationId={conversation.id} />
+                  ) : (
+                    <KnowledgeSourceList showAttachButton={false} />
+                  )}
                 </div>
+              </SheetContent>
+            </Sheet>
+          </div>
+
+          {/* Desktop view - show as a sidebar */}
+          {showKnowledgePanel && (
+            <div className="hidden md:block border-l w-[300px] overflow-auto">
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">Knowledge Sources</h3>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setShowKnowledgePanel(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                {conversation ? (
+                  <ConversationKnowledge conversationId={conversation.id} />
+                ) : (
+                  <KnowledgeSourceList showAttachButton={false} />
+                )}
               </div>
-            )}
-          </>
-        )}
+            </div>
+          )}
+        </>
       </div>
     </div>
   );
