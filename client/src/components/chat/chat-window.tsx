@@ -7,7 +7,7 @@ import type { Message as MessageType, Conversation } from '@/lib/llm/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
-import { useProviders } from '@/lib/llm/providers';
+import { getAllProviders } from '@/lib/llm/providers';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
 import { Volume2, VolumeX, ChevronDown, BookOpen, X, Database } from 'lucide-react';
@@ -46,7 +46,28 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   const [showScrollButton, setShowScrollButton] = useState(false);
 
 
-  const { data: providers, isLoading: isLoadingProviders } = useProviders();
+  const [providers, setProviders] = useState<Record<string, any>>({});
+  const [isLoadingProviders, setIsLoadingProviders] = useState(true);
+  
+  // Load providers on component mount
+  useEffect(() => {
+    async function loadProviders() {
+      try {
+        const loadedProviders = await getAllProviders();
+        const providersMap = loadedProviders.reduce((acc, provider) => {
+          acc[provider.id] = provider;
+          return acc;
+        }, {} as Record<string, any>);
+        setProviders(providersMap);
+        setIsLoadingProviders(false);
+      } catch (error) {
+        console.error('Failed to load providers:', error);
+        setIsLoadingProviders(false);
+      }
+    }
+    
+    loadProviders();
+  }, []);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
