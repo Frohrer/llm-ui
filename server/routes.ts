@@ -1455,6 +1455,7 @@ export function registerRoutes(app: Express): Server {
         context = [],
         model = "gemini-1.5-pro",
         attachment = null,
+        allAttachments = [],
       } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
@@ -1536,57 +1537,89 @@ export function registerRoutes(app: Express): Server {
       // Process the current message parts (including attachments)
       const currentMessageParts = [];
       
-      // Add text content
-      currentMessageParts.push({ text: message });
-
-      // Process attachment based on type
-      if (attachment && attachment.type === 'image') {
-        try {
-          console.log("Processing image attachment for Gemini:", attachment.url);
-          
-          // Extract filename from URL
-          const fileName = attachment.url.split('/').pop();
-          if (!fileName) {
-            throw new Error('Invalid image URL');
-          }
-          
-          // Determine the image path
-          const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
-          
-          // Check if file exists
-          if (!fs.existsSync(imagePath)) {
-            throw new Error('Image file not found on server');
-          }
-          
-          // Read the image as base64
-          const imageBuffer = fs.readFileSync(imagePath);
-          const base64Image = imageBuffer.toString('base64');
-          const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
-          
-          // Add image to parts
-          currentMessageParts.push({
-            inlineData: {
-              data: base64Image,
-              mimeType
+      // Get all attachments (prioritize the allAttachments array if it exists)
+      const allAttachmentsToProcess = allAttachments.length > 0 ? allAttachments : (attachment ? [attachment] : []);
+      
+      console.log(`Processing ${allAttachmentsToProcess.length} attachments for Gemini`);
+      
+      // Variables to track attachment types
+      let hasImageAttachment = false;
+      let imageAttachmentData = [];
+      let documentTexts: string[] = [];
+      
+      // Process each attachment
+      for (const att of allAttachmentsToProcess) {
+        // Handle image attachments
+        if (att.type === 'image') {
+          try {
+            console.log("Processing image attachment for Gemini:", att.url);
+            
+            // Extract filename from URL
+            const fileName = att.url.split('/').pop();
+            if (!fileName) {
+              throw new Error('Invalid image URL');
             }
-          });
+            
+            // Determine the image path
+            const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
+            
+            // Check if file exists
+            if (!fs.existsSync(imagePath)) {
+              throw new Error('Image file not found on server');
+            }
+            
+            // Read the image as base64
+            const imageBuffer = fs.readFileSync(imagePath);
+            const base64Image = imageBuffer.toString('base64');
+            const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
+            
+            // Save image data for later use
+            imageAttachmentData.push({
+              inlineData: {
+                data: base64Image,
+                mimeType
+              }
+            });
+            
+            hasImageAttachment = true;
+            console.log("Image successfully processed for Gemini");
+            
+            // Delete the file after processing
+            cleanupImageFile(att.url);
+          } catch (imageError) {
+            console.error("Error processing image for Gemini:", imageError);
+            // Add error to document texts
+            documentTexts.push(`[Image processing failed: ${imageError instanceof Error ? imageError.message : 'Unknown error'}]`);
+          }
+        } 
+        // Handle document attachments
+        else if (att.type === 'document' && att.text) {
+          console.log(`Processing document attachment for Gemini: ${att.name}`);
+          documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
           
-          console.log("Image successfully processed and added to Gemini parts");
-          
-          // Delete the file after processing
-          cleanupImageFile(attachment.url);
-        } catch (imageError) {
-          console.error("Error processing image for Gemini:", imageError);
-        }
-      } else if (attachment && attachment.type === 'document' && attachment.text) {
-        // For documents, we just append the text
-        currentMessageParts.push({ text: `Document content: ${attachment.text}` });
-        
-        // Clean up document file after processing
-        if (attachment.url) {
-          cleanupDocumentFile(attachment.url);
+          // Clean up the document file
+          if (att.url) {
+            cleanupDocumentFile(att.url);
+          }
         }
       }
+      
+      // Add the text part first with any document content
+      let textContent = message;
+      if (documentTexts.length > 0) {
+        textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+      }
+      
+      // Add text content
+      currentMessageParts.push({ text: textContent });
+      
+      // Add any image attachments
+      for (const imgData of imageAttachmentData) {
+        currentMessageParts.push(imgData);
+      }
+      
+      console.log(`Sending Gemini message with ${currentMessageParts.length} parts (text + ${imageAttachmentData.length} images)`);
+      
 
       // Build conversation history for the chat
       let chatHistory = [];
