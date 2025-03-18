@@ -10,11 +10,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useProviders } from '@/lib/llm/providers';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
-import { Volume2, VolumeX, ChevronDown, BookOpen, X } from 'lucide-react';
+import { Volume2, VolumeX, ChevronDown, BookOpen, X, Database } from 'lucide-react';
 import { speechService } from '@/lib/speech-service';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { ConversationKnowledge } from '@/components/knowledge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { KnowledgeSourceList } from '@/components/knowledge/knowledge-source-list';
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -96,6 +97,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   }, [queryClient, toast]);
 
   const [selectedModel, setSelectedModel] = useState<string>('');
+  const [useKnowledge, setUseKnowledge] = useState<boolean>(false);
+  const [showKnowledgePanel, setShowKnowledgePanel] = useState<boolean>(false);
   
   // Update messages when conversation changes
   useEffect(() => {
@@ -335,7 +338,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           context: messages,
           model: selectedModel,
           attachment: attachment,
-          allAttachments: allAttachments || [] // Send all attachments to be processed together
+          allAttachments: allAttachments || [], // Send all attachments to be processed together
+          useKnowledge: useKnowledge
         }),
         signal: abortControllerRef.current.signal
       });
@@ -491,7 +495,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           {mobileMenuTrigger}
           <h2 className="font-semibold text-base md:text-lg">{conversation?.title || 'New Conversation'}</h2>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <ModelSelector
             selectedModel={selectedModel}
             onModelChange={(modelId) => {
@@ -512,6 +516,28 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
             disabled={!!conversation || isLoading || isLoadingProviders}
             getModelDisplayName={getModelDisplayName}
           />
+          {conversation && (
+            <Button
+              variant={useKnowledge ? "default" : "outline"}
+              size="icon"
+              className={`shrink-0 ${useKnowledge ? "bg-primary text-primary-foreground" : ""}`}
+              onClick={() => setUseKnowledge(!useKnowledge)}
+              title={useKnowledge ? "Knowledge enabled" : "Knowledge disabled"}
+            >
+              <Database className="h-[1.2rem] w-[1.2rem]" />
+            </Button>
+          )}
+          {conversation && (
+            <Button
+              variant="outline"
+              size="icon"
+              className={`shrink-0 ${showKnowledgePanel ? "border-primary" : ""}`}
+              onClick={() => setShowKnowledgePanel(!showKnowledgePanel)}
+              title="Knowledge panel"
+            >
+              <BookOpen className="h-[1.2rem] w-[1.2rem]" />
+            </Button>
+          )}
           <ThemeToggle />
         </div>
       </div>
@@ -576,19 +602,23 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
         </ResizablePanelGroup>
 
         {/* Knowledge panel - shown as a sheet on mobile and as a sidebar on desktop */}
-        {conversation && (
+        {conversation && showKnowledgePanel && (
           <>
             {/* Mobile view - show as a sheet */}
             <div className="md:hidden">
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button variant="outline" size="icon" className="fixed bottom-24 right-4 rounded-full shadow-md">
-                    <BookOpen className="h-5 w-5" />
-                  </Button>
-                </SheetTrigger>
+              <Sheet open={true}>
                 <SheetContent side="right" className="w-[300px] sm:w-[400px] md:hidden">
                   <SheetHeader>
-                    <SheetTitle>Knowledge Sources</SheetTitle>
+                    <div className="flex items-center justify-between">
+                      <SheetTitle>Knowledge Sources</SheetTitle>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => setShowKnowledgePanel(false)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </SheetHeader>
                   <div className="py-4">
                     <ConversationKnowledge conversationId={conversation.id} />
@@ -602,6 +632,13 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
               <div className="p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold">Knowledge Sources</h3>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setShowKnowledgePanel(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
                 <ConversationKnowledge conversationId={conversation.id} />
               </div>
