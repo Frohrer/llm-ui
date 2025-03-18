@@ -291,7 +291,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       role: 'user',
       content,
       timestamp,
-      attachment
+      attachment // This can be undefined or a single attachment
     };
 
     // Add the message to the UI
