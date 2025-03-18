@@ -661,9 +661,13 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                 </SheetHeader>
                 <div className="py-4">
                   {conversation ? (
-                    <ConversationKnowledge conversationId={conversation.id} />
+                    <KnowledgeSourceList 
+                      mode="conversation" 
+                      conversationId={conversation.id} 
+                    />
                   ) : (
                     <KnowledgeSourceList 
+                      mode="all"
                       showAttachButton={true} 
                       onSelectKnowledgeSource={(source) => {
                         if (pendingKnowledgeSources.includes(source.id)) {
@@ -695,9 +699,13 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                   </Button>
                 </div>
                 {conversation ? (
-                  <ConversationKnowledge conversationId={conversation.id} />
+                  <KnowledgeSourceList 
+                    mode="conversation" 
+                    conversationId={conversation.id} 
+                  />
                 ) : (
                   <KnowledgeSourceList 
+                    mode="all"
                     showAttachButton={true}
                     onSelectKnowledgeSource={(source) => {
                       if (pendingKnowledgeSources.includes(source.id)) {
