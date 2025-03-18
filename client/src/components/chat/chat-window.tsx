@@ -313,6 +313,12 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController();
 
+    // Display the attachments being sent in console for debugging
+    console.log('Sending message with attachments:', {
+      primaryAttachment: attachment,
+      allAttachments: allAttachments || []
+    });
+
     try {
       const providerId = getProviderForModel(selectedModel);
       const response = await fetch(`/api/chat/${providerId}`, {
@@ -325,7 +331,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           conversationId: conversation?.id,
           context: messages,
           model: selectedModel,
-          attachment: userMessage.attachment,
+          attachment: attachment,
           allAttachments: allAttachments || [] // Send all attachments to be processed together
         }),
         signal: abortControllerRef.current.signal

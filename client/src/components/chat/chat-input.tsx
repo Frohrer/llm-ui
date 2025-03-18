@@ -64,9 +64,8 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       // Store the current message in memory before clearing the input
       pendingMessageRef.current = message;
       
-      // We'll use the first attachment as primary (for API compatibility)
-      // but the server will process all attachments from the context
-      const primaryAttachment = attachments.length > 0 ? attachments[0] : undefined;
+      // Get the active attachment if one is selected, otherwise use undefined
+      const primaryAttachment = activeAttachment !== null ? attachments[activeAttachment] : undefined;
       pendingAttachmentRef.current = primaryAttachment;
       
       // Clear the input immediately for better UX
@@ -74,11 +73,10 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       
       // Send the message
       try {
-        // We're modifying this to pass all attachments in one message
-        // The API signature remains the same but we've changed the type of the attachment to include all documents
+        // Send the message with all attachments
         const success = await onSendMessage(
           pendingMessageRef.current, 
-          pendingAttachmentRef.current, 
+          primaryAttachment, 
           attachments  // Pass all attachments as an additional parameter
         );
         
