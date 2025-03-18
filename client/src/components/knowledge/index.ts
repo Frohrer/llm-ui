@@ -1,3 +1,3 @@
-export * from "./knowledge-source-list";
-export * from "./knowledge-source-upload";
-export * from "./conversation-knowledge";
+export { KnowledgeSourceList } from './knowledge-source-list';
+export { KnowledgeSourceUpload } from './knowledge-source-upload';
+export { ConversationKnowledge } from './conversation-knowledge';
