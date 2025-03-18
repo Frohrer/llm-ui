@@ -1045,6 +1045,121 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Multiple files upload endpoint
+  app.post('/api/upload-batch', uploadMultipleMiddleware, handleUploadErrors, async (req, res) => {
+    try {
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: 'No files uploaded' });
+      }
+
+      const results = [];
+      const filePromises = [];
+
+      // Process each file in the batch
+      for (const file of req.files as Express.Multer.File[]) {
+        const filePath = file.path;
+        const fileName = path.basename(filePath);
+        
+        // Determine if this is an image based on mimetype
+        const isImage = file.mimetype.startsWith('image/');
+        
+        // Construct the URL path correctly
+        const folderName = isImage ? 'images' : 'documents';
+        const fileUrl = `/uploads/${folderName}/${fileName}`;
+        
+        // Ensure file is accessible by checking its existence
+        if (!fs.existsSync(filePath)) {
+          console.error(`File does not exist at path: ${filePath}`);
+          results.push({
+            success: false,
+            name: file.originalname,
+            error: 'File upload was not saved correctly'
+          });
+          continue;
+        }
+        
+        // For images, just return the URL
+        if (isImage) {
+          results.push({
+            success: true,
+            file: {
+              name: file.originalname,
+              type: file.mimetype,
+              size: file.size,
+              url: fileUrl,
+              isImage: true
+            }
+          });
+          continue;
+        }
+        
+        // For documents, extract the text (async)
+        const processDocumentPromise = extractTextFromFile(filePath)
+          .then(extractedText => {
+            // If text extraction failed or text is very short, provide a warning
+            if (!extractedText || extractedText.length < 10) {
+              console.warn(`Document text extraction issue for file: ${file.originalname}`);
+              results.push({
+                success: true,
+                file: {
+                  name: file.originalname,
+                  type: file.mimetype,
+                  size: file.size,
+                  url: fileUrl,
+                  isImage: false,
+                  text: `[Document: ${file.originalname}]`
+                },
+                warning: 'Document contained little or no extractable text'
+              });
+            } else {
+              results.push({
+                success: true,
+                file: {
+                  name: file.originalname,
+                  type: file.mimetype,
+                  size: file.size,
+                  url: fileUrl,
+                  isImage: false,
+                  text: extractedText
+                }
+              });
+            }
+          })
+          .catch(docError => {
+            console.error('Error processing document:', docError);
+            results.push({
+              success: true,
+              file: {
+                name: file.originalname,
+                type: file.mimetype,
+                size: file.size,
+                url: fileUrl,
+                isImage: false,
+                text: `[Document: ${file.originalname} - Could not extract text]`
+              },
+              warning: 'Failed to extract text from document'
+            });
+          });
+        
+        filePromises.push(processDocumentPromise);
+      }
+      
+      // Wait for all document processing to complete
+      await Promise.all(filePromises);
+      
+      // Return results for all files
+      return res.json({
+        success: true,
+        files: results
+      });
+    } catch (error) {
+      console.error('Error uploading files:', error);
+      return res.status(500).json({ 
+        error: error instanceof Error ? error.message : 'Failed to upload files' 
+      });
+    }
+  });
+
   // Serve uploaded files with improved security and reliability
   app.use('/uploads', (req, res, next) => {
     // Check for user authentication, but allow in-app requests that have session
