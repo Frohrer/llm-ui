@@ -27,12 +27,14 @@ interface KnowledgeSourceListProps {
   onSelectKnowledgeSource?: (source: KnowledgeSource) => void;
   conversationId?: number;
   showAttachButton?: boolean;
+  selectedSourceIds?: number[];
 }
 
 export function KnowledgeSourceList({ 
   onSelectKnowledgeSource, 
   conversationId,
-  showAttachButton = false
+  showAttachButton = false,
+  selectedSourceIds = []
 }: KnowledgeSourceListProps) {
   const { 
     knowledgeSources, 
@@ -134,7 +136,7 @@ export function KnowledgeSourceList({
         sources.map((source) => (
           <Card 
             key={source.id} 
-            className="w-full hover:bg-accent/10 cursor-pointer transition-colors"
+            className={`w-full hover:bg-accent/10 cursor-pointer transition-colors ${selectedSourceIds.includes(source.id) ? "border-primary border-2" : ""}`}
             onClick={() => onSelectKnowledgeSource?.(source)}
           >
             <CardHeader>
@@ -155,6 +157,9 @@ export function KnowledgeSourceList({
                     {source.use_rag ? "RAG" : "Full Text"}
                   </Badge>
                   <Badge variant="outline">{source.type}</Badge>
+                  {selectedSourceIds.includes(source.id) && (
+                    <Badge variant="default" className="bg-primary">Selected</Badge>
+                  )}
                 </div>
               </div>
             </CardHeader>
