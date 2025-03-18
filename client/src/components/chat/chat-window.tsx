@@ -121,7 +121,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   const [selectedModel, setSelectedModel] = useState<string>('');
   // Knowledge is always enabled now, but keeping for API compatibility
   const useKnowledge = true;
-  const [showKnowledgePanel, setShowKnowledgePanel] = useState<boolean>(false);
+  const [showMobileKnowledgePanel, setShowMobileKnowledgePanel] = useState<boolean>(false);
+  const [showDesktopKnowledgePanel, setShowDesktopKnowledgePanel] = useState<boolean>(false);
   const [pendingKnowledgeSources, setPendingKnowledgeSources] = useState<number[]>([]);
   
   // Update messages when conversation changes
@@ -238,6 +239,27 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       scrollToBottom();
     }
   }, [messages, streamedText, shouldAutoScroll]);
+
+  // Handle screen resize to appropriately manage knowledge panel visibility
+  useEffect(() => {
+    const handleResize = () => {
+      // If we're resizing from mobile to desktop
+      if (window.innerWidth >= 768 && showMobileKnowledgePanel) {
+        setShowMobileKnowledgePanel(false);
+        setShowDesktopKnowledgePanel(true);
+      }
+      // If we're resizing from desktop to mobile
+      else if (window.innerWidth < 768 && showDesktopKnowledgePanel) {
+        setShowDesktopKnowledgePanel(false);
+        setShowMobileKnowledgePanel(true);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [showMobileKnowledgePanel, showDesktopKnowledgePanel]);
 
   // Cleanup abort controller on unmount
   useEffect(() => {
@@ -544,8 +566,14 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           <Button
             variant="outline"
             size="icon"
-            className={`shrink-0 ${showKnowledgePanel ? "border-primary" : ""}`}
-            onClick={() => setShowKnowledgePanel(!showKnowledgePanel)}
+            className={`shrink-0 ${showDesktopKnowledgePanel || showMobileKnowledgePanel ? "border-primary" : ""}`}
+            onClick={() => {
+              if (window.innerWidth >= 768) { // md breakpoint
+                setShowDesktopKnowledgePanel(!showDesktopKnowledgePanel);
+              } else {
+                setShowMobileKnowledgePanel(!showMobileKnowledgePanel);
+              }
+            }}
             title="Knowledge panel"
           >
             <BookOpen className="h-[1.2rem] w-[1.2rem]" />
@@ -617,7 +645,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
         <>
           {/* Mobile view - show as a sheet */}
           <div className="md:hidden">
-            <Sheet open={showKnowledgePanel} onOpenChange={setShowKnowledgePanel}>
+            <Sheet open={showMobileKnowledgePanel} onOpenChange={setShowMobileKnowledgePanel}>
               <SheetContent side="right" className="w-[300px] sm:w-[400px] md:hidden">
                 <SheetHeader>
                   <div className="flex items-center justify-between">
@@ -625,7 +653,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                     <Button 
                       variant="ghost" 
                       size="icon" 
-                      onClick={() => setShowKnowledgePanel(false)}
+                      onClick={() => setShowMobileKnowledgePanel(false)}
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -653,7 +681,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           </div>
 
           {/* Desktop view - show as a sidebar */}
-          {showKnowledgePanel && (
+          {showDesktopKnowledgePanel && (
             <div className="hidden md:block border-l w-[300px] overflow-auto">
               <div className="p-4">
                 <div className="flex items-center justify-between mb-4">
@@ -661,7 +689,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                   <Button 
                     variant="ghost" 
                     size="icon" 
-                    onClick={() => setShowKnowledgePanel(false)}
+                    onClick={() => setShowDesktopKnowledgePanel(false)}
                   >
                     <X className="h-4 w-4" />
                   </Button>
