@@ -71,7 +71,7 @@ export function MainSidebar({
                   className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
                     isActive("/") && !isActive("/knowledge")
                       ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50"
+                      : "hover:bg-accent/50"
                   }`}
                 >
                   <MessageCircle className="mr-2 h-4 w-4" />
@@ -83,7 +83,7 @@ export function MainSidebar({
                   className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
                     isActive("/knowledge")
                       ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50"
+                      : "hover:bg-accent/50"
                   }`}
                 >
                   <BookOpen className="mr-2 h-4 w-4" />

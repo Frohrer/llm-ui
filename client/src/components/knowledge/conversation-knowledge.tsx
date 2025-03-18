@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { useKnowledge, type KnowledgeSource } from "@/hooks/use-knowledge";
-import { 
-  Card, 
-  CardHeader, 
-  CardTitle, 
-  CardDescription, 
-  CardContent 
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { 
+import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  SheetTrigger
+  SheetTrigger,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Unlink, FileText, Globe, PlusCircle } from "lucide-react";
@@ -25,23 +25,22 @@ interface ConversationKnowledgeProps {
   conversationId: number;
 }
 
-export function ConversationKnowledge({ conversationId }: ConversationKnowledgeProps) {
-  const { 
-    getConversationKnowledgeSources, 
-    removeKnowledgeFromConversation, 
-    isDetaching 
+export function ConversationKnowledge({
+  conversationId,
+}: ConversationKnowledgeProps) {
+  const {
+    getConversationKnowledgeSources,
+    removeKnowledgeFromConversation,
+    isDetaching,
   } = useKnowledge();
-  
+
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  
+
   const knowledgeSources = getConversationKnowledgeSources(conversationId);
 
   if (knowledgeSources.isLoading) {
     return (
       <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-bold">Knowledge Sources</h2>
-        </div>
         {Array.from({ length: 2 }).map((_, index) => (
           <Card key={index} className="w-full">
             <CardHeader>
@@ -66,8 +65,8 @@ export function ConversationKnowledge({ conversationId }: ConversationKnowledgeP
         </CardHeader>
         <CardContent>
           <p>{knowledgeSources.error.message}</p>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={() => knowledgeSources.refetch()}
             className="mt-2"
           >
@@ -83,7 +82,6 @@ export function ConversationKnowledge({ conversationId }: ConversationKnowledgeP
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold">Conversation Knowledge</h2>
         <Sheet open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <SheetTrigger asChild>
             <Button variant="outline" size="sm">
@@ -99,7 +97,7 @@ export function ConversationKnowledge({ conversationId }: ConversationKnowledgeP
               </SheetDescription>
             </SheetHeader>
             <div className="py-6">
-              <KnowledgeSourceList 
+              <KnowledgeSourceList
                 conversationId={conversationId}
                 showAttachButton={true}
                 onSelectKnowledgeSource={(source) => {
@@ -121,8 +119,8 @@ export function ConversationKnowledge({ conversationId }: ConversationKnowledgeP
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              Knowledge sources provide context to the AI, allowing it to reference specific information
-              in its responses.
+              Knowledge sources provide context to the AI, allowing it to
+              reference specific information in its responses.
             </p>
             <Button variant="outline" onClick={() => setIsAddDialogOpen(true)}>
               <PlusCircle className="mr-2 h-4 w-4" />
@@ -138,9 +136,15 @@ export function ConversationKnowledge({ conversationId }: ConversationKnowledgeP
                 <div className="flex justify-between items-start">
                   <div>
                     <CardTitle className="flex items-center">
-                      {source.type === 'file' && <FileText className="mr-2 h-4 w-4" />}
-                      {source.type === 'url' && <Globe className="mr-2 h-4 w-4" />}
-                      {source.type === 'text' && <FileText className="mr-2 h-4 w-4" />}
+                      {source.type === "file" && (
+                        <FileText className="mr-2 h-4 w-4" />
+                      )}
+                      {source.type === "url" && (
+                        <Globe className="mr-2 h-4 w-4" />
+                      )}
+                      {source.type === "text" && (
+                        <FileText className="mr-2 h-4 w-4" />
+                      )}
                       {source.name}
                     </CardTitle>
                     <CardDescription>
@@ -156,13 +160,13 @@ export function ConversationKnowledge({ conversationId }: ConversationKnowledgeP
                 </div>
               </CardHeader>
               <CardContent className="flex justify-end">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => {
-                    removeKnowledgeFromConversation({ 
-                      conversationId, 
-                      knowledgeSourceId: source.id 
+                    removeKnowledgeFromConversation({
+                      conversationId,
+                      knowledgeSourceId: source.id,
                     });
                   }}
                   disabled={isDetaching}
