@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { FileUpload, Globe, FileText } from "lucide-react";
+import { Upload, Globe, FileText } from "lucide-react";
 
 interface KnowledgeSourceUploadProps {
   onSuccess?: () => void;
@@ -126,7 +126,7 @@ export function KnowledgeSourceUpload({ onSuccess }: KnowledgeSourceUploadProps)
     <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'file' | 'text' | 'url')}>
       <TabsList className="grid grid-cols-3">
         <TabsTrigger value="file" className="flex items-center">
-          <FileUpload className="mr-2 h-4 w-4" />
+          <Upload className="mr-2 h-4 w-4" />
           File
         </TabsTrigger>
         <TabsTrigger value="text" className="flex items-center">

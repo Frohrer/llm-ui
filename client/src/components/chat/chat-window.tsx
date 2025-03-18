@@ -10,9 +10,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useProviders } from '@/lib/llm/providers';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
-import { Volume2, VolumeX, ChevronDown } from 'lucide-react';
+import { Volume2, VolumeX, ChevronDown, BookOpen, X } from 'lucide-react';
 import { speechService } from '@/lib/speech-service';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
+import { ConversationKnowledge } from '@/components/knowledge';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -514,62 +516,99 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
         </div>
       </div>
       
-      <ResizablePanelGroup direction="vertical" className="flex-1">
-        {/* Messages area */}
-        <ResizablePanel defaultSize={75} minSize={30}>
-          <div className="relative h-full">
-            <ScrollArea className="h-full">
-              <div
-                className="p-4 space-y-4"
-                ref={containerRef}
-                style={{ overflow: 'auto' }}
-              >
-                {messages.map(message => (
-                  <Message key={message.id} message={message} />
-                ))}
-                {streamedText && (
-                  <Message
-                    message={{
-                      id: 'streaming',
-                      role: 'assistant',
-                      content: streamedText,
-                      timestamp: Date.now(),
-                      // Explicitly passing undefined to prevent attachment handling during streaming
-                      attachment: undefined,
-                      attachments: undefined
-                    }}
-                  />
-                )}
-                {isLoading && !streamedText && (
-                  <div className="animate-pulse">Thinking...</div>
-                )}
-                
-                {/* Hidden anchor for scroll functionality */}
-                <div id="bottom-anchor" className="h-1 w-full"></div>
+      <div className="flex-1 flex">
+        {/* Main chat area */}
+        <ResizablePanelGroup direction="vertical" className="flex-1">
+          {/* Messages area */}
+          <ResizablePanel defaultSize={75} minSize={30}>
+            <div className="relative h-full">
+              <ScrollArea className="h-full">
+                <div
+                  className="p-4 space-y-4"
+                  ref={containerRef}
+                  style={{ overflow: 'auto' }}
+                >
+                  {messages.map(message => (
+                    <Message key={message.id} message={message} />
+                  ))}
+                  {streamedText && (
+                    <Message
+                      message={{
+                        id: 'streaming',
+                        role: 'assistant',
+                        content: streamedText,
+                        timestamp: Date.now(),
+                        // Explicitly passing undefined to prevent attachment handling during streaming
+                        attachment: undefined,
+                        attachments: undefined
+                      }}
+                    />
+                  )}
+                  {isLoading && !streamedText && (
+                    <div className="animate-pulse">Thinking...</div>
+                  )}
+                  
+                  {/* Hidden anchor for scroll functionality */}
+                  <div id="bottom-anchor" className="h-1 w-full"></div>
+                </div>
+              </ScrollArea>
+              
+              {/* Scroll to bottom button - fixed position outside ScrollArea, always visible */}
+              <a href="#bottom-anchor" className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px] flex items-center justify-center" style={{ width: "35px", height: "35px" }}>
+                <ChevronDown className="h-5 w-5" />
+              </a>
+            </div>
+          </ResizablePanel>
+          
+          {/* Resizable handle with visible grip */}
+          <ResizableHandle withHandle />
+          
+          {/* Input area */}
+          <ResizablePanel defaultSize={25} minSize={15}>
+            <div className="p-4 h-full border-t">
+              <ChatInput 
+                onSendMessage={handleSendMessage} 
+                isLoading={isLoading} 
+                modelContextLength={getModelContextLength(selectedModel)}
+              />
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+
+        {/* Knowledge panel - shown as a sheet on mobile and as a sidebar on desktop */}
+        {conversation && (
+          <>
+            {/* Mobile view - show as a sheet */}
+            <div className="md:hidden">
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button variant="outline" size="icon" className="fixed bottom-24 right-4 rounded-full shadow-md">
+                    <BookOpen className="h-5 w-5" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="right" className="w-[300px] sm:w-[400px] md:hidden">
+                  <SheetHeader>
+                    <SheetTitle>Knowledge Sources</SheetTitle>
+                  </SheetHeader>
+                  <div className="py-4">
+                    <ConversationKnowledge conversationId={conversation.id} />
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </div>
+
+            {/* Desktop view - show as a sidebar */}
+            <div className="hidden md:block border-l w-[300px] overflow-auto">
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">Knowledge Sources</h3>
+                </div>
+                <ConversationKnowledge conversationId={conversation.id} />
               </div>
-            </ScrollArea>
-            
-            {/* Scroll to bottom button - fixed position outside ScrollArea, always visible */}
-            <a href="#bottom-anchor" className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px] flex items-center justify-center" style={{ width: "35px", height: "35px" }}>
-              <ChevronDown className="h-5 w-5" />
-            </a>
-          </div>
-        </ResizablePanel>
-        
-        {/* Resizable handle with visible grip */}
-        <ResizableHandle withHandle />
-        
-        {/* Input area */}
-        <ResizablePanel defaultSize={25} minSize={15}>
-          <div className="p-4 h-full border-t">
-            <ChatInput 
-              onSendMessage={handleSendMessage} 
-              isLoading={isLoading} 
-              modelContextLength={getModelContextLength(selectedModel)}
-            />
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
