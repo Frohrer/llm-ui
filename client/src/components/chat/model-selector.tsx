@@ -1,6 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectSeparator, SelectGroup, SelectLabel } from '@/components/ui/select';
 import type { ModelConfig } from '@/lib/llm/types';
-import { useProviders } from '@/lib/llm/providers';
+import { useEffect, useState } from 'react';
+import { getAllProviders } from '@/lib/llm/providers';
 
 interface ModelSelectorProps {
   selectedModel: string;
@@ -10,10 +11,27 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ selectedModel, onModelChange, disabled, getModelDisplayName }: ModelSelectorProps) {
-  const { data: providers, isLoading } = useProviders();
+  const [providers, setProviders] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const modelName = getModelDisplayName 
     ? getModelDisplayName(selectedModel)
     : selectedModel;
+
+  useEffect(() => {
+    async function loadProviders() {
+      try {
+        setIsLoading(true);
+        const loadedProviders = await getAllProviders();
+        setProviders(loadedProviders);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Failed to load providers:', error);
+        setIsLoading(false);
+      }
+    }
+    
+    loadProviders();
+  }, []);
 
   // If disabled (existing conversation), show just the model name
   if (disabled) {
@@ -43,15 +61,15 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
         <SelectValue placeholder="Select a model" />
       </SelectTrigger>
       <SelectContent>
-        {Object.values(providers || {}).map((provider) => (
+        {providers.map((provider) => (
           <SelectGroup key={provider.id}>
             <SelectLabel className="font-semibold">{provider.name}</SelectLabel>
-            {provider.models.map((model) => (
+            {provider.models.map((model: ModelConfig) => (
               <SelectItem key={model.id} value={model.id}>
                 {model.name}
               </SelectItem>
             ))}
-            {provider !== Object.values(providers || {}).pop() && <SelectSeparator />}
+            {provider !== providers[providers.length - 1] && <SelectSeparator />}
           </SelectGroup>
         ))}
       </SelectContent>
