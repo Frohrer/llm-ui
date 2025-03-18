@@ -64,10 +64,16 @@ export function KnowledgeSourceList({
 
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
 
-  // Determine which data to use based on mode
+  // Always call both hooks to maintain consistency
+  const allKnowledgeSources = knowledgeSources;
+  const conversationKnowledgeSources = conversationId 
+    ? getConversationKnowledgeSources(conversationId) 
+    : { isLoading: false, isError: false, data: [], error: null, refetch: () => {} };
+  
+  // Then determine which data to use based on mode
   const dataQuery = mode === "conversation" && conversationId
-    ? getConversationKnowledgeSources(conversationId)
-    : knowledgeSources;
+    ? conversationKnowledgeSources
+    : allKnowledgeSources;
 
   if (dataQuery.isLoading) {
     return (
@@ -98,7 +104,7 @@ export function KnowledgeSourceList({
           <CardDescription>Failed to load knowledge sources</CardDescription>
         </CardHeader>
         <CardContent>
-          <p>{dataQuery.error.message}</p>
+          <p>{dataQuery.error?.message || 'Unknown error occurred'}</p>
         </CardContent>
         <CardFooter>
           <Button onClick={() => dataQuery.refetch()} variant="outline">Retry</Button>
@@ -131,14 +137,55 @@ export function KnowledgeSourceList({
               </SheetHeader>
               <div className="py-6">
                 {mode === "conversation" ? (
-                  <KnowledgeSourceList
-                    conversationId={conversationId}
-                    showAttachButton={true}
-                    mode="all"
-                    onSelectKnowledgeSource={(source) => {
-                      setIsUploadDialogOpen(false);
-                    }}
-                  />
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Select a knowledge source to add to this conversation:
+                    </p>
+                    <div className={gridLayout ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-4"}>
+                      {allKnowledgeSources.data && allKnowledgeSources.data.map((source) => (
+                        <Card
+                          key={source.id}
+                          className="w-full hover:bg-accent/10 transition-colors cursor-pointer"
+                          onClick={() => {
+                            if (conversationId) {
+                              addKnowledgeToConversation({
+                                conversationId,
+                                knowledgeSourceId: source.id,
+                              });
+                              setIsUploadDialogOpen(false);
+                            }
+                          }}
+                        >
+                          <CardHeader>
+                            <div className="flex justify-between items-start">
+                              <CardTitle className="flex items-center">
+                                {source.type === "file" && <FileText className="mr-2 h-4 w-4" />}
+                                {source.type === "url" && <Globe className="mr-2 h-4 w-4" />}
+                                {source.type === "text" && <FileText className="mr-2 h-4 w-4" />}
+                                {source.name}
+                              </CardTitle>
+                              <div className="flex gap-2">
+                                <Badge variant={source.use_rag ? "default" : "outline"}>
+                                  {source.use_rag ? "RAG" : "Full Text"}
+                                </Badge>
+                                <Badge variant="outline">{source.type}</Badge>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardFooter>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              disabled={isAttaching}
+                            >
+                              <Link className="mr-2 h-4 w-4" />
+                              Add to conversation
+                            </Button>
+                          </CardFooter>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
                 ) : (
                   <KnowledgeSourceUpload
                     onSuccess={() => setIsUploadDialogOpen(false)}
