@@ -157,20 +157,25 @@ export function KnowledgeSourceList({
                           }}
                         >
                           <CardHeader>
-                            <div className="flex justify-between items-start">
-                              <CardTitle className="flex items-center">
-                                {(source.source_type === "file" || !source.source_type) && <FileText className="mr-2 h-4 w-4" />}
-                                {source.source_type === "url" && <Globe className="mr-2 h-4 w-4" />}
-                                {source.source_type === "text" && <FileText className="mr-2 h-4 w-4" />}
-                                {source.name}
-                              </CardTitle>
-                              <div className="flex gap-2">
-                                <Badge variant={source.use_rag ? "default" : "outline"}>
-                                  {source.use_rag ? "RAG" : "Full Text"}
-                                </Badge>
-                                <Badge variant="outline">{source.source_type || 'file'}</Badge>
-                              </div>
+                            <CardTitle className="flex items-center">
+                              {(source.source_type === "file" || !source.source_type) && <FileText className="mr-2 h-4 w-4" />}
+                              {source.source_type === "url" && <Globe className="mr-2 h-4 w-4" />}
+                              {source.source_type === "text" && <FileText className="mr-2 h-4 w-4" />}
+                              {source.name}
+                            </CardTitle>
+                            
+                            <div className="flex gap-2 flex-wrap mt-2">
+                              <Badge variant={source.use_rag ? "default" : "outline"}>
+                                {source.use_rag ? "RAG" : "Full Text"}
+                              </Badge>
+                              <Badge variant="outline">{source.source_type || 'file'}</Badge>
                             </div>
+                            
+                            <CardDescription className="mt-2">
+                              {source.description || (
+                                `${source.source_type || 'file'} knowledge source`
+                              )}
+                            </CardDescription>
                           </CardHeader>
                           <CardFooter>
                             <Button 
@@ -235,54 +240,45 @@ export function KnowledgeSourceList({
               onClick={() => onSelectKnowledgeSource?.(source)}
             >
               <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle className="flex items-center">
-                      {(source.source_type === "file" || !source.source_type) && (
-                        <FileText className="mr-2 h-4 w-4" />
-                      )}
-                      {source.source_type === "url" && (
-                        <Globe className="mr-2 h-4 w-4" />
-                      )}
-                      {source.source_type === "text" && (
-                        <FileText className="mr-2 h-4 w-4" />
-                      )}
-                      {source.name}
-                    </CardTitle>
-                    <CardDescription>
-                      {source.description || (
-                        mode === "all" 
-                          ? `Added ${formatDistanceToNow(new Date(source.created_at), { addSuffix: true })}`
-                          : `${source.source_type || 'file'} knowledge source`
-                      )}
-                    </CardDescription>
-                  </div>
-                  <div className="flex gap-2 flex-wrap justify-end">
-                    <Badge variant={source.use_rag ? "default" : "outline"}>
-                      {source.use_rag ? "RAG" : "Full Text"}
-                    </Badge>
-                    <Badge variant="outline">{source.source_type || 'file'}</Badge>
-                    <Badge 
-                      variant={selectedSourceIds.includes(source.id) ? "default" : "outline"}
-                      className={selectedSourceIds.includes(source.id) ? "bg-green-500" : "text-gray-400"}
-                    >
-                      {selectedSourceIds.includes(source.id) ? (
-                        <Check className="h-3.5 w-3.5 mr-1" />
-                      ) : (
-                        <Check className="h-3.5 w-3.5 mr-1" />
-                      )}
-                      {selectedSourceIds.includes(source.id) ? "Selected" : "Select"}
-                    </Badge>
-                  </div>
+                <CardTitle className="flex items-center">
+                  {(source.source_type === "file" || !source.source_type) && (
+                    <FileText className="mr-2 h-4 w-4" />
+                  )}
+                  {source.source_type === "url" && (
+                    <Globe className="mr-2 h-4 w-4" />
+                  )}
+                  {source.source_type === "text" && (
+                    <FileText className="mr-2 h-4 w-4" />
+                  )}
+                  {source.name}
+                </CardTitle>
+                
+                <div className="flex gap-2 flex-wrap mt-2">
+                  <Badge variant={source.use_rag ? "default" : "outline"}>
+                    {source.use_rag ? "RAG" : "Full Text"}
+                  </Badge>
+                  <Badge variant="outline">{source.source_type || 'file'}</Badge>
+                  <Badge 
+                    variant={selectedSourceIds.includes(source.id) ? "default" : "outline"}
+                    className={selectedSourceIds.includes(source.id) ? "bg-green-500" : "text-gray-400"}
+                  >
+                    {selectedSourceIds.includes(source.id) ? (
+                      <Check className="h-3.5 w-3.5 mr-1" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    {selectedSourceIds.includes(source.id) ? "Selected" : "Select"}
+                  </Badge>
                 </div>
+                
+                <CardDescription className="mt-2">
+                  {source.description || (
+                    mode === "all" 
+                      ? `Added ${formatDistanceToNow(new Date(source.created_at), { addSuffix: true })}`
+                      : `${source.source_type || 'file'} knowledge source`
+                  )}
+                </CardDescription>
               </CardHeader>
-              {source.description && mode === "all" && (
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    {source.description}
-                  </p>
-                </CardContent>
-              )}
               <CardFooter className="flex justify-between flex-wrap gap-2">
                 {mode === "all" && (
                   <Button
