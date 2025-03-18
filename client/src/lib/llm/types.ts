@@ -47,7 +47,8 @@ export interface LLMProvider {
     message: string, 
     conversationId?: string, 
     context?: Message[],
-    attachment?: Attachment
+    attachment?: Attachment,
+    allAttachments?: Attachment[]
   ): Promise<string>;
 }
 
