@@ -91,7 +91,17 @@ export function ConversationKnowledge({ conversationId }: ConversationKnowledgeP
               Add Knowledge
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogContent 
+            className="max-w-3xl max-h-[80vh] overflow-y-auto"
+            onInteractOutside={(e) => {
+              // Prevent closing when interacting with content
+              e.preventDefault();
+            }}
+            onEscapeKeyDown={(e) => {
+              // Still allow closing with escape key
+              setIsAddDialogOpen(false);
+            }}
+          >
             <DialogHeader>
               <DialogTitle>Add Knowledge Source</DialogTitle>
               <DialogDescription>

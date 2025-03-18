@@ -95,7 +95,16 @@ export function KnowledgeSourceList({
               Add Knowledge
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent
+            onInteractOutside={(e) => {
+              // Prevent closing when interacting with content
+              e.preventDefault();
+            }}
+            onEscapeKeyDown={(e) => {
+              // Still allow closing with escape key
+              setIsUploadDialogOpen(false);
+            }}
+          >
             <DialogHeader>
               <DialogTitle>Add Knowledge Source</DialogTitle>
               <DialogDescription>
