@@ -56,8 +56,13 @@ export function MainSidebar({
       <Separator />
       
       <div className="py-2 px-4 flex">
-        <Button className="w-full" onClick={onNewConversation}>
-          <Plus className="mr-2 h-4 w-4" />
+        <Button 
+          className="w-full gap-2 text-xs md:text-sm z-10" 
+          variant="outline"
+          size="sm"
+          onClick={() => onSelectConversation(undefined)}
+        >
+          <Plus className="h-4 w-4" />
           New Chat
         </Button>
       </div>
