@@ -394,10 +394,13 @@ export function registerRoutes(app: Express): Server {
         context = [],
         model = "claude-3-5-sonnet-20241022",
         attachment = null,
+        allAttachments = [],
       } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
       }
+      
+      console.log(`Processing message with ${allAttachments.length} attachments for Anthropic`);
 
       // Set up SSE headers
       res.setHeader("Content-Type", "text/event-stream");
@@ -479,74 +482,114 @@ export function registerRoutes(app: Express): Server {
           content: msg.content,
         }));
 
-      // Handle different types of content for Anthropic
-      if (attachment && attachment.type === 'image') {
-        try {
-          console.log("Processing image attachment for Anthropic:", attachment.url);
-          
-          // Extract filename from URL
-          const fileName = attachment.url.split('/').pop();
-          if (!fileName) {
-            throw new Error('Invalid image URL');
-          }
-          
-          // Determine the image path
-          const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
-          
-          // Check if file exists
-          if (!fs.existsSync(imagePath)) {
-            throw new Error('Image file not found on server');
-          }
-          
-          // Read the image as base64
-          const imageBuffer = fs.readFileSync(imagePath);
-          const base64Image = imageBuffer.toString('base64');
-          const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
-          const dataUri = `data:${mimeType};base64,${base64Image}`;
-          
-          // For Anthropic, we use array format for content
-          apiMessages.push({
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: mimeType,
-                  data: base64Image
-                }
-              },
-              {
-                type: "text", 
-                text: message
+      // Get all attachments (prioritize the allAttachments array if it exists)
+      const allAttachmentsToProcess = allAttachments.length > 0 ? allAttachments : (attachment ? [attachment] : []);
+      
+      console.log(`Processing ${allAttachmentsToProcess.length} attachments for Anthropic`);
+      
+      // Variables to track attachment types
+      let hasImageAttachment = false;
+      let imageAttachmentContent = null;
+      let documentTexts: string[] = [];
+      
+      // Process each attachment
+      for (const att of allAttachmentsToProcess) {
+        // Handle image attachments
+        if (att.type === 'image') {
+          try {
+            console.log("Processing image attachment for Anthropic:", att.url);
+            
+            // Extract filename from URL
+            const fileName = att.url.split('/').pop();
+            if (!fileName) {
+              throw new Error('Invalid image URL');
+            }
+            
+            // Determine the image path
+            const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
+            
+            // Check if file exists
+            if (!fs.existsSync(imagePath)) {
+              throw new Error('Image file not found on server');
+            }
+            
+            // Read the image as base64
+            const imageBuffer = fs.readFileSync(imagePath);
+            const base64Image = imageBuffer.toString('base64');
+            const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
+            
+            // Save image data for later use
+            imageAttachmentContent = {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mimeType,
+                data: base64Image
               }
-            ]
-          });
+            };
+            
+            hasImageAttachment = true;
+            console.log("Image successfully processed for Anthropic");
+            
+            // Delete the file after processing
+            cleanupImageFile(att.url);
+          } catch (imageError) {
+            console.error("Error processing image for Anthropic:", imageError);
+            // Add error to document texts
+            documentTexts.push(`[Image processing failed: ${imageError instanceof Error ? imageError.message : 'Unknown error'}]`);
+          }
+        } 
+        // Handle document attachments
+        else if (att.type === 'document' && att.text) {
+          console.log(`Processing document attachment: ${att.name}`);
+          documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
           
-          console.log("Image successfully processed and added to Anthropic API messages");
-          
-          // Delete the file after processing
-          cleanupImageFile(attachment.url);
-        } catch (imageError) {
-          console.error("Error processing image for Anthropic:", imageError);
-          // Fallback to text-only if image processing fails
-          apiMessages.push({ 
-            role: "user", 
-            content: `${message}\n\n[Image processing failed: ${imageError.message}]` 
-          });
+          // Clean up the document file
+          if (att.url) {
+            cleanupDocumentFile(att.url);
+          }
         }
-      } else if (attachment && attachment.type === 'document' && attachment.text) {
-        // Handle document attachment
-        const userContent = `${message}\n\nDocument content: ${attachment.text}`;
+      }
+      
+      // Create the message content based on what we have
+      if (hasImageAttachment) {
+        // For Anthropic, we need a special content structure
+        let contentArray: any[] = [];
+        
+        // Add the image first
+        if (imageAttachmentContent) {
+          contentArray.push(imageAttachmentContent);
+        }
+        
+        // Combine document texts with user message
+        let textContent = message;
+        if (documentTexts.length > 0) {
+          textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+        }
+        
+        // Add the text part
+        contentArray.push({
+          type: "text",
+          text: textContent
+        });
+        
+        apiMessages.push({
+          role: "user",
+          content: contentArray
+        });
+        
+        console.log("Multimodal message with image and documents added for Anthropic");
+      } 
+      else if (documentTexts.length > 0) {
+        // Text-only message with documents
+        const userContent = `${message}\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
         apiMessages.push({ role: "user", content: userContent });
-
-        // Clean up the document file
-        if (attachment.url) {
-          cleanupDocumentFile(attachment.url);
-        }
-      } else {
+        console.log("Message with document content added for Anthropic");
+      } 
+      else {
         // Regular text message without attachments
         apiMessages.push({ role: "user", content: message });
+        console.log("Plain text message added for Anthropic");
       }
 
       // Stream the completion
