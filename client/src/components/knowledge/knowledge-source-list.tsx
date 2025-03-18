@@ -1,21 +1,21 @@
 import { useState } from "react";
 import { useKnowledge, type KnowledgeSource } from "@/hooks/use-knowledge";
-import { 
-  Card, 
-  CardHeader, 
-  CardTitle, 
-  CardDescription, 
-  CardContent, 
-  CardFooter 
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { 
+import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  SheetTrigger
+  SheetTrigger,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Trash, FileText, Globe, PlusCircle } from "lucide-react";
@@ -30,20 +30,20 @@ interface KnowledgeSourceListProps {
   selectedSourceIds?: number[];
 }
 
-export function KnowledgeSourceList({ 
-  onSelectKnowledgeSource, 
+export function KnowledgeSourceList({
+  onSelectKnowledgeSource,
   conversationId,
   showAttachButton = false,
-  selectedSourceIds = []
+  selectedSourceIds = [],
 }: KnowledgeSourceListProps) {
-  const { 
-    knowledgeSources, 
-    deleteKnowledgeSource, 
+  const {
+    knowledgeSources,
+    deleteKnowledgeSource,
     isDeleting,
     addKnowledgeToConversation,
-    isAttaching
+    isAttaching,
   } = useKnowledge();
-  
+
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
 
   if (knowledgeSources.isLoading) {
@@ -89,7 +89,6 @@ export function KnowledgeSourceList({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold">Knowledge Sources</h2>
         <Sheet open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
           <SheetTrigger asChild>
             <Button variant="outline" size="sm">
@@ -105,7 +104,9 @@ export function KnowledgeSourceList({
               </SheetDescription>
             </SheetHeader>
             <div className="py-6">
-              <KnowledgeSourceUpload onSuccess={() => setIsUploadDialogOpen(false)} />
+              <KnowledgeSourceUpload
+                onSuccess={() => setIsUploadDialogOpen(false)}
+              />
             </div>
           </SheetContent>
         </Sheet>
@@ -121,12 +122,16 @@ export function KnowledgeSourceList({
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Knowledge sources allow you to reference external information in your AI conversations.
-              You can upload files (PDF, TXT, etc.), paste text, or add a URL.
+              Knowledge sources allow you to reference external information in
+              your AI conversations. You can upload files (PDF, TXT, etc.),
+              paste text, or add a URL.
             </p>
           </CardContent>
           <CardFooter>
-            <Button variant="outline" onClick={() => setIsUploadDialogOpen(true)}>
+            <Button
+              variant="outline"
+              onClick={() => setIsUploadDialogOpen(true)}
+            >
               <PlusCircle className="mr-2 h-4 w-4" />
               Add Knowledge Source
             </Button>
@@ -134,8 +139,8 @@ export function KnowledgeSourceList({
         </Card>
       ) : (
         sources.map((source) => (
-          <Card 
-            key={source.id} 
+          <Card
+            key={source.id}
             className={`w-full hover:bg-accent/10 cursor-pointer transition-colors ${selectedSourceIds.includes(source.id) ? "border-primary border-2" : ""}`}
             onClick={() => onSelectKnowledgeSource?.(source)}
           >
@@ -143,13 +148,22 @@ export function KnowledgeSourceList({
               <div className="flex justify-between items-start">
                 <div>
                   <CardTitle className="flex items-center">
-                    {source.type === 'file' && <FileText className="mr-2 h-4 w-4" />}
-                    {source.type === 'url' && <Globe className="mr-2 h-4 w-4" />}
-                    {source.type === 'text' && <FileText className="mr-2 h-4 w-4" />}
+                    {source.type === "file" && (
+                      <FileText className="mr-2 h-4 w-4" />
+                    )}
+                    {source.type === "url" && (
+                      <Globe className="mr-2 h-4 w-4" />
+                    )}
+                    {source.type === "text" && (
+                      <FileText className="mr-2 h-4 w-4" />
+                    )}
                     {source.name}
                   </CardTitle>
                   <CardDescription>
-                    Added {formatDistanceToNow(new Date(source.created_at), { addSuffix: true })}
+                    Added{" "}
+                    {formatDistanceToNow(new Date(source.created_at), {
+                      addSuffix: true,
+                    })}
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
@@ -158,20 +172,24 @@ export function KnowledgeSourceList({
                   </Badge>
                   <Badge variant="outline">{source.type}</Badge>
                   {selectedSourceIds.includes(source.id) && (
-                    <Badge variant="default" className="bg-primary">Selected</Badge>
+                    <Badge variant="default" className="bg-primary">
+                      Selected
+                    </Badge>
                   )}
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               {source.description && (
-                <p className="text-sm text-muted-foreground">{source.description}</p>
+                <p className="text-sm text-muted-foreground">
+                  {source.description}
+                </p>
               )}
             </CardContent>
             <CardFooter className="flex justify-between">
-              <Button 
-                variant="destructive" 
-                size="sm" 
+              <Button
+                variant="destructive"
+                size="sm"
                 onClick={(e) => {
                   e.stopPropagation();
                   deleteKnowledgeSource(source.id);
@@ -181,7 +199,7 @@ export function KnowledgeSourceList({
                 <Trash className="mr-2 h-4 w-4" />
                 Delete
               </Button>
-              
+
               {showAttachButton && (
                 <>
                   {conversationId ? (
@@ -190,9 +208,9 @@ export function KnowledgeSourceList({
                       size="sm"
                       onClick={(e) => {
                         e.stopPropagation();
-                        addKnowledgeToConversation({ 
-                          conversationId, 
-                          knowledgeSourceId: source.id 
+                        addKnowledgeToConversation({
+                          conversationId,
+                          knowledgeSourceId: source.id,
                         });
                       }}
                       disabled={isAttaching}

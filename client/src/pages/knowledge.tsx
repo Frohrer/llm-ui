@@ -1,39 +1,39 @@
 import { useState } from "react";
 import { useKnowledge, KnowledgeSource } from "@/hooks/use-knowledge";
 import { KnowledgeSourceUpload } from "@/components/knowledge/knowledge-source-upload";
-import { 
-  Card, 
-  CardHeader, 
-  CardTitle, 
-  CardDescription, 
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
   CardContent,
-  CardFooter
+  CardFooter,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Trash, FileText, Globe, PlusCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 export default function KnowledgePage() {
-  const { 
-    knowledgeSources, 
-    deleteKnowledgeSource, 
-    isDeleting,
-  } = useKnowledge();
-  
+  const { knowledgeSources, deleteKnowledgeSource, isDeleting } =
+    useKnowledge();
+
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
 
   if (knowledgeSources.isLoading) {
     return (
       <div className="container mx-auto py-6 space-y-8">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold">Knowledge Sources</h1>
-        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {Array.from({ length: 6 }).map((_, index) => (
             <Card key={index} className="w-full">
@@ -91,7 +91,9 @@ export default function KnowledgePage() {
             <DialogHeader>
               <DialogTitle>Add Knowledge Source</DialogTitle>
             </DialogHeader>
-            <KnowledgeSourceUpload onSuccess={() => setIsUploadDialogOpen(false)} />
+            <KnowledgeSourceUpload
+              onSuccess={() => setIsUploadDialogOpen(false)}
+            />
           </DialogContent>
         </Dialog>
       </div>
@@ -106,8 +108,9 @@ export default function KnowledgePage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              Knowledge sources allow you to reference external information in your AI conversations.
-              You can upload files (PDF, TXT, etc.), paste text, or add a URL.
+              Knowledge sources allow you to reference external information in
+              your AI conversations. You can upload files (PDF, TXT, etc.),
+              paste text, or add a URL.
             </p>
           </CardContent>
           <CardFooter>
@@ -125,13 +128,22 @@ export default function KnowledgePage() {
                 <div className="flex justify-between items-start">
                   <div>
                     <CardTitle className="flex items-center">
-                      {source.type === 'file' && <FileText className="mr-2 h-4 w-4" />}
-                      {source.type === 'url' && <Globe className="mr-2 h-4 w-4" />}
-                      {source.type === 'text' && <FileText className="mr-2 h-4 w-4" />}
+                      {source.type === "file" && (
+                        <FileText className="mr-2 h-4 w-4" />
+                      )}
+                      {source.type === "url" && (
+                        <Globe className="mr-2 h-4 w-4" />
+                      )}
+                      {source.type === "text" && (
+                        <FileText className="mr-2 h-4 w-4" />
+                      )}
                       {source.name}
                     </CardTitle>
                     <CardDescription>
-                      Added {formatDistanceToNow(new Date(source.created_at), { addSuffix: true })}
+                      Added{" "}
+                      {formatDistanceToNow(new Date(source.created_at), {
+                        addSuffix: true,
+                      })}
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
@@ -144,13 +156,15 @@ export default function KnowledgePage() {
               </CardHeader>
               <CardContent>
                 {source.description && (
-                  <p className="text-sm text-muted-foreground">{source.description}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {source.description}
+                  </p>
                 )}
               </CardContent>
               <CardFooter className="flex justify-between">
-                <Button 
-                  variant="destructive" 
-                  size="sm" 
+                <Button
+                  variant="destructive"
+                  size="sm"
                   onClick={() => deleteKnowledgeSource(source.id)}
                   disabled={isDeleting}
                 >
