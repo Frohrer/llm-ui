@@ -800,6 +800,8 @@ export function registerRoutes(app: Express): Server {
         model = "deepseek-chat",
         attachment = null,
         allAttachments = [],
+        useKnowledge = false,
+        pendingKnowledgeSources = [],
       } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
@@ -1526,6 +1528,8 @@ export function registerRoutes(app: Express): Server {
         model = "gemini-1.5-pro",
         attachment = null,
         allAttachments = [],
+        useKnowledge = false,
+        pendingKnowledgeSources = [],
       } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
