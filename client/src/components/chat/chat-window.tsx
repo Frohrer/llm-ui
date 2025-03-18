@@ -264,12 +264,21 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
     throw new Error(`No provider found for model: ${modelId}`);
   };
 
-  const handleSendMessage = async (content: string, attachment?: {
-    type: 'document' | 'image';
-    url: string;
-    text?: string;
-    name: string;
-  }) => {
+  const handleSendMessage = async (
+    content: string, 
+    attachment?: {
+      type: 'document' | 'image';
+      url: string;
+      text?: string;
+      name: string;
+    },
+    allAttachments?: {
+      type: 'document' | 'image';
+      url: string;
+      text?: string;
+      name: string;
+    }[]
+  ) => {
     // Check if a model is selected
     if (!selectedModel) {
       toast({
@@ -316,7 +325,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           conversationId: conversation?.id,
           context: messages,
           model: selectedModel,
-          attachment: userMessage.attachment
+          attachment: userMessage.attachment,
+          allAttachments: allAttachments || [] // Send all attachments to be processed together
         }),
         signal: abortControllerRef.current.signal
       });

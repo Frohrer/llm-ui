@@ -15,7 +15,7 @@ type Attachment = {
 };
 
 interface ChatInputProps {
-  onSendMessage: (message: string, attachment?: Attachment) => Promise<boolean | void>;
+  onSendMessage: (message: string, attachment?: Attachment, allAttachments?: Attachment[]) => Promise<boolean | void>;
   isLoading: boolean;
   /** The context length of the current model in tokens (default: 128000) */
   modelContextLength?: number;
@@ -61,19 +61,26 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim() && !isLoading) {
-      // Get the currently active attachment, if any
-      const currentAttachment = activeAttachment !== null ? attachments[activeAttachment] : undefined;
-      
-      // Store the current message and attachment in memory before clearing the input
+      // Store the current message in memory before clearing the input
       pendingMessageRef.current = message;
-      pendingAttachmentRef.current = currentAttachment;
+      
+      // We'll use the first attachment as primary (for API compatibility)
+      // but the server will process all attachments from the context
+      const primaryAttachment = attachments.length > 0 ? attachments[0] : undefined;
+      pendingAttachmentRef.current = primaryAttachment;
       
       // Clear the input immediately for better UX
       setMessage('');
       
       // Send the message
       try {
-        const success = await onSendMessage(pendingMessageRef.current, pendingAttachmentRef.current);
+        // We're modifying this to pass all attachments in one message
+        // The API signature remains the same but we've changed the type of the attachment to include all documents
+        const success = await onSendMessage(
+          pendingMessageRef.current, 
+          pendingAttachmentRef.current, 
+          attachments  // Pass all attachments as an additional parameter
+        );
         
         if (!success) {
           // If sending failed for some reason, restore the message
@@ -90,7 +97,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         pendingAttachmentRef.current = undefined;
       }
     }
-  }, [message, isLoading, onSendMessage, attachments, activeAttachment]);
+  }, [message, isLoading, onSendMessage, attachments]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
