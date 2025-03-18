@@ -124,24 +124,34 @@ const upload = multer({
 // Helper to extract text from PDF files
 async function extractTextFromPDF(filePath: string): Promise<string> {
   try {
-    // Import the pdf.js library properly
-    const pdfjsLib = await import('pdfjs-dist');
+    // Import the pdf.js library properly using the legacy build for Node.js compatibility
+    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
     
     // Workaround for PDF.js worker configuration
     try {
-      const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker.mjs');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+      // Configure the worker with proper path
+      if (pdfjsLib.GlobalWorkerOptions) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
+      } else if (pdfjsLib.default && pdfjsLib.default.GlobalWorkerOptions) {
+        // If GlobalWorkerOptions is on the default export
+        pdfjsLib.default.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
+      } else {
+        console.warn('Could not find GlobalWorkerOptions in PDF.js library');
+      }
     } catch (workerError) {
-      console.warn('Could not import PDF.js worker directly, trying alternative configuration.', workerError);
-      // Set a dummy worker source - in Node.js environment this still works
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+      console.warn('Error configuring PDF.js worker:', workerError);
     }
     
     // Read the PDF file as buffer
     const data = new Uint8Array(fs.readFileSync(filePath));
     
-    // Create document loading task
-    const loadingTask = pdfjsLib.getDocument({ data });
+    // Create document loading task - handle both direct and default exports
+    const getDocument = pdfjsLib.getDocument || pdfjsLib.default?.getDocument;
+    if (!getDocument) {
+      throw new Error('Could not find getDocument function in PDF.js library');
+    }
+    
+    const loadingTask = getDocument({ data });
     const pdf = await loadingTask.promise;
     
     // Process all pages and extract text
