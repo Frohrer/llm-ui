@@ -617,7 +617,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           <>
             {/* Mobile view - show as a sheet */}
             <div className="md:hidden">
-              <Sheet open={true}>
+              <Sheet open={showKnowledgePanel} onOpenChange={setShowKnowledgePanel}>
                 <SheetContent side="right" className="w-[300px] sm:w-[400px] md:hidden">
                   <SheetHeader>
                     <div className="flex items-center justify-between">
