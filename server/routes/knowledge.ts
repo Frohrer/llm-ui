@@ -236,7 +236,7 @@ router.post('/conversation/:conversationId', async (req: Request, res: Response)
     
     const association = await addKnowledgeToConversation(conversationId, knowledgeSourceId);
     res.status(201).json(association);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error adding knowledge source to conversation:', error);
     res.status(500).json({ error: error.message || 'Failed to add knowledge source to conversation' });
   }
@@ -258,7 +258,7 @@ router.delete('/conversation/:conversationId/:knowledgeSourceId', async (req: Re
     
     const result = await removeKnowledgeFromConversation(conversationId, knowledgeSourceId);
     res.json(result);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error removing knowledge source from conversation:', error);
     res.status(500).json({ error: error.message || 'Failed to remove knowledge source from conversation' });
   }
@@ -279,7 +279,7 @@ router.get('/conversation/:conversationId', async (req: Request, res: Response) 
     
     const sources = await getConversationKnowledge(conversationId);
     res.json(sources);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error getting conversation knowledge sources:', error);
     res.status(500).json({ error: error.message || 'Failed to get conversation knowledge sources' });
   }
