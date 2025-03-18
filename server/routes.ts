@@ -21,6 +21,7 @@ import {
   cleanupImageFile
 } from "./file-handler";
 import knowledgeRoutes from "./routes/knowledge";
+import { prepareKnowledgeContentForConversation } from "./knowledge-service";
 import type { SQL } from "drizzle-orm";
 
 // Load provider configurations at startup
@@ -122,6 +123,7 @@ export function registerRoutes(app: Express): Server {
         model = "gpt-4",
         attachment = null,
         allAttachments = [],
+        useKnowledge = false,
       } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
@@ -285,6 +287,19 @@ export function registerRoutes(app: Express): Server {
         }
       }
       
+      // Get knowledge content if requested
+      let knowledgeContent = '';
+      if (useKnowledge && dbConversation) {
+        try {
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          if (knowledgeContent) {
+            console.log("Retrieved knowledge content for conversation");
+          }
+        } catch (knowledgeError) {
+          console.error("Error retrieving knowledge content:", knowledgeError);
+        }
+      }
+
       // Create the message content based on what we have
       if (hasImageAttachment) {
         // For OpenAI, we use a different format with content array
@@ -294,6 +309,11 @@ export function registerRoutes(app: Express): Server {
         let textContent = message;
         if (documentTexts.length > 0) {
           textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+        }
+        
+        // Add knowledge content if available
+        if (knowledgeContent) {
+          textContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
         }
         
         contentArray.push({ type: "text", text: textContent });
@@ -308,16 +328,25 @@ export function registerRoutes(app: Express): Server {
           content: contentArray
         });
         
-        console.log("Multimodal message with image and documents added for OpenAI");
+        console.log("Multimodal message with image, documents, and knowledge added for OpenAI");
       } 
-      else if (documentTexts.length > 0) {
-        // Text-only message with documents
-        const userContent = `${message}\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
+      else if (documentTexts.length > 0 || knowledgeContent) {
+        // Text-only message with documents or knowledge
+        let userContent = message;
+        
+        if (documentTexts.length > 0) {
+          userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+        }
+        
+        if (knowledgeContent) {
+          userContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
+        }
+        
         apiMessages.push({ role: "user", content: userContent });
-        console.log("Message with document content added for OpenAI");
+        console.log("Message with document/knowledge content added for OpenAI");
       } 
       else {
-        // Regular text message without attachments
+        // Regular text message without attachments or knowledge
         apiMessages.push({ role: "user", content: message });
         console.log("Plain text message added for OpenAI");
       }
@@ -449,6 +478,7 @@ export function registerRoutes(app: Express): Server {
         model = "claude-3-5-sonnet-20241022",
         attachment = null,
         allAttachments = [],
+        useKnowledge = false,
       } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
@@ -1738,6 +1768,9 @@ export function registerRoutes(app: Express): Server {
       res.end();
     }
   });
+
+  // Register Knowledge source routes
+  app.use('/api/knowledge', knowledgeRoutes);
 
   const httpServer = createServer(app);
   return httpServer;

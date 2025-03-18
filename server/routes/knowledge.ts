@@ -88,7 +88,7 @@ router.post('/file', upload.single('file'), async (req: Request, res: Response) 
     });
     
     res.status(201).json(knowledgeSource);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating knowledge source from file:', error);
     res.status(500).json({ error: error.message || 'Failed to create knowledge source' });
   }
@@ -121,7 +121,7 @@ router.post('/text', async (req: Request, res: Response) => {
     });
     
     res.status(201).json(knowledgeSource);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating knowledge source from text:', error);
     res.status(500).json({ error: error.message || 'Failed to create knowledge source' });
   }
@@ -154,7 +154,7 @@ router.post('/url', async (req: Request, res: Response) => {
     });
     
     res.status(201).json(knowledgeSource);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating knowledge source from URL:', error);
     res.status(500).json({ error: error.message || 'Failed to create knowledge source' });
   }
@@ -169,7 +169,7 @@ router.get('/', async (req: Request, res: Response) => {
     
     const sources = await getKnowledgeSources(req.user.id);
     res.json(sources);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error getting knowledge sources:', error);
     res.status(500).json({ error: error.message || 'Failed to get knowledge sources' });
   }
@@ -194,7 +194,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
     
     res.json(source);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error getting knowledge source:', error);
     res.status(500).json({ error: error.message || 'Failed to get knowledge source' });
   }
@@ -214,7 +214,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     
     const result = await deleteKnowledgeSource(req.user.id, id);
     res.json(result);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error deleting knowledge source:', error);
     res.status(500).json({ error: error.message || 'Failed to delete knowledge source' });
   }
