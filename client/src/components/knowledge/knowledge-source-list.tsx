@@ -159,16 +159,16 @@ export function KnowledgeSourceList({
                           <CardHeader>
                             <div className="flex justify-between items-start">
                               <CardTitle className="flex items-center">
-                                {source.type === "file" && <FileText className="mr-2 h-4 w-4" />}
-                                {source.type === "url" && <Globe className="mr-2 h-4 w-4" />}
-                                {source.type === "text" && <FileText className="mr-2 h-4 w-4" />}
+                                {(source.source_type === "file" || !source.source_type) && <FileText className="mr-2 h-4 w-4" />}
+                                {source.source_type === "url" && <Globe className="mr-2 h-4 w-4" />}
+                                {source.source_type === "text" && <FileText className="mr-2 h-4 w-4" />}
                                 {source.name}
                               </CardTitle>
                               <div className="flex gap-2">
                                 <Badge variant={source.use_rag ? "default" : "outline"}>
                                   {source.use_rag ? "RAG" : "Full Text"}
                                 </Badge>
-                                <Badge variant="outline">{source.type}</Badge>
+                                <Badge variant="outline">{source.source_type || 'file'}</Badge>
                               </div>
                             </div>
                           </CardHeader>
@@ -238,13 +238,13 @@ export function KnowledgeSourceList({
                 <div className="flex justify-between items-start">
                   <div>
                     <CardTitle className="flex items-center">
-                      {source.type === "file" && (
+                      {(source.source_type === "file" || !source.source_type) && (
                         <FileText className="mr-2 h-4 w-4" />
                       )}
-                      {source.type === "url" && (
+                      {source.source_type === "url" && (
                         <Globe className="mr-2 h-4 w-4" />
                       )}
-                      {source.type === "text" && (
+                      {source.source_type === "text" && (
                         <FileText className="mr-2 h-4 w-4" />
                       )}
                       {source.name}
@@ -253,7 +253,7 @@ export function KnowledgeSourceList({
                       {source.description || (
                         mode === "all" 
                           ? `Added ${formatDistanceToNow(new Date(source.created_at), { addSuffix: true })}`
-                          : `${source.type} knowledge source`
+                          : `${source.source_type || 'file'} knowledge source`
                       )}
                     </CardDescription>
                   </div>
@@ -261,7 +261,7 @@ export function KnowledgeSourceList({
                     <Badge variant={source.use_rag ? "default" : "outline"}>
                       {source.use_rag ? "RAG" : "Full Text"}
                     </Badge>
-                    <Badge variant="outline">{source.type}</Badge>
+                    <Badge variant="outline">{source.source_type || 'file'}</Badge>
                     <Badge 
                       variant={selectedSourceIds.includes(source.id) ? "default" : "outline"}
                       className={selectedSourceIds.includes(source.id) ? "bg-green-500" : "text-gray-400"}
