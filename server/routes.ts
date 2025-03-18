@@ -493,6 +493,7 @@ export function registerRoutes(app: Express): Server {
         attachment = null,
         allAttachments = [],
         useKnowledge = false,
+        pendingKnowledgeSources = [],
       } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
