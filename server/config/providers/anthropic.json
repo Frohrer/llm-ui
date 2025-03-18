@@ -13,13 +13,13 @@
       "id": "claude-3-opus-latest",
       "name": "Claude 3 Opus",
       "contextLength": 200000,
-      "defaultModel": true
+      "defaultModel": false
     },
     {
       "id": "claude-3-5-sonnet-latest",
       "name": "Claude 3.5 Sonnet",
       "contextLength": 200000,
-      "defaultModel": false
+      "defaultModel": true
     },
     {
       "id": "claude-3-5-haiku-latest",
