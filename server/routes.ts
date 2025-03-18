@@ -120,10 +120,13 @@ export function registerRoutes(app: Express): Server {
         context = [],
         model = "gpt-4",
         attachment = null,
+        allAttachments = [],
       } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
       }
+      
+      console.log(`Processing message with ${allAttachments.length} attachments for OpenAI`);
 
       // Set up SSE headers with keep-alive
       res.setHeader("Content-Type", "text/event-stream");
