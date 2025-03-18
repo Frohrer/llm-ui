@@ -179,11 +179,20 @@ export function useKnowledge() {
   });
 
   // Get conversation knowledge sources
+  // Always enable the query, but only fetch when the ID is positive
   const getConversationKnowledgeSources = (conversationId: number) => 
     useQuery({
       queryKey: ['/api/knowledge/conversation', conversationId],
-      queryFn: () => getConversationKnowledge(conversationId),
-      enabled: !!conversationId,
+      queryFn: () => {
+        // Only perform the API call for valid IDs (positive numbers)
+        if (conversationId > 0) {
+          return getConversationKnowledge(conversationId);
+        }
+        // Return empty array for invalid/dummy IDs
+        return Promise.resolve([]);
+      },
+      // Always enabled, we'll handle the conditional fetching inside
+      enabled: true,
     });
 
   // Delete a knowledge source

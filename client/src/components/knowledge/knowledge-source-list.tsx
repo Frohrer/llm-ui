@@ -64,11 +64,11 @@ export function KnowledgeSourceList({
 
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
 
-  // Always call both hooks to maintain consistency
+  // Always call the hook with a clean dummy ID if not provided
+  // This ensures the hook is always called, maintaining React's rules of hooks
+  const dummyId = -1;
   const allKnowledgeSources = knowledgeSources;
-  const conversationKnowledgeSources = conversationId 
-    ? getConversationKnowledgeSources(conversationId) 
-    : { isLoading: false, isError: false, data: [], error: null, refetch: () => {} };
+  const conversationKnowledgeSources = getConversationKnowledgeSources(conversationId || dummyId);
   
   // Then determine which data to use based on mode
   const dataQuery = mode === "conversation" && conversationId
