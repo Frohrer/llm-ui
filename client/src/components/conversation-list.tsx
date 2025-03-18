@@ -110,7 +110,7 @@ export function ConversationList({
 
   const renderCategory = (
     title: string,
-    conversations: Conversation[] = []
+    conversations: Conversation[] = [],
   ) => {
     if (!conversations.length) return null;
 
@@ -157,11 +157,6 @@ export function ConversationList({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b">
-        <div className="mb-4">
-          <h2 className="font-semibold text-sm md:text-base">Chat History</h2>
-        </div>
-      </div>
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-2">
           {!conversations?.length ? (

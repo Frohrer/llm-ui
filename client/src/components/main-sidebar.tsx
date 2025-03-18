@@ -3,12 +3,7 @@ import { useUser } from "@/hooks/use-user";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "./theme-toggle";
-import { 
-  MessageCircle,
-  LogOut, 
-  BookOpen,
-  Plus
-} from "lucide-react";
+import { MessageCircle, LogOut, BookOpen, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect } from "react";
 import { ConversationList } from "./conversation-list";
@@ -22,16 +17,16 @@ interface MainSidebarProps {
   onClose?: () => void;
 }
 
-export function MainSidebar({ 
-  activeConversation, 
+export function MainSidebar({
+  activeConversation,
   onSelectConversation,
-  onNewConversation, 
+  onNewConversation,
   isMobile = false,
-  onClose
+  onClose,
 }: MainSidebarProps) {
   const { user } = useUser();
   const [location, setLocation] = useLocation();
-  
+
   // Close sidebar on navigation if mobile
   useEffect(() => {
     if (isMobile && onClose) {
@@ -54,10 +49,10 @@ export function MainSidebar({
         </div>
       </div>
       <Separator />
-      
+
       <div className="py-2 px-4 flex">
-        <Button 
-          className="w-full gap-2 text-xs md:text-sm z-10" 
+        <Button
+          className="w-full gap-2 text-xs md:text-sm z-10"
           variant="outline"
           size="sm"
           onClick={() => onSelectConversation(undefined)}
@@ -66,36 +61,44 @@ export function MainSidebar({
           New Chat
         </Button>
       </div>
-      
+
       <ScrollArea className="flex-1 px-2">
         <div className="mt-2 space-y-6">
           <div className="space-y-2">
             <div className="px-2">
               <Link href="/">
-                <a className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
-                  isActive("/") && !isActive("/knowledge") ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50"
-                }`}>
+                <a
+                  className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
+                    isActive("/") && !isActive("/knowledge")
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50"
+                  }`}
+                >
                   <MessageCircle className="mr-2 h-4 w-4" />
                   Conversations
                 </a>
               </Link>
               <Link href="/knowledge">
-                <a className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
-                  isActive("/knowledge") ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50"
-                }`}>
+                <a
+                  className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
+                    isActive("/knowledge")
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50"
+                  }`}
+                >
                   <BookOpen className="mr-2 h-4 w-4" />
                   Knowledge
                 </a>
               </Link>
             </div>
           </div>
-          
+
           {location === "/" && (
             <>
               <Separator />
               <div className="px-2">
-                <h3 className="text-xs font-medium text-muted-foreground mb-2 px-2">Conversations</h3>
-                <ConversationList 
+                <h3 className="text-md font-medium mb-2 px-2">Chat History</h3>
+                <ConversationList
                   activeConversation={activeConversation}
                   onSelectConversation={onSelectConversation}
                 />
@@ -104,7 +107,7 @@ export function MainSidebar({
           )}
         </div>
       </ScrollArea>
-      
+
       <div className="p-3 mt-auto border-t">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
