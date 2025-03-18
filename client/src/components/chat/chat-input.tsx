@@ -112,16 +112,18 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
     
     // Calculate token count and check if it exceeds the limit
     const estimatedTokens = estimateTokenCount(newMessage);
-    setTokenCount(estimatedTokens);
     
-    // If we have an active document attachment, we need to estimate its tokens too
+    // Count tokens for all document attachments, not just the active one
     let totalTokens = estimatedTokens;
-    const attachment = activeAttachment !== null ? attachments[activeAttachment] : null;
-    if (attachment?.type === 'document' && attachment.text) {
-      // For documents, we'll add an approximate token count (this is a rough estimate)
-      totalTokens += estimateTokenCount(attachment.text);
+    
+    // Add token count for all document attachments
+    for (const attachment of attachments) {
+      if (attachment.type === 'document' && attachment.text) {
+        totalTokens += estimateTokenCount(attachment.text);
+      }
     }
     
+    setTokenCount(totalTokens);
     setIsOverLimit(totalTokens > userTokenLimit);
     
     if (totalTokens > userTokenLimit) {
@@ -191,12 +193,20 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         prevAttachments === null ? 0 : prevAttachments
       );
       
-      // If it's a document, update the token count to include the document text
+      // If it's a document, update the token count to include ALL document texts
       if (!isImage && attachmentData.text) {
-        const documentTokens = estimateTokenCount(attachmentData.text);
+        // Calculate tokens for the message
         const messageTokens = estimateTokenCount(message);
-        const totalTokens = messageTokens + documentTokens;
         
+        // Calculate tokens for all documents, including the new one
+        let documentTokens = 0;
+        for (const att of [...attachments, attachmentData]) {
+          if (att.type === 'document' && att.text) {
+            documentTokens += estimateTokenCount(att.text);
+          }
+        }
+        
+        const totalTokens = messageTokens + documentTokens;
         setTokenCount(totalTokens);
         setIsOverLimit(totalTokens > userTokenLimit);
         
@@ -231,13 +241,15 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
     // Toggle active attachment
     setActiveAttachment(prev => prev === index ? null : index);
     
-    // Update token count
-    const attachment = attachments[index];
+    // Update token count for all documents
     const messageTokens = estimateTokenCount(message);
     let totalTokens = messageTokens;
     
-    if (attachment.type === 'document' && attachment.text) {
-      totalTokens += estimateTokenCount(attachment.text);
+    // Add token count for all document attachments
+    for (const attachment of attachments) {
+      if (attachment.type === 'document' && attachment.text) {
+        totalTokens += estimateTokenCount(attachment.text);
+      }
     }
     
     setTokenCount(totalTokens);
@@ -248,21 +260,33 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
     // Check if we're removing the active attachment
     const isRemovingActive = activeAttachment === index;
     
+    // Create new attachment array without the removed item
+    const newAttachments = attachments.filter((_, i) => i !== index);
+    
     // Update attachments array
-    setAttachments(prev => prev.filter((_, i) => i !== index));
+    setAttachments(newAttachments);
     
     // Update active attachment index
     if (isRemovingActive) {
       setActiveAttachment(null);
-      
-      // Recalculate token count without the attachment
-      const messageTokens = estimateTokenCount(message);
-      setTokenCount(messageTokens);
-      setIsOverLimit(messageTokens > userTokenLimit);
     } else if (activeAttachment !== null && index < activeAttachment) {
       // If we removed an attachment before the active one, adjust the active index
       setActiveAttachment(activeAttachment - 1);
     }
+    
+    // Recalculate token count with all remaining documents
+    const messageTokens = estimateTokenCount(message);
+    let totalTokens = messageTokens;
+    
+    // Add token count for all remaining document attachments
+    for (const attachment of newAttachments) {
+      if (attachment.type === 'document' && attachment.text) {
+        totalTokens += estimateTokenCount(attachment.text);
+      }
+    }
+    
+    setTokenCount(totalTokens);
+    setIsOverLimit(totalTokens > userTokenLimit);
     
     toast({
       title: "Attachment removed",
