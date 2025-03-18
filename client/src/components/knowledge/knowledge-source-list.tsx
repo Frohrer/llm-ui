@@ -177,21 +177,29 @@ export function KnowledgeSourceList({
                 Delete
               </Button>
               
-              {showAttachButton && conversationId && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    addKnowledgeToConversation({ 
-                      conversationId, 
-                      knowledgeSourceId: source.id 
-                    });
-                  }}
-                  disabled={isAttaching}
-                >
-                  Attach to Conversation
-                </Button>
+              {showAttachButton && (
+                <>
+                  {conversationId ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addKnowledgeToConversation({ 
+                          conversationId, 
+                          knowledgeSourceId: source.id 
+                        });
+                      }}
+                      disabled={isAttaching}
+                    >
+                      Attach to Conversation
+                    </Button>
+                  ) : (
+                    <div className="text-xs text-muted-foreground">
+                      Start a conversation to attach this knowledge source
+                    </div>
+                  )}
+                </>
               )}
             </CardFooter>
           </Card>
