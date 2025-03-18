@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDistanceToNow, isToday, isThisWeek, parseISO } from "date-fns";
-import { Trash2, Plus } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Conversation } from "@/lib/llm/types";
 
@@ -56,9 +56,7 @@ export function ConversationList({
     },
   });
 
-  const handleNewChat = () => {
-    onSelectConversation(undefined);
-  };
+  // Removed handleNewChat function as it's now handled in the MainSidebar
 
   const handleDelete = async (
     conversationId: number,
@@ -160,17 +158,8 @@ export function ConversationList({
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b">
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4">
           <h2 className="font-semibold text-sm md:text-base">Chat History</h2>
-          <Button
-            onClick={handleNewChat}
-            variant="outline"
-            size="sm"
-            className="gap-2 text-xs md:text-sm z-10"
-          >
-            <Plus className="h-4 w-4" />
-            New Chat
-          </Button>
         </div>
       </div>
       <ScrollArea className="flex-1">
