@@ -9,13 +9,13 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { 
-  Dialog, 
-  DialogContent, 
-  DialogDescription, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger 
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger
+} from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Unlink, FileText, Globe, PlusCircle } from "lucide-react";
 import { KnowledgeSourceList } from "./knowledge-source-list";
@@ -84,39 +84,31 @@ export function ConversationKnowledge({ conversationId }: ConversationKnowledgeP
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">Conversation Knowledge</h2>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
+        <Sheet open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <SheetTrigger asChild>
             <Button variant="outline" size="sm">
               <PlusCircle className="mr-2 h-4 w-4" />
               Add Knowledge
             </Button>
-          </DialogTrigger>
-          <DialogContent 
-            className="max-w-3xl max-h-[80vh] overflow-y-auto"
-            onInteractOutside={(e) => {
-              // Prevent closing when interacting with content
-              e.preventDefault();
-            }}
-            onEscapeKeyDown={(e) => {
-              // Still allow closing with escape key
-              setIsAddDialogOpen(false);
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>Add Knowledge Source</DialogTitle>
-              <DialogDescription>
+          </SheetTrigger>
+          <SheetContent className="w-[90%] sm:w-[540px] md:w-[720px] lg:w-[920px] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>Add Knowledge Source</SheetTitle>
+              <SheetDescription>
                 Select a knowledge source to add to this conversation.
-              </DialogDescription>
-            </DialogHeader>
-            <KnowledgeSourceList 
-              conversationId={conversationId}
-              showAttachButton={true}
-              onSelectKnowledgeSource={(source) => {
-                setIsAddDialogOpen(false);
-              }}
-            />
-          </DialogContent>
-        </Dialog>
+              </SheetDescription>
+            </SheetHeader>
+            <div className="py-6">
+              <KnowledgeSourceList 
+                conversationId={conversationId}
+                showAttachButton={true}
+                onSelectKnowledgeSource={(source) => {
+                  setIsAddDialogOpen(false);
+                }}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
 
       {sources.length === 0 ? (
