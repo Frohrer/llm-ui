@@ -122,6 +122,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   // Knowledge is always enabled now, but keeping for API compatibility
   const useKnowledge = true;
   const [showKnowledgePanel, setShowKnowledgePanel] = useState<boolean>(false);
+  const [pendingKnowledgeSources, setPendingKnowledgeSources] = useState<number[]>([]);
   
   // Update messages when conversation changes
   useEffect(() => {
@@ -633,15 +634,17 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                   {conversation ? (
                     <ConversationKnowledge conversationId={conversation.id} />
                   ) : (
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-bold">Conversation Knowledge</h2>
-                      </div>
-                      <div className="text-center p-6">
-                        <p className="text-muted-foreground mb-2">Start a conversation to add knowledge sources</p>
-                        <p className="text-xs text-muted-foreground">Send your first message to create a conversation</p>
-                      </div>
-                    </div>
+                    <KnowledgeSourceList 
+                      showAttachButton={true} 
+                      onSelectKnowledgeSource={(source) => {
+                        if (pendingKnowledgeSources.includes(source.id)) {
+                          setPendingKnowledgeSources(prev => prev.filter(id => id !== source.id));
+                        } else {
+                          setPendingKnowledgeSources(prev => [...prev, source.id]);
+                        }
+                      }}
+                      selectedSourceIds={pendingKnowledgeSources}
+                    />
                   )}
                 </div>
               </SheetContent>
@@ -665,15 +668,17 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                 {conversation ? (
                   <ConversationKnowledge conversationId={conversation.id} />
                 ) : (
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <h2 className="text-xl font-bold">Conversation Knowledge</h2>
-                    </div>
-                    <div className="text-center p-6">
-                      <p className="text-muted-foreground mb-2">Start a conversation to add knowledge sources</p>
-                      <p className="text-xs text-muted-foreground">Send your first message to create a conversation</p>
-                    </div>
-                  </div>
+                  <KnowledgeSourceList 
+                    showAttachButton={true}
+                    onSelectKnowledgeSource={(source) => {
+                      if (pendingKnowledgeSources.includes(source.id)) {
+                        setPendingKnowledgeSources(prev => prev.filter(id => id !== source.id));
+                      } else {
+                        setPendingKnowledgeSources(prev => [...prev, source.id]);
+                      }
+                    }}
+                    selectedSourceIds={pendingKnowledgeSources}
+                  />
                 )}
               </div>
             </div>
