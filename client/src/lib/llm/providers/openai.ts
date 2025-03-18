@@ -1,4 +1,4 @@
-import type { LLMProvider, ModelConfig, Message } from "../types";
+import type { LLMProvider, ModelConfig, Message, Attachment } from "../types";
 import { SiOpenai } from "react-icons/si";
 import type { ProviderConfig } from "./config.types";
 
@@ -18,14 +18,10 @@ export class OpenAIProvider implements LLMProvider {
     message: string,
     conversationId?: string,
     context: Message[] = [],
-    attachment?: {
-      type: 'document' | 'image';
-      url: string;
-      text?: string;
-      name: string;
-    }
+    attachment?: Attachment,
+    allAttachments?: Attachment[]
   ): Promise<string> {
-    console.log("OpenAI Provider sending message with attachment:", attachment);
+    console.log("OpenAI Provider sending message with attachments:", allAttachments?.length || 0);
     
     const response = await fetch("/api/chat/openai", {
       method: "POST",
@@ -35,7 +31,8 @@ export class OpenAIProvider implements LLMProvider {
         conversationId,
         context,
         model: this.models.find((m) => m.defaultModel)?.id || this.models[0].id,
-        attachment
+        attachment,
+        allAttachments
       }),
     });
 
