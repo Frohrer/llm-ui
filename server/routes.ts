@@ -1566,6 +1566,18 @@ export function registerRoutes(app: Express): Server {
           content: message,
           created_at: timestamp,
         });
+        // Add any pending knowledge sources to the new conversation
+        if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+          console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
+          
+          for (const knowledgeSourceId of pendingKnowledgeSources) {
+            try {
+              await addKnowledgeToConversation(newConversation.id, knowledgeSourceId);
+            } catch (error) {
+              console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+            }
+          }
+        }
 
         dbConversation = newConversation;
       } else {
