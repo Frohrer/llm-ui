@@ -91,7 +91,7 @@ export function ConversationKnowledge({ conversationId }: ConversationKnowledgeP
               Add Knowledge
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto" description="Select a knowledge source to add to this conversation.">
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add Knowledge Source</DialogTitle>
               <DialogDescription>

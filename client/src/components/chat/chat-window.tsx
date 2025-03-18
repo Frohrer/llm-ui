@@ -613,7 +613,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
         </ResizablePanelGroup>
 
         {/* Knowledge panel - shown as a sheet on mobile and as a sidebar on desktop */}
-        {conversation && showKnowledgePanel && (
+        {conversation && (
           <>
             {/* Mobile view - show as a sheet */}
             <div className="md:hidden">
@@ -639,21 +639,23 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
             </div>
 
             {/* Desktop view - show as a sidebar */}
-            <div className="hidden md:block border-l w-[300px] overflow-auto">
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold">Knowledge Sources</h3>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    onClick={() => setShowKnowledgePanel(false)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+            {showKnowledgePanel && (
+              <div className="hidden md:block border-l w-[300px] overflow-auto">
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold">Knowledge Sources</h3>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => setShowKnowledgePanel(false)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <ConversationKnowledge conversationId={conversation.id} />
                 </div>
-                <ConversationKnowledge conversationId={conversation.id} />
               </div>
-            </div>
+            )}
           </>
         )}
       </div>
