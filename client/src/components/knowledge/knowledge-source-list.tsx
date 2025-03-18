@@ -10,13 +10,13 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { 
-  Dialog, 
-  DialogContent, 
-  DialogDescription, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger 
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger
+} from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Trash, FileText, Globe, PlusCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -88,32 +88,25 @@ export function KnowledgeSourceList({
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">Knowledge Sources</h2>
-        <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
-          <DialogTrigger asChild>
+        <Sheet open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+          <SheetTrigger asChild>
             <Button variant="outline" size="sm">
               <PlusCircle className="mr-2 h-4 w-4" />
               Add Knowledge
             </Button>
-          </DialogTrigger>
-          <DialogContent
-            onInteractOutside={(e) => {
-              // Prevent closing when interacting with content
-              e.preventDefault();
-            }}
-            onEscapeKeyDown={(e) => {
-              // Still allow closing with escape key
-              setIsUploadDialogOpen(false);
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>Add Knowledge Source</DialogTitle>
-              <DialogDescription>
+          </SheetTrigger>
+          <SheetContent className="w-[90%] sm:w-[540px] md:w-[720px] lg:w-[920px] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>Add Knowledge Source</SheetTitle>
+              <SheetDescription>
                 Upload a file, add text, or link a URL as a knowledge source.
-              </DialogDescription>
-            </DialogHeader>
-            <KnowledgeSourceUpload onSuccess={() => setIsUploadDialogOpen(false)} />
-          </DialogContent>
-        </Dialog>
+              </SheetDescription>
+            </SheetHeader>
+            <div className="py-6">
+              <KnowledgeSourceUpload onSuccess={() => setIsUploadDialogOpen(false)} />
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
 
       {sources.length === 0 ? (
