@@ -27,7 +27,9 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [tokenCount, setTokenCount] = useState(0);
   const [isOverLimit, setIsOverLimit] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pendingMessageRef = useRef<string>('');
   const pendingAttachmentRef = useRef<Attachment | undefined>(undefined);
   const { toast } = useToast();
@@ -86,6 +88,10 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         if (!success) {
           // If sending failed for some reason, restore the message
           setMessage(pendingMessageRef.current);
+        } else {
+          // Clear attachments after successful message submission
+          // This ensures they're only used once and not included in future messages
+          setAttachments([]);
         }
         
         // Clear the pending refs if successful or if we've already restored the content
@@ -145,13 +151,8 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
     </Button>
   ), [isLoading, message]);
 
-  // File upload handlers
-  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    
-    const file = e.target.files[0];
-    setUploadingFile(true);
-    
+  // Shared file upload processing logic
+  const processFile = async (file: File) => {
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -198,15 +199,64 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         }
       }
       
-      toast({
-        title: 'File uploaded',
-        description: `${file.name} has been uploaded successfully`,
-      });
+      return { success: true, fileName: file.name };
     } catch (error) {
       console.error('Error uploading file:', error);
+      return { success: false, error, fileName: file.name };
+    }
+  };
+
+  // Process multiple files
+  const processFiles = async (files: FileList | File[]) => {
+    if (files.length === 0) return;
+    
+    setUploadingFile(true);
+    
+    try {
+      // Convert FileList to array
+      const fileArray = Array.from(files);
+      
+      if (fileArray.length > 5) {
+        toast({
+          title: "Too many files",
+          description: "You can upload a maximum of 5 files at once.",
+          variant: "destructive"
+        });
+        // Process only the first 5 files
+        fileArray.length = 5;
+      }
+      
+      // Process each file
+      const results = await Promise.all(fileArray.map(processFile));
+      
+      // Count successes and failures
+      const successes = results.filter(r => r.success).length;
+      const failures = results.filter(r => !r.success).length;
+      
+      // Notify user of results
+      if (successes > 0 && failures === 0) {
+        toast({
+          title: 'Files uploaded',
+          description: `${successes} ${successes === 1 ? 'file' : 'files'} uploaded successfully`,
+        });
+      } else if (successes > 0 && failures > 0) {
+        toast({
+          title: 'Some files uploaded',
+          description: `${successes} of ${successes + failures} files uploaded successfully.`,
+          variant: 'destructive'
+        });
+      } else {
+        toast({
+          title: 'Upload failed',
+          description: 'All file uploads failed. Supported formats include documents (.pdf, .doc, .docx, .odt, .rtf, .txt), spreadsheets (.xlsx, .xls, .ods, .csv), presentations (.pptx, .ppt, .odp), and images (.jpg, .png, .gif, .svg).',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      console.error('Error processing files:', error);
       toast({
         title: 'Upload failed',
-        description: 'Failed to upload file. Supported formats include documents (.pdf, .doc, .docx, .odt, .rtf, .txt), spreadsheets (.xlsx, .xls, .ods, .csv), presentations (.pptx, .ppt, .odp), and images (.jpg, .png, .gif, .svg).',
+        description: 'Failed to upload files. Please try again.',
         variant: 'destructive'
       });
     } finally {
@@ -214,6 +264,12 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       // Reset the input value so the same file can be selected again
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  // Handle file input change (from button click)
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    processFiles(e.target.files);
   };
   
   const removeAttachment = (index: number) => {
@@ -228,6 +284,34 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       description: "The attachment has been removed.",
     });
   };
+
+  // Drag and drop handlers
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, [setIsDragging]);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, [setIsDragging]);
+
+  const handleDrop = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+    
+    processFiles(e.dataTransfer.files);
+  }, [processFiles, setIsDragging]);
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -267,18 +351,36 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
           ref={fileInputRef} 
           onChange={handleFileInputChange} 
           className="hidden" 
+          multiple
           accept="image/*,.pdf,.doc,.docx,.odt,.rtf,.txt,.xlsx,.xls,.ods,.csv,.pptx,.ppt,.odp"
         />
         
         <div className="relative flex-1 mb-2">
           <Textarea
+            ref={textareaRef}
             value={message}
             onChange={handleTextChange}
             placeholder="Type your message..."
-            className="min-h-[60px] h-full resize-none"
+            className={`min-h-[60px] h-full resize-none ${isDragging ? 'border-primary border-2' : ''}`}
             onKeyDown={handleKeyDown}
             style={{ height: '100%' }}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
           />
+          
+          {/* Drop zone indicator overlay */}
+          {isDragging && (
+            <div 
+              className="absolute inset-0 bg-primary/10 flex items-center justify-center pointer-events-none border-2 border-primary rounded-md"
+            >
+              <div className="flex flex-col items-center gap-2 text-center">
+                <FileText className="h-8 w-8 text-primary" />
+                <p className="font-medium text-sm">Drop files here to upload</p>
+              </div>
+            </div>
+          )}
         </div>
         
         <div className="flex flex-row gap-2 items-center justify-end">
