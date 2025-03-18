@@ -20,7 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Trash, FileText, Globe, PlusCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { KnowledgeSourceUpload } from "./knowledge-source-upload";
+import { KnowledgeSourceUpload } from "@/components/knowledge/knowledge-source-upload";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface KnowledgeSourceListProps {
