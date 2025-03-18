@@ -20,6 +20,7 @@ import {
   cleanupDocumentFile,
   cleanupImageFile
 } from "./file-handler";
+import knowledgeRoutes from "./routes/knowledge";
 import type { SQL } from "drizzle-orm";
 
 // Load provider configurations at startup
