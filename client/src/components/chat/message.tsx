@@ -83,8 +83,19 @@ export function Message({ message }: MessageProps) {
     }
   };
 
+  // Render system message (muted text for knowledge notifications)
+  const renderSystemMessage = () => {
+    return (
+      <div className="text-sm text-muted-foreground italic text-center py-1">
+        {message.content}
+      </div>
+    );
+  };
+
   const messageContent =
-    message.role === "assistant" ? (
+    message.role === "system" ? (
+      renderSystemMessage()
+    ) : message.role === "assistant" ? (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         className={cn(
