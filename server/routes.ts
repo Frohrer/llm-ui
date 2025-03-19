@@ -305,7 +305,7 @@ export function registerRoutes(app: Express): Server {
       let knowledgeContent = '';
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
           if (knowledgeContent) {
             console.log("Retrieved knowledge content for conversation");
           }
@@ -607,7 +607,7 @@ export function registerRoutes(app: Express): Server {
       let knowledgeContent = '';
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
           if (knowledgeContent) {
             console.log("Retrieved knowledge content for conversation");
           }
@@ -940,7 +940,7 @@ export function registerRoutes(app: Express): Server {
       let knowledgeContent = '';
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
           if (knowledgeContent) {
             console.log("Retrieved knowledge content for conversation");
           }
@@ -1691,7 +1691,7 @@ export function registerRoutes(app: Express): Server {
       let knowledgeContent = '';
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
           if (knowledgeContent) {
             console.log("Retrieved knowledge content for Gemini conversation");
             documentTexts.push("Knowledge Content:\n" + knowledgeContent);
