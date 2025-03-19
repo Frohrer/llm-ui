@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Volume2, VolumeX, ChevronDown, BookOpen, X, Database } from 'lucide-react';
 import { speechService } from '@/lib/speech-service';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
-import { ConversationKnowledge } from '@/components/knowledge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { KnowledgeSourceList } from '@/components/knowledge/knowledge-source-list';
 
