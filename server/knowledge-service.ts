@@ -473,8 +473,20 @@ export async function prepareKnowledgeContentForConversation(
   context?: any[] // Optional context parameter to check for existing knowledge
 ) {
   try {
-    // If context is provided, check if knowledge has already been injected
-    if (context && Array.isArray(context)) {
+    // Check if this is a new conversation (first message)
+    const messageCount = await db.query.messages.findMany({
+      where: eq(messages.conversation_id, conversationId),
+      columns: {
+        id: true
+      }
+    });
+    
+    // If message count is 1 or 0, this is the first user message - always include knowledge
+    // This happens when knowledge is added at the start of a conversation
+    const isFirstMessage = messageCount.length <= 1;
+    
+    // If not the first message and context is provided, check if knowledge has already been injected
+    if (!isFirstMessage && context && Array.isArray(context)) {
       const knowledgeAlreadyIncluded = context.some(msg => 
         typeof msg.content === 'string' && 
         msg.content.includes('Knowledge Sources:')
