@@ -391,13 +391,9 @@ export function registerRoutes(app: Express): Server {
         throw new Error("Failed to create stream after retries");
       }
 
-      // Send initial conversation data with knowledge usage flag
+      // Send initial conversation data
       res.write(
-        `data: ${JSON.stringify({ 
-          type: "start", 
-          conversationId: dbConversation.id,
-          knowledgeUsed: knowledgeContent && knowledgeContent.length > 0 
-        })}\n\n`,
+        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
       );
 
       // Set up keep-alive interval
@@ -744,13 +740,9 @@ export function registerRoutes(app: Express): Server {
       });
       console.log("Anthropic stream created with model:", model);
 
-      // Send initial conversation data with knowledge usage flag
+      // Send initial conversation data
       res.write(
-        `data: ${JSON.stringify({ 
-          type: "start", 
-          conversationId: dbConversation.id,
-          knowledgeUsed: knowledgeContent && knowledgeContent.length > 0 
-        })}\n\n`,
+        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
       );
 
       try {
@@ -1075,13 +1067,9 @@ export function registerRoutes(app: Express): Server {
 
       console.log("DeepSeek stream created with model:", model);
 
-      // Send initial conversation data with knowledge usage flag
+      // Send initial conversation data
       res.write(
-        `data: ${JSON.stringify({ 
-          type: "start", 
-          conversationId: dbConversation.id,
-          knowledgeUsed: knowledgeContent && knowledgeContent.length > 0 
-        })}\n\n`,
+        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
       );
 
       try {
@@ -1813,13 +1801,9 @@ export function registerRoutes(app: Express): Server {
         }
       }
 
-      // Send initial conversation data with knowledge usage flag
+      // Send initial conversation data
       res.write(
-        `data: ${JSON.stringify({ 
-          type: "start", 
-          conversationId: dbConversation.id,
-          knowledgeUsed: knowledgeContent && knowledgeContent.length > 0 
-        })}\n\n`
+        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`
       );
 
       // Set up keep-alive interval
