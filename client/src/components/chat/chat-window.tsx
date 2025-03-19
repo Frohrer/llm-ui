@@ -663,7 +663,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                   {conversation ? (
                     <KnowledgeSourceList 
                       mode="conversation" 
-                      conversationId={conversation.id} 
+                      conversationId={conversation.id}
+                      showAttachButton={false} 
                     />
                   ) : (
                     <KnowledgeSourceList 
@@ -701,7 +702,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                 {conversation ? (
                   <KnowledgeSourceList 
                     mode="conversation" 
-                    conversationId={conversation.id} 
+                    conversationId={conversation.id}
+                    showAttachButton={false}
                   />
                 ) : (
                   <KnowledgeSourceList 
