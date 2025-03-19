@@ -321,34 +321,60 @@ export function Message({ message }: MessageProps) {
     );
   };
 
+  // Format timestamp
+  const formatTimestamp = () => {
+    if (!message.timestamp) return '';
+    const date = new Date(message.timestamp);
+    return new Intl.DateTimeFormat('default', {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }).format(date);
+  };
+
   return (
-    <Card
-      className={cn(
-        "mb-4 p-4 relative",
-        message.role === "assistant"
-          ? "bg-secondary"
-          : "bg-primary/10 dark:bg-primary/20",
-      )}
-    >
+    <div className="mb-6">
+      <Card
+        className={cn(
+          "p-4 relative",
+          message.role === "assistant"
+            ? "bg-secondary"
+            : "bg-primary/10 dark:bg-primary/20",
+        )}
+      >
+        <div className="group">
+          {messageContent}
+          {renderAttachments()}
+        </div>
+      </Card>
+      
       {message.role === 'assistant' && (
-        <Button
-          size="icon"
-          variant="ghost"
-          className="absolute right-4 top-4 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity"
-          onClick={handleCopyMessage}
-          title="Copy message"
-        >
-          {isCopied ? (
-            <Check className="h-4 w-4" />
-          ) : (
-            <Copy className="h-4 w-4" />
-          )}
-        </Button>
+        <div className="flex items-center mt-1 text-xs text-muted-foreground">
+          <span>{formatTimestamp()}</span>
+          <div className="flex-1"></div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 flex items-center gap-1"
+            onClick={handleCopyMessage}
+          >
+            {isCopied ? (
+              <>
+                <Check className="h-3.5 w-3.5" />
+                <span>Copied</span>
+              </>
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5" />
+                <span>Copy</span>
+              </>
+            )}
+          </Button>
+        </div>
       )}
-      <div className="group">
-        {messageContent}
-        {renderAttachments()}
-      </div>
-    </Card>
+    </div>
   );
 }
