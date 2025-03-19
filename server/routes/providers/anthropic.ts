@@ -337,31 +337,35 @@ router.post("/", async (req: Request, res: Response) => {
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
 
       for await (const chunk of stream) {
-        // Debug log the chunk structure
-        // console.log("Anthropic chunk received:", JSON.stringify(chunk));
+        // Debug the received chunk structure - uncomment for debugging
+        console.log("Anthropic chunk received type:", chunk.type);
         
-        if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text') {
-          const content = chunk.delta.text || '';
-          if (content) {
-            streamedResponse += content;
-            lastChunkTime = Date.now();
-            res.write(
-              `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
-            );
-            if (res.flush) res.flush();
+        // Handle all types of content from Claude API
+        if (chunk.type === 'content_block_delta') {
+          const contentDelta = chunk.delta;
+          if (contentDelta && typeof contentDelta.text === 'string') {
+            const content = contentDelta.text;
+            if (content) {
+              streamedResponse += content;
+              lastChunkTime = Date.now();
+              res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
+              if (res.flush) res.flush();
+            }
           }
-        } else if (chunk.type === 'content_block_start' && chunk.content_block?.type === 'text') {
-          // Handle content_block_start for text blocks
-          const content = chunk.content_block.text || '';
-          if (content) {
-            streamedResponse += content;
-            lastChunkTime = Date.now();
-            res.write(
-              `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
-            );
-            if (res.flush) res.flush();
+        } 
+        else if (chunk.type === 'content_block_start') {
+          const contentBlock = chunk.content_block;
+          if (contentBlock && typeof contentBlock.text === 'string') {
+            const content = contentBlock.text;
+            if (content) {
+              streamedResponse += content;
+              lastChunkTime = Date.now();
+              res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
+              if (res.flush) res.flush();
+            }
           }
-        } else if (chunk.type === 'message_delta' && chunk.delta?.stop_reason) {
+        }
+        else if (chunk.type === 'message_delta' && chunk.delta && chunk.delta.stop_reason) {
           // Message completion
           console.log("Anthropic message completed, reason:", chunk.delta.stop_reason);
         }
