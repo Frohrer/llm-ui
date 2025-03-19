@@ -110,11 +110,13 @@ export function Message({ message }: MessageProps) {
           "prose-td:p-2",
         )}
         components={{
-          code({ node, inline, className, children, ...props }) {
+          code(props) {
+            const { className, children } = props;
             const match = /language-(\w+)/.exec(className || "");
             const code = String(children).replace(/\n$/, "");
+            const isCodeBlock = className?.includes('language-') && match;
 
-            return !inline && match ? (
+            return isCodeBlock ? (
               <div className="relative group">
                 <Button
                   size="icon"
@@ -125,7 +127,6 @@ export function Message({ message }: MessageProps) {
                   <Copy className="h-4 w-4" />
                 </Button>
                 <SyntaxHighlighter
-                  {...props}
                   style={vscDarkPlus}
                   language={match[1]}
                   PreTag="div"
@@ -345,6 +346,15 @@ export function Message({ message }: MessageProps) {
       second: '2-digit'
     }).format(date);
   };
+
+  // For system messages, we don't want to use a card
+  if (message.role === "system") {
+    return (
+      <div className="mb-2 py-1">
+        {messageContent}
+      </div>
+    );
+  }
 
   return (
     <div className="mb-6">
