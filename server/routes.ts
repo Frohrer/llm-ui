@@ -303,11 +303,16 @@ export function registerRoutes(app: Express): Server {
       
       // Get knowledge content if requested
       let knowledgeContent = '';
+      let knowledgeSystemMessage = null;
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
-          if (knowledgeContent) {
-            console.log("Retrieved knowledge content for conversation");
+          const knowledgeResult = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
+          
+          // Only set knowledge content if we should inject it to the context
+          if (knowledgeResult.shouldInjectToContext) {
+            knowledgeContent = knowledgeResult.content;
+            knowledgeSystemMessage = knowledgeResult.systemMessage;
+            console.log("Retrieved knowledge content for conversation and created system message notification");
           }
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content:", knowledgeError);
