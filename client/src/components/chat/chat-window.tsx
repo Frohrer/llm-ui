@@ -15,6 +15,7 @@ import { speechService } from '@/lib/speech-service';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { KnowledgeSourceList } from '@/components/knowledge/knowledge-source-list';
+import { getConversationKnowledge } from '@/hooks/use-knowledge';
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -128,10 +129,13 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   const conversationKnowledgeQuery = useQuery({
     queryKey: ['/api/knowledge/conversation', conversation?.id],
     queryFn: async () => {
-      if (conversation?.id) {
-        return getConversationKnowledge(conversation.id);
+      if (!conversation?.id) return [];
+      try {
+        return await getConversationKnowledge(conversation.id);
+      } catch (error) {
+        console.error("Error fetching knowledge sources:", error);
+        return [];
       }
-      return [];
     },
     enabled: !!conversation?.id
   });
@@ -577,9 +581,10 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
             getModelDisplayName={getModelDisplayName}
           />
           <Button
-            variant="outline"
+            variant={hasKnowledgeAttached ? "default" : "outline"}
             size="icon"
-            className={`shrink-0 ${showDesktopKnowledgePanel || showMobileKnowledgePanel ? "border-primary" : ""}`}
+            className={`shrink-0 ${showDesktopKnowledgePanel || showMobileKnowledgePanel ? "border-primary" : ""} 
+              ${hasKnowledgeAttached ? "bg-primary/20 text-primary hover:bg-primary/30 ring-1 ring-primary/30" : ""}`}
             onClick={() => {
               if (window.innerWidth >= 768) { // md breakpoint
                 setShowDesktopKnowledgePanel(!showDesktopKnowledgePanel);
@@ -587,9 +592,9 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                 setShowMobileKnowledgePanel(!showMobileKnowledgePanel);
               }
             }}
-            title="Knowledge panel"
+            title={hasKnowledgeAttached ? "Knowledge attached (click to view)" : "Knowledge panel"}
           >
-            <BookOpen className="h-[1.2rem] w-[1.2rem]" />
+            <BookOpen className={`h-[1.2rem] w-[1.2rem] ${hasKnowledgeAttached ? "animate-pulse" : ""}`} />
           </Button>
           <ThemeToggle />
         </div>
