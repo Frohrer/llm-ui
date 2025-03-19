@@ -306,10 +306,8 @@ export function registerRoutes(app: Express): Server {
       let knowledgeContent = '';
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
-          if (knowledgeContent) {
-            console.log("Retrieved knowledge content for conversation");
-          }
+          // Use centralized knowledge handler to get content and show notifications
+          knowledgeContent = await handleKnowledgePreparation(dbConversation.id, message, res);
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content:", knowledgeError);
         }
