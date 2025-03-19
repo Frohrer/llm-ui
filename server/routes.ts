@@ -1687,6 +1687,20 @@ export function registerRoutes(app: Express): Server {
       let imageAttachmentData = [];
       let documentTexts: string[] = [];
       
+      // Get knowledge content if requested
+      let knowledgeContent = '';
+      if (useKnowledge && dbConversation) {
+        try {
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          if (knowledgeContent) {
+            console.log("Retrieved knowledge content for Gemini conversation");
+            documentTexts.push("Knowledge Content:\n" + knowledgeContent);
+          }
+        } catch (knowledgeError) {
+          console.error("Error retrieving knowledge content for Gemini:", knowledgeError);
+        }
+      }
+      
       // Process each attachment
       for (const att of allAttachmentsToProcess) {
         // Handle image attachments
