@@ -385,7 +385,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           attachment: attachment,
           allAttachments: allAttachments || [], // Send all attachments to be processed together
           useKnowledge: useKnowledge,
-          pendingKnowledgeSources: conversation ? [] : pendingKnowledgeSources
+          pendingKnowledgeSources: pendingKnowledgeSources
         }),
         signal: abortControllerRef.current.signal
       });
