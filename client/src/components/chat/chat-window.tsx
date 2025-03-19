@@ -15,6 +15,7 @@ import { speechService } from '@/lib/speech-service';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { KnowledgeSourceList } from '@/components/knowledge/knowledge-source-list';
+import { KnowledgeNotification } from '@/components/knowledge/knowledge-notification';
 import { getConversationKnowledge } from '@/hooks/use-knowledge';
 
 interface ChatWindowProps {
@@ -470,6 +471,17 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                 switch (data.type) {
                   case 'start':
                     setStreamedText('');
+                    // Check if knowledge was used in this request
+                    if (data.knowledgeUsed) {
+                      // Dispatch a custom event so our notification component can handle it
+                      const knowledgeEvent = new CustomEvent('knowledge-injection', {
+                        detail: {
+                          conversationId: data.conversationId,
+                          knowledgeUsed: true
+                        }
+                      });
+                      window.dispatchEvent(knowledgeEvent);
+                    }
                     break;
                   case 'chunk':
                     if (typeof data.content === 'string') {
