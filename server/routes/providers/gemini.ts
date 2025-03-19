@@ -310,20 +310,35 @@ router.post("/", async (req: Request, res: Response) => {
       let lastChunkTime = Date.now();
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
 
-      for await (const chunk of result.stream) {
-        if (chunk.text) {
-          streamedResponse += chunk.text;
-          lastChunkTime = Date.now();
-          res.write(
-            `data: ${JSON.stringify({ type: "chunk", content: chunk.text })}\n\n`,
-          );
-          if (res.flush) res.flush();
+      if (result && result.stream) {
+        for await (const chunk of result.stream) {
+          // Debug log the chunk
+          // console.log("Gemini chunk received:", JSON.stringify(chunk));
+          
+          // Extract text content properly from Gemini's response format
+          if (chunk && chunk.text) {
+            const content = chunk.text;
+            
+            // Skip empty content
+            if (!content.trim()) continue;
+            
+            streamedResponse += content;
+            lastChunkTime = Date.now();
+            
+            // Send formatted chunk to client
+            res.write(
+              `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
+            );
+            if (res.flush) res.flush();
+          }
+  
+          // Check for timeout between chunks
+          if (Date.now() - lastChunkTime > chunkTimeout) {
+            throw new Error("Stream timeout - no data received for 30 seconds");
+          }
         }
-
-        // Check for timeout between chunks
-        if (Date.now() - lastChunkTime > chunkTimeout) {
-          throw new Error("Stream timeout - no data received for 30 seconds");
-        }
+      } else {
+        throw new Error("Failed to create Gemini stream");
       }
 
       // Save the complete response only after successful streaming
