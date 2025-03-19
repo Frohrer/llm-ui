@@ -496,6 +496,27 @@ export async function getConversationKnowledge(conversationId: number) {
  * Creates a system message notification for knowledge sources
  * Ensures knowledge is only injected once per conversation
  */
+/**
+ * Adds a knowledge system message to the database
+ * This is used to store system messages for UI display
+ */
+export async function addKnowledgeSystemMessage(
+  conversationId: number,
+  systemMessage: string
+): Promise<void> {
+  await db.insert(messages).values({
+    conversation_id: conversationId,
+    role: "system",
+    content: systemMessage,
+    created_at: new Date()
+  });
+}
+
+/**
+ * Prepares knowledge content for use in a conversation
+ * Creates a system message notification for knowledge sources
+ * Ensures knowledge is only injected once per conversation
+ */
 export async function prepareKnowledgeContentForConversation(
   conversationId: number, 
   query?: string, 
@@ -542,13 +563,10 @@ export async function prepareKnowledgeContentForConversation(
     const sourceNames = sources.map(s => s.name).join(", ");
     const systemMessage = `Knowledge sources added to conversation: ${sourceNames}`;
     
-    // Add system message to database
-    await db.insert(messages).values({
-      conversation_id: conversationId,
-      role: "system",
-      content: systemMessage,
-      created_at: new Date()
-    });
+    // We no longer insert the system message here
+    // It will be handled separately by each provider's route
+    // to accommodate different API requirements (especially Anthropic)
+    // See the addKnowledgeSystemMessage function below
     
     // Prepare the full content for context injection
     let content = '';
