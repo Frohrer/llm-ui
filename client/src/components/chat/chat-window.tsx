@@ -585,10 +585,9 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
             getModelDisplayName={getModelDisplayName}
           />
           <Button
-            variant={hasKnowledgeAttached ? "default" : "outline"}
+            variant="outline"
             size="icon"
-            className={`shrink-0 relative ${showDesktopKnowledgePanel || showMobileKnowledgePanel ? "border-primary" : ""} 
-              ${hasKnowledgeAttached ? "bg-primary/20 border-primary/50 hover:bg-primary/30" : ""}`}
+            className={`shrink-0 relative ${showDesktopKnowledgePanel || showMobileKnowledgePanel ? "border-primary" : ""}`}
             onClick={() => {
               if (window.innerWidth >= 768) { // md breakpoint
                 setShowDesktopKnowledgePanel(!showDesktopKnowledgePanel);
@@ -598,9 +597,9 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
             }}
             title={hasKnowledgeAttached ? "Knowledge attached (click to view)" : "Knowledge panel"}
           >
-            <BookOpen className={`h-[1.2rem] w-[1.2rem] ${hasKnowledgeAttached ? "text-primary-foreground font-bold" : ""}`} />
+            <BookOpen className="h-[1.2rem] w-[1.2rem]" />
             {hasKnowledgeAttached && (
-              <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-white dark:bg-yellow-300 animate-pulse border border-background"></span>
+              <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-green-500 animate-pulse shadow-sm"></span>
             )}
           </Button>
           <ThemeToggle />
