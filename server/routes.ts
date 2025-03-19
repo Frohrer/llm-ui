@@ -610,7 +610,7 @@ export function registerRoutes(app: Express): Server {
       
       // Get knowledge content if requested
       let knowledgeContent = '';
-      let knowledgeSystemMessage = null;
+      let knowledgeSystemMessage: string | null = null;
       if (useKnowledge && dbConversation) {
         try {
           const knowledgeResult = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
@@ -618,9 +618,11 @@ export function registerRoutes(app: Express): Server {
             knowledgeContent = knowledgeResult.content;
             knowledgeSystemMessage = knowledgeResult.systemMessage;
             console.log("Retrieved knowledge content for conversation and created system message notification");
-          }
-          if (knowledgeContent) {
-            console.log("Retrieved knowledge content for conversation");
+            
+            // If we have a system message, add it to the api messages
+            if (knowledgeSystemMessage) {
+              apiMessages.push({ role: "system", content: knowledgeSystemMessage });
+            }
           }
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content:", knowledgeError);
@@ -949,11 +951,19 @@ export function registerRoutes(app: Express): Server {
       
       // Get knowledge content if requested
       let knowledgeContent = '';
+      let knowledgeSystemMessage: string | null = null;
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
-          if (knowledgeContent) {
-            console.log("Retrieved knowledge content for conversation");
+          const knowledgeResult = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
+          if (knowledgeResult.shouldInjectToContext) {
+            knowledgeContent = knowledgeResult.content;
+            knowledgeSystemMessage = knowledgeResult.systemMessage;
+            console.log("Retrieved knowledge content for conversation and created system message notification");
+            
+            // If we have a system message, add it to the api messages
+            if (knowledgeSystemMessage) {
+              apiMessages.push({ role: "system", content: knowledgeSystemMessage });
+            }
           }
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content:", knowledgeError);
@@ -1700,6 +1710,7 @@ export function registerRoutes(app: Express): Server {
       
       // Get knowledge content if requested
       let knowledgeContent = '';
+      let knowledgeSystemMessage: string | null = null;
       if (useKnowledge && dbConversation) {
         try {
           // Get previous messages for context
@@ -1714,10 +1725,23 @@ export function registerRoutes(app: Express): Server {
             content: msg.content
           }));
           
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message, messageContext);
-          if (knowledgeContent) {
-            console.log("Retrieved knowledge content for Gemini conversation");
-            documentTexts.push("Knowledge Content:\n" + knowledgeContent);
+          const knowledgeResult = await prepareKnowledgeContentForConversation(dbConversation.id, message, messageContext);
+          if (knowledgeResult.shouldInjectToContext) {
+            knowledgeContent = knowledgeResult.content;
+            knowledgeSystemMessage = knowledgeResult.systemMessage;
+            console.log("Retrieved knowledge content for Gemini conversation and created system message notification");
+            
+            // If we have a system message, add it to the messages
+            if (knowledgeSystemMessage) {
+              // For Gemini, we'll add the system message as part of the documentTexts
+              // since Gemini doesn't directly support system messages
+              documentTexts.push(knowledgeSystemMessage);
+            }
+            
+            // Add the knowledge content to document texts for inclusion in the prompt
+            if (knowledgeContent) {
+              documentTexts.push("Knowledge Content:\n" + knowledgeContent);
+            }
           }
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content for Gemini:", knowledgeError);
