@@ -10,27 +10,30 @@ interface KnowledgeNotificationProps {
 export function KnowledgeNotification({ conversationId }: KnowledgeNotificationProps) {
   const { toast } = useToast();
   // Use local storage to persist notifications across page refreshes
-  const [notifiedConversations, setNotifiedConversations] = useState<Set<number>>(() => {
+  const [notifiedConversations, setNotifiedConversations] = useState<number[]>(() => {
     try {
       const saved = localStorage.getItem('notifiedKnowledgeConversations');
-      return saved ? new Set(JSON.parse(saved)) : new Set();
+      return saved ? JSON.parse(saved) : [];
     } catch (e) {
-      return new Set();
+      return [];
     }
   });
   
   // Function to mark a conversation as having shown the knowledge notification
   const markConversationNotified = (convId: number) => {
     setNotifiedConversations(prev => {
-      const updated = new Set(prev);
-      updated.add(convId);
-      // Save to local storage
-      try {
-        localStorage.setItem('notifiedKnowledgeConversations', JSON.stringify([...updated]));
-      } catch (e) {
-        console.error('Failed to save notification state to localStorage:', e);
+      // Only add if not already in the array
+      if (!prev.includes(convId)) {
+        const updated = [...prev, convId];
+        // Save to local storage
+        try {
+          localStorage.setItem('notifiedKnowledgeConversations', JSON.stringify(updated));
+        } catch (e) {
+          console.error('Failed to save notification state to localStorage:', e);
+        }
+        return updated;
       }
-      return updated;
+      return prev;
     });
   };
 
@@ -47,7 +50,7 @@ export function KnowledgeNotification({ conversationId }: KnowledgeNotificationP
         eventConvId && 
         knowledgeUsed && 
         eventConvId === conversationId && 
-        !notifiedConversations.has(eventConvId)
+        !notifiedConversations.includes(eventConvId)
       ) {
         // Show toast notification
         toast({

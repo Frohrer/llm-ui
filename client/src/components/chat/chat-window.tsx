@@ -570,6 +570,9 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      {/* Invisible component that handles knowledge notifications */}
+      <KnowledgeNotification conversationId={conversation?.id} />
+      
       <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
           {mobileMenuTrigger}
