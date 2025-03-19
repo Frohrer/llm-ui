@@ -5,7 +5,7 @@ import { db } from '../db';
 import { knowledgeSources, knowledgeContent, conversationKnowledge } from '../db/schema';
 import type { SelectKnowledgeSource } from '../db/schema';
 import { extractTextFromFile, isImageFile } from './file-handler';
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { eq, and, or, desc, asc } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
 // Constants for knowledge sources management
