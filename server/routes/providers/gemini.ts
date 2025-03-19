@@ -312,15 +312,24 @@ router.post("/", async (req: Request, res: Response) => {
 
       if (result && result.stream) {
         for await (const chunk of result.stream) {
-          // Debug log the chunk
-          // console.log("Gemini chunk received:", JSON.stringify(chunk));
+          // Debug log the chunk structure
+          console.log("Gemini chunk received:", typeof chunk, chunk);
           
           // Extract text content properly from Gemini's response format
-          if (chunk && chunk.text) {
-            const content = chunk.text;
+          if (chunk) {
+            // Handle different chunk formats from Gemini
+            let content = '';
             
-            // Check if content is a string and not empty
-            if (typeof content === 'string' && content !== '') {
+            if (typeof chunk.text === 'string') {
+              content = chunk.text;
+            } else if (chunk.candidates && chunk.candidates.length > 0 && chunk.candidates[0].content && 
+                      chunk.candidates[0].content.parts && chunk.candidates[0].content.parts.length > 0) {
+              // Extract content from candidates structure
+              content = chunk.candidates[0].content.parts[0].text || '';
+            }
+            
+            // Process non-empty content
+            if (content && content.trim()) {
               streamedResponse += content;
               lastChunkTime = Date.now();
               
