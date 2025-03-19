@@ -391,9 +391,13 @@ export function registerRoutes(app: Express): Server {
         throw new Error("Failed to create stream after retries");
       }
 
-      // Send initial conversation data
+      // Send initial conversation data with knowledge usage flag
       res.write(
-        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
+        `data: ${JSON.stringify({ 
+          type: "start", 
+          conversationId: dbConversation.id,
+          knowledgeUsed: knowledgeContent && knowledgeContent.length > 0 
+        })}\n\n`,
       );
 
       // Set up keep-alive interval
