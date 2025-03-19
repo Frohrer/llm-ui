@@ -2,10 +2,10 @@ import path from 'path';
 import fs from 'fs';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
-import { knowledgeSources, knowledgeContent, conversationKnowledge, messages } from '../db/schema';
+import { knowledgeSources, knowledgeContent, conversationKnowledge } from '../db/schema';
 import type { SelectKnowledgeSource } from '../db/schema';
 import { extractTextFromFile, isImageFile } from './file-handler';
-import { eq, and, desc, asc, like } from 'drizzle-orm';
+import { eq, and, desc, asc } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
 // Constants for knowledge sources management
@@ -418,35 +418,6 @@ export async function addKnowledgeToConversation(conversationId: number, knowled
       knowledge_source_id: knowledgeSourceId,
     }).returning();
     
-    // Check if this is an existing conversation with messages
-    const existingMessages = await db.query.messages.findMany({
-      where: eq(messages.conversation_id, conversationId),
-      orderBy: asc(messages.created_at),
-    });
-    
-    // If this conversation already has messages, add a system message to notify about knowledge
-    if (existingMessages.length > 0) {
-      // Get knowledge source info
-      const source = await db.query.knowledgeSources.findFirst({
-        where: eq(knowledgeSources.id, knowledgeSourceId),
-      });
-      
-      if (source) {
-        // Add a system message with special formatting to indicate knowledge was added
-        // This will appear as muted text without buttons or background
-        await db.insert(messages).values({
-          conversation_id: conversationId,
-          role: "system",  // Using system role for muted appearance
-          content: `Knowledge source "${source.name}" added to conversation`,
-          created_at: new Date(),
-        });
-        
-        console.log(`Added notification about knowledge source "${source.name}" to existing conversation`);
-      }
-    } else {
-      console.log("New conversation with knowledge source added - will include in first response");
-    }
-    
     return association;
   } catch (error) {
     console.error('Error adding knowledge source to conversation:', error);
@@ -493,85 +464,17 @@ export async function getConversationKnowledge(conversationId: number) {
 
 /**
  * Prepares knowledge content for use in a conversation
- * Creates a system message notification for knowledge sources
- * Ensures knowledge is only injected once per conversation
+ * Depending on the size and RAG setting, either returns full content or relevant chunks
  */
-/**
- * Adds a knowledge system message to the database
- * This is used to store system messages for UI display
- */
-export async function addKnowledgeSystemMessage(
-  conversationId: number,
-  systemMessage: string
-): Promise<void> {
-  await db.insert(messages).values({
-    conversation_id: conversationId,
-    role: "system",
-    content: systemMessage,
-    created_at: new Date()
-  });
-}
-
-/**
- * Prepares knowledge content for use in a conversation
- * Creates a system message notification for knowledge sources
- * Ensures knowledge is only injected once per conversation
- */
-export async function prepareKnowledgeContentForConversation(
-  conversationId: number, 
-  query?: string, 
-  context?: any[] // Optional context parameter to check for existing knowledge
-): Promise<{ content: string; shouldInjectToContext: boolean; systemMessage: string | null }> {
+export async function prepareKnowledgeContentForConversation(conversationId: number, query?: string) {
   try {
-    // Check if knowledge has already been injected in this conversation via system messages
-    const existingSystemMessages = await db.query.messages.findMany({
-      where: and(
-        eq(messages.conversation_id, conversationId),
-        eq(messages.role, "system"),
-        or(
-          like(messages.content, "%Knowledge sources added%"),
-          like(messages.content, "%Knowledge source%added to conversation%")
-        )
-      ),
-      columns: {
-        id: true,
-        content: true
-      }
-    });
-    
-    // If we already have a system message about knowledge, don't inject again
-    if (existingSystemMessages.length > 0) {
-      console.log("Knowledge already added to conversation via system message - skipping injection");
-      return { 
-        content: '', 
-        shouldInjectToContext: false,
-        systemMessage: null 
-      };
-    }
-    
     // Get all knowledge sources for the conversation
     const sources = await getConversationKnowledge(conversationId);
     
     if (!sources || sources.length === 0) {
-      return { 
-        content: '', 
-        shouldInjectToContext: false,
-        systemMessage: null 
-      };
+      return '';
     }
     
-    console.log(`Preparing knowledge content from ${sources.length} sources for first-time injection`);
-    
-    // Create system message notification
-    const sourceNames = sources.map(s => s.name).join(", ");
-    const systemMessage = `Knowledge sources added to conversation: ${sourceNames}`;
-    
-    // We no longer insert the system message here
-    // It will be handled separately by each provider's route
-    // to accommodate different API requirements (especially Anthropic)
-    // See the addKnowledgeSystemMessage function below
-    
-    // Prepare the full content for context injection
     let content = '';
     
     for (const source of sources) {
@@ -601,11 +504,7 @@ export async function prepareKnowledgeContentForConversation(
       }
     }
     
-    return {
-      content,
-      shouldInjectToContext: true,
-      systemMessage
-    };
+    return content;
   } catch (error) {
     console.error('Error preparing knowledge content for conversation:', error);
     throw error;

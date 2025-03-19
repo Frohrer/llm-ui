@@ -21,11 +21,7 @@ import {
   cleanupImageFile
 } from "./file-handler";
 import knowledgeRoutes from "./routes/knowledge";
-import { 
-  prepareKnowledgeContentForConversation, 
-  addKnowledgeToConversation,
-  addKnowledgeSystemMessage
-} from "./knowledge-service";
+import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "./knowledge-service";
 import type { SQL } from "drizzle-orm";
 
 // Load provider configurations at startup
@@ -307,16 +303,11 @@ export function registerRoutes(app: Express): Server {
       
       // Get knowledge content if requested
       let knowledgeContent = '';
-      let knowledgeSystemMessage = null;
       if (useKnowledge && dbConversation) {
         try {
-          const knowledgeResult = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
-          
-          // Only set knowledge content if we should inject it to the context
-          if (knowledgeResult.shouldInjectToContext) {
-            knowledgeContent = knowledgeResult.content;
-            knowledgeSystemMessage = knowledgeResult.systemMessage;
-            console.log("Retrieved knowledge content for conversation and created system message notification");
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          if (knowledgeContent) {
+            console.log("Retrieved knowledge content for conversation");
           }
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content:", knowledgeError);
@@ -614,21 +605,11 @@ export function registerRoutes(app: Express): Server {
       
       // Get knowledge content if requested
       let knowledgeContent = '';
-      let knowledgeSystemMessage: string | null = null;
       if (useKnowledge && dbConversation) {
         try {
-          const knowledgeResult = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
-          if (knowledgeResult.shouldInjectToContext) {
-            knowledgeContent = knowledgeResult.content;
-            knowledgeSystemMessage = knowledgeResult.systemMessage;
-            console.log("Retrieved knowledge content for conversation and created system message notification");
-            
-            // For Anthropic, we DON'T add system messages to the apiMessages array
-            // We'll use the system parameter when creating the API request instead
-            // Save the system message for UI display purposes
-            if (knowledgeSystemMessage) {
-              await addKnowledgeSystemMessage(dbConversation.id, knowledgeSystemMessage);
-            }
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          if (knowledgeContent) {
+            console.log("Retrieved knowledge content for conversation");
           }
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content:", knowledgeError);
@@ -756,8 +737,6 @@ export function registerRoutes(app: Express): Server {
         max_tokens: 4096, // Increased from 1024 to 4096
         temperature: 0.7,
         stream: true,
-        // Add system parameter for Anthropic's API if we have a knowledge system message
-        ...(knowledgeSystemMessage ? { system: knowledgeSystemMessage } : {})
       });
       console.log("Anthropic stream created with model:", model);
 
@@ -959,19 +938,11 @@ export function registerRoutes(app: Express): Server {
       
       // Get knowledge content if requested
       let knowledgeContent = '';
-      let knowledgeSystemMessage: string | null = null;
       if (useKnowledge && dbConversation) {
         try {
-          const knowledgeResult = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
-          if (knowledgeResult.shouldInjectToContext) {
-            knowledgeContent = knowledgeResult.content;
-            knowledgeSystemMessage = knowledgeResult.systemMessage;
-            console.log("Retrieved knowledge content for conversation and created system message notification");
-            
-            // If we have a system message, add it to the api messages
-            if (knowledgeSystemMessage) {
-              apiMessages.push({ role: "system", content: knowledgeSystemMessage });
-            }
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          if (knowledgeContent) {
+            console.log("Retrieved knowledge content for conversation");
           }
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content:", knowledgeError);
@@ -1718,38 +1689,12 @@ export function registerRoutes(app: Express): Server {
       
       // Get knowledge content if requested
       let knowledgeContent = '';
-      let knowledgeSystemMessage: string | null = null;
       if (useKnowledge && dbConversation) {
         try {
-          // Get previous messages for context
-          const previousMessages = await db.query.messages.findMany({
-            where: eq(messages.conversation_id, dbConversation.id),
-            orderBy: [asc(messages.created_at)]
-          });
-          
-          // Format messages for context checking
-          const messageContext = previousMessages.map(msg => ({
-            role: msg.role,
-            content: msg.content
-          }));
-          
-          const knowledgeResult = await prepareKnowledgeContentForConversation(dbConversation.id, message, messageContext);
-          if (knowledgeResult.shouldInjectToContext) {
-            knowledgeContent = knowledgeResult.content;
-            knowledgeSystemMessage = knowledgeResult.systemMessage;
-            console.log("Retrieved knowledge content for Gemini conversation and created system message notification");
-            
-            // If we have a system message, add it to the messages
-            if (knowledgeSystemMessage) {
-              // For Gemini, we'll add the system message as part of the documentTexts
-              // since Gemini doesn't directly support system messages
-              documentTexts.push(knowledgeSystemMessage);
-            }
-            
-            // Add the knowledge content to document texts for inclusion in the prompt
-            if (knowledgeContent) {
-              documentTexts.push("Knowledge Content:\n" + knowledgeContent);
-            }
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
+          if (knowledgeContent) {
+            console.log("Retrieved knowledge content for Gemini conversation");
+            documentTexts.push("Knowledge Content:\n" + knowledgeContent);
           }
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content for Gemini:", knowledgeError);

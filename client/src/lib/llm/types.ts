@@ -10,7 +10,7 @@ export interface Attachment {
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant';
   content: string;
   timestamp: number;
   attachment?: Attachment;
@@ -26,7 +26,7 @@ export interface Conversation {
   createdAt: string;
   messages: {
     id: number;
-    role: 'user' | 'assistant' | 'system';
+    role: 'user' | 'assistant';
     content: string;
     created_at: string;
   }[];
@@ -72,7 +72,7 @@ export function transformDatabaseConversation(dbConv: SelectConversation & { mes
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
       .map(msg => ({
         id: msg.id,
-        role: msg.role as 'user' | 'assistant' | 'system',
+        role: msg.role as 'user' | 'assistant',
         content: msg.content,
         created_at: msg.created_at.toISOString()
       }))
