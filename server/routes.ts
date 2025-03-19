@@ -1691,7 +1691,19 @@ export function registerRoutes(app: Express): Server {
       let knowledgeContent = '';
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
+          // Get previous messages for context
+          const previousMessages = await db.query.messages.findMany({
+            where: eq(messages.conversation_id, dbConversation.id),
+            orderBy: [asc(messages.created_at)]
+          });
+          
+          // Format messages for context checking
+          const messageContext = previousMessages.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          }));
+          
+          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message, messageContext);
           if (knowledgeContent) {
             console.log("Retrieved knowledge content for Gemini conversation");
             documentTexts.push("Knowledge Content:\n" + knowledgeContent);
