@@ -147,35 +147,112 @@ export async function createKnowledgeSourceFromText(options: CreateKnowledgeSour
 }
 
 /**
- * Creates a knowledge source from a URL
- * Note: This is just a placeholder. Complete URL processing would require:
+ * Creates a knowledge source from a URL by:
  * 1. Fetching the URL content
  * 2. Parsing HTML to extract text
- * 3. Optionally downloading and processing images
+ * 3. Storing the extracted content
  */
 export async function createKnowledgeSourceFromUrl(options: CreateKnowledgeSourceUrlOptions) {
   const { userId, name, description, url, useRag = false } = options;
-
+  
   try {
-    // In a real implementation, we would fetch and process URL content here
-    // For now, we just store the URL
+    // Import axios and cheerio here to prevent issues with circular dependencies
+    const axios = await import('axios');
+    const cheerio = await import('cheerio');
+
+    // Set a user agent to avoid blocking by some websites
+    const response = await axios.default.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; KnowledgeBot/1.0)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml'
+      },
+      timeout: 10000 // 10 second timeout
+    });
+
+    // Get content type to handle different types of content
+    const contentType = response.headers['content-type'] || '';
+    let contentText = '';
+    let isProcessed = false;
+    let title = '';
+
+    // Process HTML content if it's a webpage
+    if (contentType.includes('text/html')) {
+      const $ = cheerio.load(response.data);
+      
+      // Get the page title
+      title = $('title').text().trim();
+      
+      // Remove script and style elements that aren't needed for content
+      $('script, style, meta, link, noscript, iframe, svg').remove();
+      
+      // Extract text content from the body
+      contentText = $('body')
+        .text()
+        .replace(/\s+/g, ' ')  // Replace multiple whitespace with single space
+        .replace(/\n+/g, '\n') // Replace multiple newlines with single newline
+        .trim();
+        
+      // Add the title at the top if available
+      if (title) {
+        contentText = `# ${title}\n\n${contentText}`;
+      }
+      
+      isProcessed = true;
+    } 
+    // Handle plain text content
+    else if (contentType.includes('text/plain')) {
+      contentText = response.data;
+      isProcessed = true;
+    }
+    // For other content types, store the content type but don't process
+    else {
+      contentText = `[Content of type: ${contentType}]`;
+      isProcessed = false;
+    }
+
+    // Create knowledge source record
     const [knowledgeSource] = await db.insert(knowledgeSources).values({
       user_id: userId,
       name,
       description,
       source_type: 'url',
       url,
-      is_processed: false, // Set to false initially
+      content_text: contentText,
+      is_processed: isProcessed,
       use_rag: useRag,
       metadata: {
-        requiresProcessing: true,
+        contentType,
+        title: title || null,
+        fetchedAt: new Date().toISOString(),
       },
     }).returning();
+
+    // If RAG is enabled and content was successfully processed, process it for chunks
+    if (useRag && isProcessed && contentText.length > 0) {
+      await processTextForChunks(knowledgeSource.id, contentText);
+    }
 
     return knowledgeSource;
   } catch (error) {
     console.error('Error creating knowledge source from URL:', error);
-    throw error;
+    
+    // Create a record even if fetching fails to show the error to the user
+    const [knowledgeSource] = await db.insert(knowledgeSources).values({
+      user_id: userId,
+      name,
+      description,
+      source_type: 'url',
+      url,
+      content_text: `[Error fetching URL content: ${error.message || 'Unknown error'}]`,
+      is_processed: false,
+      use_rag: useRag,
+      metadata: {
+        error: error.message || 'Unknown error',
+        fetchAttemptAt: new Date().toISOString(),
+      },
+    }).returning();
+    
+    return knowledgeSource;
   }
 }
 
