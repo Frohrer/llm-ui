@@ -482,29 +482,46 @@ export async function prepareKnowledgeContentForConversation(
       return '';
     }
     
-    // Check if this is the first message in the conversation
-    // We only want to include knowledge content in the first message unless forced
-    if (!forceInclude) {
-      try {
-        const messageCount = await db.select({ id: messages.id })
-          .from(messages)
-          .where(eq(messages.conversation_id, conversationId));
-        
-        // If there are more than 1 message (the current one being added), don't include knowledge
-        if (messageCount.length > 1) {
-          console.log(`Knowledge content skipped for existing conversation ${conversationId} with ${messageCount.length} messages`);
-          return '';
+    // Get all messages in the conversation to check for already included knowledge
+    const allMessages = await db.select()
+      .from(messages)
+      .where(eq(messages.conversation_id, conversationId));
+    
+    // Initialize a set to track which knowledge sources have already been included
+    let includedKnowledgeIds = new Set<number>();
+    
+    // We add a property to track included knowledge sources in the conversation
+    // This gets checked for each message
+    if (!forceInclude && allMessages.length > 0) {
+      for (const message of allMessages) {
+        // If the message contains metadata about included knowledge, extract it
+        if (message.content && message.content.includes("[INCLUDED_KNOWLEDGE_IDS:")) {
+          try {
+            const match = message.content.match(/\[INCLUDED_KNOWLEDGE_IDS:(.*?)\]/);
+            if (match && match[1]) {
+              const idsString = match[1].trim();
+              const ids = idsString.split(',').map(id => parseInt(id.trim(), 10));
+              ids.forEach(id => includedKnowledgeIds.add(id));
+            }
+          } catch (e) {
+            console.error("Error parsing included knowledge IDs:", e);
+          }
         }
-        console.log(`Knowledge content INCLUDED for conversation ${conversationId} with ${messageCount.length} messages`);
-      } catch (error) {
-        console.error("Error checking message count:", error);
-        // Default to including knowledge if there's an error
       }
     }
     
     let content = '';
+    let newlyIncludedIds: number[] = [];
     
     for (const source of sources) {
+      // Skip this source if it has already been included
+      if (includedKnowledgeIds.has(source.id) && !forceInclude) {
+        console.log(`Knowledge source ${source.id} already included in conversation ${conversationId}, skipping`);
+        continue;
+      }
+      
+      newlyIncludedIds.push(source.id);
+      
       if (source.use_rag && source.total_chunks > 0 && query) {
         // Use RAG to find relevant chunks
         // This is a simple implementation - would use vector search in production
@@ -529,6 +546,17 @@ export async function prepareKnowledgeContentForConversation(
         // Use full content text
         content += `\n\n### ${source.name}:\n${source.content_text}\n\n`;
       }
+    }
+    
+    // If we've included at least one new knowledge source, add metadata about it
+    if (newlyIncludedIds.length > 0) {
+      // Add a hidden marker with the IDs of included knowledge sources
+      // This will be stored with the message content but will be hidden from users
+      const allIncludedIds = [...includedKnowledgeIds, ...newlyIncludedIds];
+      content += `\n\n[INCLUDED_KNOWLEDGE_IDS:${newlyIncludedIds.join(',')}]`;
+      console.log(`Knowledge sources ${newlyIncludedIds.join(', ')} added to conversation ${conversationId}`);
+    } else if (includedKnowledgeIds.size > 0) {
+      console.log(`All knowledge sources already included in conversation ${conversationId}, skipping`);
     }
     
     return content;
