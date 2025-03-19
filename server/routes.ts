@@ -750,6 +750,8 @@ export function registerRoutes(app: Express): Server {
         max_tokens: 4096, // Increased from 1024 to 4096
         temperature: 0.7,
         stream: true,
+        // Add system parameter for Anthropic's API if we have a knowledge system message
+        ...(knowledgeSystemMessage ? { system: knowledgeSystemMessage } : {})
       });
       console.log("Anthropic stream created with model:", model);
 
