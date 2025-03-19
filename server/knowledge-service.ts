@@ -465,15 +465,35 @@ export async function getConversationKnowledge(conversationId: number) {
 /**
  * Prepares knowledge content for use in a conversation
  * Depending on the size and RAG setting, either returns full content or relevant chunks
+ * Now also checks if knowledge has already been injected in the conversation
  */
-export async function prepareKnowledgeContentForConversation(conversationId: number, query?: string) {
+export async function prepareKnowledgeContentForConversation(
+  conversationId: number, 
+  query?: string, 
+  context?: any[] // Optional context parameter to check for existing knowledge
+) {
   try {
+    // If context is provided, check if knowledge has already been injected
+    if (context && Array.isArray(context)) {
+      const knowledgeAlreadyIncluded = context.some(msg => 
+        typeof msg.content === 'string' && 
+        msg.content.includes('Knowledge Sources:')
+      );
+      
+      if (knowledgeAlreadyIncluded) {
+        console.log("Knowledge already included in conversation context - skipping injection");
+        return ''; // Return empty string to skip injection
+      }
+    }
+    
     // Get all knowledge sources for the conversation
     const sources = await getConversationKnowledge(conversationId);
     
     if (!sources || sources.length === 0) {
       return '';
     }
+    
+    console.log(`Preparing knowledge content from ${sources.length} sources for first-time injection`);
     
     let content = '';
     
