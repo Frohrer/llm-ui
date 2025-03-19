@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useEffect } from "react";
 import { ConversationList } from "./conversation-list";
 import { Conversation } from "@/lib/llm/types";
+import { KnowledgeSheet } from "@/components/knowledge";
 
 interface MainSidebarProps {
   activeConversation?: Conversation;
@@ -65,27 +66,24 @@ export function MainSidebar({
               <Link href="/">
                 <a
                   className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
-                    isActive("/") && !isActive("/knowledge")
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-accent/50"
+                    isActive("/") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
                   }`}
                 >
                   <MessageCircle className="mr-2 h-4 w-4" />
                   Conversations
                 </a>
               </Link>
-              <Link href="/knowledge">
-                <a
-                  className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
-                    isActive("/knowledge")
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-accent/50"
-                  }`}
-                >
-                  <BookOpen className="mr-2 h-4 w-4" />
-                  Knowledge
-                </a>
-              </Link>
+              <KnowledgeSheet 
+                trigger={
+                  <Button 
+                    variant="ghost" 
+                    className="w-full justify-start flex items-center py-2 px-3 rounded-md text-sm font-medium hover:bg-accent/50"
+                  >
+                    <BookOpen className="mr-2 h-4 w-4" />
+                    Knowledge
+                  </Button>
+                } 
+              />
             </div>
           </div>
 
