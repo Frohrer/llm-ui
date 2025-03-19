@@ -140,7 +140,11 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
     enabled: !!conversation?.id
   });
   
-  const hasKnowledgeAttached = !!(conversationKnowledgeQuery.data && conversationKnowledgeQuery.data.length > 0);
+  // Check if knowledge is attached to the current conversation or if there are pending sources
+  const hasKnowledgeAttached = !!(
+    (conversationKnowledgeQuery.data && conversationKnowledgeQuery.data.length > 0) || 
+    (pendingKnowledgeSources && pendingKnowledgeSources.length > 0)
+  );
   
   // Update messages when conversation changes
   useEffect(() => {
@@ -583,8 +587,8 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           <Button
             variant={hasKnowledgeAttached ? "default" : "outline"}
             size="icon"
-            className={`shrink-0 ${showDesktopKnowledgePanel || showMobileKnowledgePanel ? "border-primary" : ""} 
-              ${hasKnowledgeAttached ? "bg-primary/20 text-primary hover:bg-primary/30 ring-1 ring-primary/30" : ""}`}
+            className={`shrink-0 relative ${showDesktopKnowledgePanel || showMobileKnowledgePanel ? "border-primary" : ""} 
+              ${hasKnowledgeAttached ? "bg-primary/5 text-primary border-primary shadow-sm" : ""}`}
             onClick={() => {
               if (window.innerWidth >= 768) { // md breakpoint
                 setShowDesktopKnowledgePanel(!showDesktopKnowledgePanel);
@@ -594,7 +598,10 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
             }}
             title={hasKnowledgeAttached ? "Knowledge attached (click to view)" : "Knowledge panel"}
           >
-            <BookOpen className={`h-[1.2rem] w-[1.2rem] ${hasKnowledgeAttached ? "animate-pulse" : ""}`} />
+            <BookOpen className={`h-[1.2rem] w-[1.2rem] ${hasKnowledgeAttached ? "text-primary" : ""}`} />
+            {hasKnowledgeAttached && (
+              <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-primary animate-pulse"></span>
+            )}
           </Button>
           <ThemeToggle />
         </div>
