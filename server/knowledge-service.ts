@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
-import { knowledgeSources, knowledgeContent, conversationKnowledge } from '../db/schema';
+import { knowledgeSources, knowledgeContent, conversationKnowledge, messages } from '../db/schema';
 import type { SelectKnowledgeSource } from '../db/schema';
 import { extractTextFromFile, isImageFile } from './file-handler';
 import { eq, and, desc, asc } from 'drizzle-orm';
@@ -417,6 +417,34 @@ export async function addKnowledgeToConversation(conversationId: number, knowled
       conversation_id: conversationId,
       knowledge_source_id: knowledgeSourceId,
     }).returning();
+    
+    // Check if this is an existing conversation with messages
+    const existingMessages = await db.query.messages.findMany({
+      where: eq(messages.conversation_id, conversationId),
+      orderBy: asc(messages.created_at),
+    });
+    
+    // If this conversation already has messages, add a system message to notify about knowledge
+    if (existingMessages.length > 0) {
+      // Get knowledge source info
+      const source = await db.query.knowledgeSources.findFirst({
+        where: eq(knowledgeSources.id, knowledgeSourceId),
+      });
+      
+      if (source) {
+        // Add a system message indicating new knowledge was added
+        await db.insert(messages).values({
+          conversation_id: conversationId,
+          role: "assistant",
+          content: `Knowledge source "${source.name}" has been added to this conversation. This information will be used for future responses.`,
+          created_at: new Date(),
+        });
+        
+        console.log(`Added notification about knowledge source "${source.name}" to existing conversation`);
+      }
+    } else {
+      console.log("New conversation with knowledge source added - will include in first response");
+    }
     
     return association;
   } catch (error) {
