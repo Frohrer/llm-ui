@@ -83,19 +83,8 @@ export function Message({ message }: MessageProps) {
     }
   };
 
-  // Render system message (muted text for knowledge notifications)
-  const renderSystemMessage = () => {
-    return (
-      <div className="text-sm text-muted-foreground italic text-center py-1">
-        {message.content}
-      </div>
-    );
-  };
-
   const messageContent =
-    message.role === "system" ? (
-      renderSystemMessage()
-    ) : message.role === "assistant" ? (
+    message.role === "assistant" ? (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         className={cn(
@@ -110,13 +99,11 @@ export function Message({ message }: MessageProps) {
           "prose-td:p-2",
         )}
         components={{
-          code(props) {
-            const { className, children } = props;
+          code({ node, inline, className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || "");
             const code = String(children).replace(/\n$/, "");
-            const isCodeBlock = className?.includes('language-') && match;
 
-            return isCodeBlock ? (
+            return !inline && match ? (
               <div className="relative group">
                 <Button
                   size="icon"
@@ -127,6 +114,7 @@ export function Message({ message }: MessageProps) {
                   <Copy className="h-4 w-4" />
                 </Button>
                 <SyntaxHighlighter
+                  {...props}
                   style={vscDarkPlus}
                   language={match[1]}
                   PreTag="div"
@@ -346,15 +334,6 @@ export function Message({ message }: MessageProps) {
       second: '2-digit'
     }).format(date);
   };
-
-  // For system messages, we don't want to use a card
-  if (message.role === "system") {
-    return (
-      <div className="mb-2 py-1">
-        {messageContent}
-      </div>
-    );
-  }
 
   return (
     <div className="mb-6">
