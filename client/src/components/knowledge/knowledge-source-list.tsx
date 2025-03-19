@@ -295,48 +295,43 @@ export function KnowledgeSourceList({
                   </Button>
                 )}
 
-                {/* Attach/Select button in "all" mode */}
-                {mode === "all" && showAttachButton && (
+                {/* Universal Attach/Detach button for all modes */}
+                {showAttachButton && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      // If we have a conversation ID, attach directly
-                      if (conversationId) {
+                      if (mode === "conversation" && conversationId) {
+                        // Detach in conversation mode
+                        removeKnowledgeFromConversation({
+                          conversationId,
+                          knowledgeSourceId: source.id,
+                        });
+                      } else if (conversationId) {
+                        // Attach in all mode with existing conversation
                         addKnowledgeToConversation({
                           conversationId,
                           knowledgeSourceId: source.id,
                         });
-                      } 
-                      // Otherwise, add to selected sources (for new conversations)
-                      else if (onSelectKnowledgeSource) {
+                      } else if (onSelectKnowledgeSource) {
+                        // Select for new conversation
                         onSelectKnowledgeSource(source);
                       }
                     }}
-                    disabled={isAttaching}
+                    disabled={mode === "conversation" ? isDetaching : isAttaching}
                   >
-                    <Link className="mr-2 h-4 w-4" />
-                    {selectedSourceIds.includes(source.id) ? "Selected" : "Select"}
-                  </Button>
-                )}
-
-                {/* Detach button in "conversation" mode */}
-                {mode === "conversation" && conversationId && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeKnowledgeFromConversation({
-                        conversationId,
-                        knowledgeSourceId: source.id,
-                      });
-                    }}
-                    disabled={isDetaching}
-                  >
-                    <Unlink className="mr-2 h-4 w-4" />
-                    Detach
+                    {mode === "conversation" ? (
+                      <>
+                        <Unlink className="mr-2 h-4 w-4" />
+                        Detach
+                      </>
+                    ) : (
+                      <>
+                        <Link className="mr-2 h-4 w-4" />
+                        {selectedSourceIds.includes(source.id) ? "Selected" : "Attach"}
+                      </>
+                    )}
                   </Button>
                 )}
               </CardFooter>
