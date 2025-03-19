@@ -528,7 +528,10 @@ export async function prepareKnowledgeContentForConversation(
       where: and(
         eq(messages.conversation_id, conversationId),
         eq(messages.role, "system"),
-        like(messages.content, "%Knowledge sources added%")
+        or(
+          like(messages.content, "%Knowledge sources added%"),
+          like(messages.content, "%Knowledge source%added to conversation%")
+        )
       ),
       columns: {
         id: true,
