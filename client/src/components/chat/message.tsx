@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import type { Message as MessageType } from "@/lib/llm/types";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Volume2, VolumeX, FileText, ExternalLink } from "lucide-react";
+import { Copy, Check, Volume2, VolumeX, FileText, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useSpeech } from "@/hooks/use-speech";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ export function Message({ message }: MessageProps) {
   const { toast } = useToast();
   const { speak, isSpeaking } = useSpeech();
   const [localIsSpeaking, setLocalIsSpeaking] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
 
   const handleSpeakMessage = async () => {
     try {
@@ -41,6 +42,28 @@ export function Message({ message }: MessageProps) {
         duration: 2000,
       });
       setLocalIsSpeaking(false);
+    }
+  };
+
+  const handleCopyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setIsCopied(true);
+      toast({
+        description: "Message copied to clipboard",
+        duration: 2000,
+      });
+      
+      // Reset copied state after 2 seconds
+      setTimeout(() => {
+        setIsCopied(false);
+      }, 2000);
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        description: "Failed to copy message",
+        duration: 2000,
+      });
     }
   };
 
@@ -307,22 +330,25 @@ export function Message({ message }: MessageProps) {
           : "bg-primary/10 dark:bg-primary/20",
       )}
     >
-      {/* {message.role === 'assistant' && (
+      {message.role === 'assistant' && (
         <Button
           size="icon"
           variant="ghost"
-          className="absolute right-4 top-4"
-          onClick={handleSpeakMessage}
+          className="absolute right-4 top-4 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity"
+          onClick={handleCopyMessage}
+          title="Copy message"
         >
-          {localIsSpeaking || isSpeaking ? (
-            <VolumeX className="h-4 w-4" />
+          {isCopied ? (
+            <Check className="h-4 w-4" />
           ) : (
-            <Volume2 className="h-4 w-4" />
+            <Copy className="h-4 w-4" />
           )}
         </Button>
-      )} */}
-      {messageContent}
-      {renderAttachments()}
+      )}
+      <div className="group">
+        {messageContent}
+        {renderAttachments()}
+      </div>
     </Card>
   );
 }
