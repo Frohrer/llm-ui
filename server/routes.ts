@@ -1,21 +1,24 @@
-import type { Express, Request, Response, NextFunction } from "express";
-import { createServer, type Server } from "http";
-import OpenAI from "openai";
-import Anthropic from "@anthropic-ai/sdk";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import express, { Express, Request, Response, NextFunction } from "express";
 import path from "path";
 import fs from "fs";
-import { db } from "@db";
-import { conversations, messages } from "@db/schema";
-import { eq } from "drizzle-orm";
-import { transformDatabaseConversation } from "@/lib/llm/types";
-import { loadProviderConfigs } from "./config/loader";
+import { Server, createServer } from "http";
+import { OpenAI } from "openai";
+import { CloudflareOneClient } from "cloudflare-one";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import Anthropic from "@anthropic-ai/sdk";
+import {
+  transformDatabaseConversation
+} from "../client/src/lib/llm/types";
+import { db } from "db"; // Import the db object
+import { and, asc, desc, eq, or } from "drizzle-orm";
 import { cloudflareAuthMiddleware } from "./middleware/auth";
-import { 
-  uploadSingleMiddleware, 
-  uploadMultipleMiddleware, 
-  handleUploadErrors, 
-  extractTextFromFile, 
+import { users, conversations, messages, conversationKnowledge } from "@db/schema";
+import { loadProviderConfigs } from "./config/loader";
+import {
+  extractTextFromFile,
+  uploadSingleMiddleware,
+  uploadMultipleMiddleware,
+  handleUploadErrors,
   isImageFile,
   cleanupDocumentFile,
   cleanupImageFile
@@ -61,7 +64,7 @@ if (process.env.DEEPSEEK_API_KEY) {
   });
 }
 
-// Gemini client initialization
+// Gemini client initialization 
 if (process.env.GEMINI_API_KEY) {
   clients.gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 }
@@ -606,10 +609,8 @@ export function registerRoutes(app: Express): Server {
       let knowledgeContent = '';
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
-          if (knowledgeContent) {
-            console.log("Retrieved knowledge content for conversation");
-          }
+          // Use centralized knowledge handler to get content and show notifications
+          knowledgeContent = await handleKnowledgePreparation(dbConversation.id, message, res);
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content:", knowledgeError);
         }
@@ -784,39 +785,27 @@ export function registerRoutes(app: Express): Server {
             conversation: transformDatabaseConversation(updatedConversation),
           })}\n\n`,
         );
-
-        res.end();
-      } catch (streamError) {
-        console.error("Streaming error:", streamError);
-        console.log("Completion reason:", (stream as any)?.completion?.reason); //Added logging for completion reason
+      } catch (error) {
+        console.error("Streaming error:", error);
         res.write(
           `data: ${JSON.stringify({
             type: "error",
             error:
-              streamError instanceof Error
-                ? streamError.message
+              error instanceof Error
+                ? error.message
                 : "Stream interrupted",
           })}\n\n`,
         );
+      } finally {
         res.end();
-        return;
       }
     } catch (error) {
       console.error("Error:", error);
-      res.write(
-        `data: ${JSON.stringify({
-          type: "error",
-          error:
-            error instanceof Error
-              ? error.message
-              : "Failed to process request",
-        })}\n\n`,
-      );
-      res.end();
+      res.status(500).json({ error: "Failed to process request" });
     }
   });
 
-  // Add DeepSeek chat endpoint with streaming
+  // Add DeepSeek chat endpoint for extended model support
   app.post("/api/chat/deepseek", async (req, res) => {
     try {
       const {
@@ -832,6 +821,8 @@ export function registerRoutes(app: Express): Server {
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
       }
+      
+      console.log(`Processing message with ${allAttachments.length} attachments for DeepSeek`);
 
       // Set up SSE headers
       res.setHeader("Content-Type", "text/event-stream");
@@ -867,6 +858,7 @@ export function registerRoutes(app: Express): Server {
           content: message,
           created_at: timestamp,
         });
+        
         // Add any pending knowledge sources to the new conversation
         if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
           console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
@@ -939,62 +931,17 @@ export function registerRoutes(app: Express): Server {
       let knowledgeContent = '';
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
-          if (knowledgeContent) {
-            console.log("Retrieved knowledge content for conversation");
-          }
+          // Use centralized knowledge handler to get content and show notifications
+          knowledgeContent = await handleKnowledgePreparation(dbConversation.id, message, res);
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content:", knowledgeError);
         }
       }
       
-      // Process each attachment
+      // Process document attachments (DeepSeek doesn't support images currently)
       for (const att of allAttachmentsToProcess) {
-        // Handle image attachments
-        if (att.type === 'image') {
-          try {
-            console.log("Processing image attachment for DeepSeek:", att.url);
-            
-            // Extract filename from URL
-            const fileName = att.url.split('/').pop();
-            if (!fileName) {
-              throw new Error('Invalid image URL');
-            }
-            
-            // Determine the image path
-            const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
-            
-            // Check if file exists
-            if (!fs.existsSync(imagePath)) {
-              throw new Error('Image file not found on server');
-            }
-            
-            // Read the image as base64
-            const imageBuffer = fs.readFileSync(imagePath);
-            const base64Image = imageBuffer.toString('base64');
-            const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
-            const dataUri = `data:${mimeType};base64,${base64Image}`;
-            
-            // Save for later use
-            imageAttachmentContent = { 
-              type: "image_url", 
-              image_url: { url: dataUri } 
-            };
-            
-            hasImageAttachment = true;
-            console.log("Image successfully processed for DeepSeek");
-            
-            // Delete the file after processing
-            cleanupImageFile(att.url);
-          } catch (imageError) {
-            console.error("Error processing image for DeepSeek:", imageError);
-            // Add error to document texts
-            documentTexts.push(`[Image processing failed: ${imageError instanceof Error ? imageError.message : 'Unknown error'}]`);
-          }
-        } 
-        // Handle document attachments
-        else if (att.type === 'document' && att.text) {
-          console.log(`Processing document attachment for DeepSeek: ${att.name}`);
+        if (att.type === 'document' && att.text) {
+          console.log(`Processing document attachment: ${att.name}`);
           documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
           
           // Clean up the document file
@@ -1002,69 +949,60 @@ export function registerRoutes(app: Express): Server {
             cleanupDocumentFile(att.url);
           }
         }
+        else if (att.type === 'image') {
+          // Inform that image attachments aren't supported
+          console.log("Image attachments are not supported by DeepSeek, skipping:", att.url);
+          documentTexts.push(`[Image attachment (${att.name || 'unnamed'}) not supported by this model]`);
+          
+          // Clean up the image file anyway
+          if (att.url) {
+            cleanupImageFile(att.url);
+          }
+        }
       }
       
-      // Create the message content based on what we have
-      if (hasImageAttachment) {
-        // For DeepSeek, we use a different format with content array
-        let contentArray: any[] = [];
-        
-        // Add text first with any document content
-        let textContent = message;
-        if (documentTexts.length > 0) {
-          textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+      // Text-only message with documents or knowledge
+      let userContent = message;
+      
+      if (documentTexts.length > 0) {
+        userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+      }
+      
+      if (knowledgeContent) {
+        userContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
+      }
+      
+      apiMessages.push({ role: "user", content: userContent });
+      console.log("Message with document/knowledge content added for DeepSeek");
+
+      // Stream the completion with retries
+      const maxRetries = 3;
+      let retryCount = 0;
+      let stream;
+
+      while (retryCount < maxRetries) {
+        try {
+          stream = await clients.deepseek.chat.completions.create({
+            messages: apiMessages,
+            model,
+            stream: true,
+            max_tokens: 4096,
+            temperature: 0.7,
+          });
+          console.log("Stream created with model:", model);
+          break;
+        } catch (error) {
+          retryCount++;
+          if (retryCount === maxRetries) throw error;
+          await new Promise((resolve) =>
+            setTimeout(resolve, 1000 * retryCount),
+          ); // Exponential backoff
         }
-        
-        // Add knowledge content if available
-        if (knowledgeContent) {
-          textContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
-        }
-        
-        contentArray.push({ type: "text", text: textContent });
-        
-        // Add the image
-        if (imageAttachmentContent) {
-          contentArray.push(imageAttachmentContent);
-        }
-        
-        apiMessages.push({
-          role: "user",
-          content: contentArray
-        });
-        
-        console.log("Multimodal message with image, documents, and knowledge added for DeepSeek");
-      } 
-      else if (documentTexts.length > 0 || knowledgeContent) {
-        // Text-only message with documents or knowledge
-        let userContent = message;
-        
-        if (documentTexts.length > 0) {
-          userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
-        }
-        
-        if (knowledgeContent) {
-          userContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
-        }
-        
-        apiMessages.push({ role: "user", content: userContent });
-        console.log("Message with document/knowledge content added for DeepSeek");
-      } 
-      else {
-        // Regular text message without attachments or knowledge
-        apiMessages.push({ role: "user", content: message });
-        console.log("Plain text message added for DeepSeek");
       }
 
-      // Stream the completion using DeepSeek
-      const stream = await clients.deepseek.chat.completions.create({
-        messages: apiMessages,
-        model,
-        stream: true,
-        max_tokens: 4096, // Increased token limit
-        temperature: 0.7,
-      });
-
-      console.log("DeepSeek stream created with model:", model);
+      if (!stream) {
+        throw new Error("Failed to create stream after retries");
+      }
 
       // Send initial conversation data
       res.write(
@@ -1112,466 +1050,27 @@ export function registerRoutes(app: Express): Server {
             conversation: transformDatabaseConversation(updatedConversation),
           })}\n\n`,
         );
-
-        res.end();
-      } catch (streamError) {
-        console.error("Streaming error:", streamError);
-        console.log("Completion reason:", (stream as any)?.response?.reason); //Added logging for completion reason
+      } catch (error) {
+        console.error("Streaming error:", error);
         res.write(
           `data: ${JSON.stringify({
             type: "error",
             error:
-              streamError instanceof Error
-                ? streamError.message
+              error instanceof Error
+                ? error.message
                 : "Stream interrupted",
           })}\n\n`,
         );
+      } finally {
         res.end();
-        return;
       }
     } catch (error) {
       console.error("Error:", error);
-      res.write(
-        `data: ${JSON.stringify({
-          type: "error",
-          error:
-            error instanceof Error
-              ? error.message
-              : "Failed to process request",
-        })}\n\n`,
-      );
-      res.end();
+      res.status(500).json({ error: "Failed to process request" });
     }
   });
 
-  // Rest of the routes (conversations endpoints)
-  app.delete("/api/conversations/:id", async (req, res) => {
-    try {
-      const conversationId = parseInt(req.params.id);
-      if (isNaN(conversationId)) {
-        return res.status(400).json({ error: "Invalid conversation ID" });
-      }
-      const conversation = await db.query.conversations.findFirst({
-        where: eq(conversations.id, conversationId),
-      });
-      if (!conversation || conversation.user_id !== req.user!.id) {
-        return res
-          .status(404)
-          .json({ error: "Conversation not found or unauthorized" });
-      }
-      await db
-        .delete(messages)
-        .where(eq(messages.conversation_id, conversationId));
-      await db
-        .delete(conversations)
-        .where(eq(conversations.id, conversationId));
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Database error:", error);
-      res.status(500).json({ error: "Failed to delete conversation" });
-    }
-  });
-
-  app.get("/api/conversations", async (req, res) => {
-    try {
-      const result = await db.query.conversations.findMany({
-        where: eq(conversations.user_id, req.user!.id),
-        orderBy: (conversations, { desc }) => [
-          desc(conversations.last_message_at),
-        ],
-        with: {
-          messages: true,
-        },
-      });
-      const transformedConversations = result.map((conv) =>
-        transformDatabaseConversation(conv),
-      );
-      res.json(transformedConversations);
-    } catch (error) {
-      console.error("Database error:", error);
-      res.status(500).json({ error: "Failed to fetch conversations" });
-    }
-  });
-
-  app.get("/api/conversations/:id", async (req, res) => {
-    try {
-      const result = await db.query.conversations.findFirst({
-        where: eq(conversations.id, parseInt(req.params.id)),
-        with: {
-          messages: true,
-        },
-      });
-
-      if (!result) {
-        return res.status(404).json({ error: "Conversation not found" });
-      }
-
-      if (result.user_id !== req.user!.id) {
-        return res.status(403).json({ error: "Unauthorized" });
-      }
-
-      const transformedConversation = transformDatabaseConversation(result);
-      res.json(transformedConversation);
-    } catch (error) {
-      console.error("Database error:", error);
-      res.status(500).json({ error: "Failed to fetch conversation" });
-    }
-  });
-
-  // File upload endpoint
-  // Single file upload endpoint
-  app.post('/api/upload', uploadSingleMiddleware, handleUploadErrors, async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
-      }
-
-      const filePath = req.file.path;
-      const fileName = path.basename(filePath);
-      
-      // Determine if this is an image based on mimetype (more reliable than file extension)
-      const isImage = req.file.mimetype.startsWith('image/');
-      
-      // Construct the URL path correctly
-      let folderName = isImage ? 'images' : 'documents';
-      const fileUrl = `/uploads/${folderName}/${fileName}`;
-      
-      // Ensure file is accessible by checking its existence
-      if (!fs.existsSync(filePath)) {
-        console.error(`File does not exist at path: ${filePath}`);
-        return res.status(500).json({ error: 'File upload was not saved correctly' });
-      }
-      
-      // For images, just return the URL since we'll process them with AI on the client
-      if (isImage) {
-        return res.json({
-          success: true,
-          file: {
-            name: req.file.originalname,
-            type: req.file.mimetype,
-            size: req.file.size,
-            url: fileUrl,
-            isImage: true
-          }
-        });
-      }
-      
-      // For documents, extract the text
-      try {
-        const extractedText = await extractTextFromFile(filePath);
-        
-        // If text extraction failed or text is very short, return a warning but still proceed
-        if (!extractedText || extractedText.length < 10) {
-          console.warn(`Document text extraction issue for file: ${req.file.originalname}`);
-          return res.json({
-            success: true,
-            file: {
-              name: req.file.originalname,
-              type: req.file.mimetype,
-              size: req.file.size,
-              url: fileUrl,
-              isImage: false,
-              text: `[Document: ${req.file.originalname}]`
-            },
-            warning: 'Document contained little or no extractable text'
-          });
-        }
-      
-        return res.json({
-          success: true,
-          file: {
-            name: req.file.originalname,
-            type: req.file.mimetype,
-            size: req.file.size,
-            url: fileUrl,
-            isImage: false,
-            text: extractedText
-          }
-        });
-      } catch (docError) {
-        console.error('Error processing document:', docError);
-        return res.json({
-          success: true,
-          file: {
-            name: req.file.originalname,
-            type: req.file.mimetype,
-            size: req.file.size,
-            url: fileUrl,
-            isImage: false,
-            text: `[Document: ${req.file.originalname} - Could not extract text]`
-          },
-          warning: 'Failed to extract text from document'
-        });
-      }
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      return res.status(500).json({ 
-        error: error instanceof Error ? error.message : 'Failed to upload file' 
-      });
-    }
-  });
-
-  // Multiple files upload endpoint
-  app.post('/api/upload-batch', uploadMultipleMiddleware, handleUploadErrors, async (req, res) => {
-    try {
-      if (!req.files || req.files.length === 0) {
-        return res.status(400).json({ error: 'No files uploaded' });
-      }
-
-      const results = [];
-      const filePromises = [];
-
-      // Process each file in the batch
-      for (const file of req.files as Express.Multer.File[]) {
-        const filePath = file.path;
-        const fileName = path.basename(filePath);
-        
-        // Determine if this is an image based on mimetype
-        const isImage = file.mimetype.startsWith('image/');
-        
-        // Construct the URL path correctly
-        const folderName = isImage ? 'images' : 'documents';
-        const fileUrl = `/uploads/${folderName}/${fileName}`;
-        
-        // Ensure file is accessible by checking its existence
-        if (!fs.existsSync(filePath)) {
-          console.error(`File does not exist at path: ${filePath}`);
-          results.push({
-            success: false,
-            name: file.originalname,
-            error: 'File upload was not saved correctly'
-          });
-          continue;
-        }
-        
-        // For images, just return the URL
-        if (isImage) {
-          results.push({
-            success: true,
-            file: {
-              name: file.originalname,
-              type: file.mimetype,
-              size: file.size,
-              url: fileUrl,
-              isImage: true
-            }
-          });
-          continue;
-        }
-        
-        // For documents, extract the text (async)
-        const processDocumentPromise = extractTextFromFile(filePath)
-          .then(extractedText => {
-            // If text extraction failed or text is very short, provide a warning
-            if (!extractedText || extractedText.length < 10) {
-              console.warn(`Document text extraction issue for file: ${file.originalname}`);
-              results.push({
-                success: true,
-                file: {
-                  name: file.originalname,
-                  type: file.mimetype,
-                  size: file.size,
-                  url: fileUrl,
-                  isImage: false,
-                  text: `[Document: ${file.originalname}]`
-                },
-                warning: 'Document contained little or no extractable text'
-              });
-            } else {
-              results.push({
-                success: true,
-                file: {
-                  name: file.originalname,
-                  type: file.mimetype,
-                  size: file.size,
-                  url: fileUrl,
-                  isImage: false,
-                  text: extractedText
-                }
-              });
-            }
-          })
-          .catch(docError => {
-            console.error('Error processing document:', docError);
-            results.push({
-              success: true,
-              file: {
-                name: file.originalname,
-                type: file.mimetype,
-                size: file.size,
-                url: fileUrl,
-                isImage: false,
-                text: `[Document: ${file.originalname} - Could not extract text]`
-              },
-              warning: 'Failed to extract text from document'
-            });
-          });
-        
-        filePromises.push(processDocumentPromise);
-      }
-      
-      // Wait for all document processing to complete
-      await Promise.all(filePromises);
-      
-      // Return results for all files
-      return res.json({
-        success: true,
-        files: results
-      });
-    } catch (error) {
-      console.error('Error uploading files:', error);
-      return res.status(500).json({ 
-        error: error instanceof Error ? error.message : 'Failed to upload files' 
-      });
-    }
-  });
-
-  // Serve uploaded files with improved security and reliability
-  app.use('/uploads', (req, res, next) => {
-    // Check for user authentication, but allow in-app requests that have session
-    // We'll skip auth check for images, but keep it for documents to maintain security
-    const isImageRequest = req.url.includes('/images/');
-    
-    // For image requests OR authenticated users, allow access
-    if (isImageRequest || req.user) {
-      return next();
-    }
-    
-    // If we get here, it's a document request without authentication
-    return res.status(401).json({ error: 'Unauthorized' });
-  }, (req, res, next) => {
-    try {
-      // Get the requested path
-      let requestedPath = req.url;
-      
-      // Normalize the path to prevent directory traversal attacks
-      const normalizedPath = path.normalize(requestedPath).replace(/^(\.\.[\/\\])+/, '');
-      
-      // Construct the full path to the requested file
-      const uploadPath = path.join(process.cwd(), 'uploads', normalizedPath);
-      
-      // Check if the path exists and is a file
-      if (fs.existsSync(uploadPath) && fs.statSync(uploadPath).isFile()) {
-        // Set appropriate content type based on file extension
-        const ext = path.extname(uploadPath).toLowerCase();
-        const mimeTypes: Record<string, string> = {
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.png': 'image/png',
-          '.gif': 'image/gif',
-          '.pdf': 'application/pdf',
-          '.txt': 'text/plain',
-          '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        };
-        
-        // If we know the MIME type, set it
-        if (mimeTypes[ext]) {
-          res.setHeader('Content-Type', mimeTypes[ext]);
-        }
-        
-        // Add cache control headers for better performance
-        res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
-        return res.sendFile(uploadPath);
-      }
-      
-      // If we get here, the file doesn't exist or isn't a file
-      return res.status(404).json({ error: 'File not found' });
-    } catch (error) {
-      console.error('Error serving file:', error);
-      return res.status(500).json({ error: 'Server error' });
-    }
-  });
-
-  // Handle image analysis
-  app.post('/api/analyze-image', async (req, res) => {
-    try {
-      const { imageUrl, provider = 'openai' } = req.body;
-      
-      if (!imageUrl) {
-        return res.status(400).json({ error: 'No image URL provided' });
-      }
-      
-      // Extract filename from URL
-      const fileName = imageUrl.split('/').pop();
-      if (!fileName) {
-        return res.status(400).json({ error: 'Invalid image URL' });
-      }
-      
-      // Determine the image path
-      const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
-      
-      // Check if file exists
-      if (!fs.existsSync(imagePath)) {
-        return res.status(404).json({ error: 'Image not found' });
-      }
-      
-      // Read the image as base64
-      const imageBuffer = fs.readFileSync(imagePath);
-      const base64Image = imageBuffer.toString('base64');
-      const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
-      const dataUri = `data:${mimeType};base64,${base64Image}`;
-      
-      let result;
-      
-      // Use the appropriate provider for image analysis
-      if (provider === 'openai' && clients.openai) {
-        // Analyze the image with OpenAI
-        try {
-          const response = await clients.openai.chat.completions.create({
-            model: 'gpt-4-vision-preview',
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  { type: 'text', text: 'What is shown in this image? Provide a detailed description.' },
-                  { type: 'image_url', image_url: { url: dataUri } }
-                ]
-              }
-            ],
-            max_tokens: 1000
-          });
-          
-          result = response.choices[0]?.message?.content || 'No analysis available';
-        } catch (error) {
-          console.error('Error analyzing image with OpenAI:', error);
-          return res.status(500).json({ error: 'Failed to analyze image with OpenAI' });
-        }
-      } else if (provider === 'anthropic' && clients.anthropic) {
-        // Analyze the image with Anthropic
-        try {
-          const response = await clients.anthropic.messages.create({
-            model: 'claude-3-opus-20240229',
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  { type: 'text', text: 'What is shown in this image? Provide a detailed description.' },
-                  { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } }
-                ]
-              }
-            ],
-            max_tokens: 1000
-          });
-          
-          result = response.content[0]?.text || 'No analysis available';
-        } catch (error) {
-          console.error('Error analyzing image with Anthropic:', error);
-          return res.status(500).json({ error: 'Failed to analyze image with Anthropic' });
-        }
-      } else {
-        return res.status(400).json({ error: 'No valid provider available for image analysis' });
-      }
-      
-      return res.json({ success: true, analysis: result });
-    } catch (error) {
-      console.error('Error analyzing image:', error);
-      return res.status(500).json({ 
-        error: error instanceof Error ? error.message : 'Failed to analyze image' 
-      });
-    }
-  });
-
-  // Gemini chat endpoint
+  // Add Gemini chat endpoint
   app.post("/api/chat/gemini", async (req, res) => {
     try {
       const {
@@ -1587,12 +1086,13 @@ export function registerRoutes(app: Express): Server {
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Invalid message" });
       }
+      
+      console.log(`Processing message with ${allAttachments?.length || 0} attachments for Gemini`);
 
-      // Set up SSE headers with keep-alive
+      // Set up SSE headers
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
-      res.setHeader("X-Accel-Buffering", "no"); // Disable proxy buffering
 
       let conversationTitle = message.slice(0, 100);
       let dbConversation;
@@ -1606,7 +1106,7 @@ export function registerRoutes(app: Express): Server {
           .values({
             title: conversationTitle,
             provider: "gemini",
-            model,
+            model: model,
             user_id: req.user!.id,
             created_at: timestamp,
             last_message_at: timestamp,
@@ -1623,6 +1123,7 @@ export function registerRoutes(app: Express): Server {
           content: message,
           created_at: timestamp,
         });
+        
         // Add any pending knowledge sources to the new conversation
         if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
           console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
@@ -1670,12 +1171,15 @@ export function registerRoutes(app: Express): Server {
         dbConversation = existingConversation;
       }
 
-      // Get the Gemini model
-      const genModel = clients.gemini.getGenerativeModel({ model });
-      
-      // Process the current message parts (including attachments)
-      const currentMessageParts = [];
-      
+      // Need to process context messages in Gemini-specific format
+      const geminiHistory = [];
+      for (const msg of context) {
+        geminiHistory.push({
+          role: msg.role === "user" ? "user" : "model",
+          parts: [{ text: msg.content }]
+        });
+      }
+
       // Get all attachments (prioritize the allAttachments array if it exists)
       const allAttachmentsToProcess = allAttachments.length > 0 ? allAttachments : (attachment ? [attachment] : []);
       
@@ -1690,11 +1194,8 @@ export function registerRoutes(app: Express): Server {
       let knowledgeContent = '';
       if (useKnowledge && dbConversation) {
         try {
-          knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
-          if (knowledgeContent) {
-            console.log("Retrieved knowledge content for Gemini conversation");
-            documentTexts.push("Knowledge Content:\n" + knowledgeContent);
-          }
+          // Use centralized knowledge handler to get content and show notifications
+          knowledgeContent = await handleKnowledgePreparation(dbConversation.id, message, res);
         } catch (knowledgeError) {
           console.error("Error retrieving knowledge content for Gemini:", knowledgeError);
         }
@@ -1721,19 +1222,11 @@ export function registerRoutes(app: Express): Server {
               throw new Error('Image file not found on server');
             }
             
-            // Read the image as base64
+            // Read the image - Gemini requires different handling
             const imageBuffer = fs.readFileSync(imagePath);
-            const base64Image = imageBuffer.toString('base64');
-            const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
             
-            // Save image data for later use
-            imageAttachmentData.push({
-              inlineData: {
-                data: base64Image,
-                mimeType
-              }
-            });
-            
+            // Add to image data array for Gemini
+            imageAttachmentData.push(imageBuffer);
             hasImageAttachment = true;
             console.log("Image successfully processed for Gemini");
             
@@ -1757,81 +1250,84 @@ export function registerRoutes(app: Express): Server {
         }
       }
       
-      // Add the text part first with any document content
-      let textContent = message;
+      // Create content parts for the Gemini API
+      let content = "";
       if (documentTexts.length > 0) {
-        textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+        content += message + "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
+      } else {
+        content = message;
       }
       
-      // Add text content
-      currentMessageParts.push({ text: textContent });
-      
-      // Add any image attachments
-      for (const imgData of imageAttachmentData) {
-        currentMessageParts.push(imgData);
+      // Add knowledge content if available
+      if (knowledgeContent) {
+        content += "\n\nKnowledge Sources:\n" + knowledgeContent;
       }
       
-      console.log(`Sending Gemini message with ${currentMessageParts.length} parts (text + ${imageAttachmentData.length} images)`);
+      // Initialize the Gemini model
+      let geminiModel = clients.gemini.getGenerativeModel({ model: model });
       
-
-      // Build conversation history for the chat
-      let chatHistory = [];
+      const geminiGenerationConfig = {
+        temperature: 0.7,
+        maxOutputTokens: 4096,
+        topK: 40,
+        topP: 0.95,
+      };
       
-      // Fetch previous messages for this conversation if it exists
-      if (conversationId) {
-        const previousMessages = await db.query.messages.findMany({
-          where: eq(messages.conversation_id, dbConversation.id),
-          orderBy: (messages, { asc }) => [asc(messages.created_at)],
-        });
-        
-        // Transform messages to Gemini format
-        for (const msg of previousMessages) {
-          if (msg.role === "user") {
-            chatHistory.push({
-              role: "user",
-              parts: [{ text: msg.content }]
-            });
-          } else if (msg.role === "assistant") {
-            chatHistory.push({
-              role: "model",
-              parts: [{ text: msg.content }]
-            });
-          }
-        }
-      }
-
+      // Create chat session
+      const chat = geminiModel.startChat({
+        history: geminiHistory,
+        generationConfig: geminiGenerationConfig,
+      });
+      
       // Send initial conversation data
       res.write(
-        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`
+        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
       );
-
-      // Set up keep-alive interval
-      const keepAliveInterval = setInterval(() => {
-        res.write(": keep-alive\n\n");
-      }, 15000); // Send keep-alive every 15 seconds
-
+      
       try {
-        // Start a chat session with history if we have previous messages
-        const chat = genModel.startChat({
-          history: chatHistory.slice(0, -1), // Exclude the last user message as we'll send it separately
-        });
+        let result;
         
-        console.log("Gemini chat created with model:", model, "and history length:", chatHistory.length);
-        
-        // Send the current message and stream the response
-        const result = await chat.sendMessageStream(currentMessageParts);
-        
-        for await (const chunk of result.stream) {
-          const content = chunk.text();
-          if (content) {
-            streamedResponse += content;
-            res.write(
-              `data: ${JSON.stringify({ type: "chunk", content })}\n\n`
-            );
-            if (res.flush) res.flush();
+        // Send message with or without images
+        if (hasImageAttachment && imageAttachmentData.length > 0) {
+          // For messages with images, we need to use the content creation method
+          console.log("Sending multimodal request to Gemini");
+          
+          // Construct parts array
+          const parts = [];
+          
+          // Add text part
+          parts.push({ text: content });
+          
+          // Add image parts
+          for (const imgData of imageAttachmentData) {
+            parts.push({
+              inlineData: {
+                data: Buffer.from(imgData).toString('base64'),
+                mimeType: "image/jpeg" // Assuming JPEG, could detect from file
+              }
+            });
           }
+          
+          console.log(`Sending request with ${parts.length} parts to Gemini`);
+          
+          // Use generateContent instead of chat for multimodal
+          result = await geminiModel.generateContentStream({ contents: [{ role: "user", parts }] });
+        } else {
+          // For text-only messages, use the chat session
+          console.log("Sending text-only request to Gemini");
+          result = await chat.sendMessageStream(content);
         }
-
+        
+        // Process the streaming response
+        for await (const chunk of result.stream) {
+          const chunkText = chunk.text();
+          streamedResponse += chunkText;
+          res.write(
+            `data: ${JSON.stringify({ type: "chunk", content: chunkText })}\n\n`,
+          );
+          if (res.flush) res.flush();
+        }
+        
         // Save the complete response
         const timestamp = new Date();
         await db.insert(messages).values({
@@ -1840,8 +1336,8 @@ export function registerRoutes(app: Express): Server {
           content: streamedResponse,
           created_at: timestamp,
         });
-
-        // Send completion event
+        
+        // Send completion event after successful save
         const updatedConversation = await db.query.conversations.findFirst({
           where: eq(conversations.id, dbConversation.id),
           with: {
@@ -1850,50 +1346,212 @@ export function registerRoutes(app: Express): Server {
             },
           },
         });
-
+        
         if (!updatedConversation) {
           throw new Error("Failed to retrieve conversation");
         }
-
+        
         res.write(
           `data: ${JSON.stringify({
             type: "end",
             conversation: transformDatabaseConversation(updatedConversation),
-          })}\n\n`
+          })}\n\n`,
         );
-      } catch (streamError) {
-        console.error("Streaming error with Gemini:", streamError);
+      } catch (error) {
+        console.error("Gemini API error:", error);
         res.write(
           `data: ${JSON.stringify({
             type: "error",
             error:
-              streamError instanceof Error
-                ? streamError.message
-                : "Stream interrupted",
-          })}\n\n`
+              error instanceof Error
+                ? error.message
+                : "Failed to get response from Gemini",
+          })}\n\n`,
         );
       } finally {
-        clearInterval(keepAliveInterval);
         res.end();
       }
     } catch (error) {
-      console.error("Error with Gemini API:", error);
-      res.write(
-        `data: ${JSON.stringify({
-          type: "error",
-          error:
-            error instanceof Error
-              ? error.message
-              : "Failed to process request",
-        })}\n\n`
-      );
-      res.end();
+      console.error("Error:", error);
+      res.status(500).json({ error: "Failed to process request" });
     }
   });
 
-  // Register Knowledge source routes
-  app.use('/api/knowledge', knowledgeRoutes);
+  // Add an endpoint to get all conversations for the current user
+  app.get("/api/conversations", async (req, res) => {
+    try {
+      // Get all conversations for the user, ordered by lastMessageAt descending
+      const userConversations = await db.query.conversations.findMany({
+        where: eq(conversations.user_id, req.user!.id),
+        orderBy: (conversations, { desc }) => [desc(conversations.last_message_at)],
+        with: {
+          messages: true,
+        },
+      });
 
-  const httpServer = createServer(app);
-  return httpServer;
+      const transformedConversations = userConversations.map((conv) => transformDatabaseConversation(conv));
+
+      res.json(transformedConversations);
+    } catch (error) {
+      console.error("Error fetching conversations:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to fetch conversations" });
+    }
+  });
+
+  // Add search endpoint for conversations
+  app.get("/api/conversations/search", async (req, res) => {
+    const { query } = req.query;
+    if (!query || typeof query !== "string") {
+      return res.status(400).json({ error: "Invalid query" });
+    }
+
+    try {
+      // Search in conversation titles and message content
+      const searchResults = await db.query.conversations.findMany({
+        where: and(
+          eq(conversations.user_id, req.user!.id),
+          or(
+            // Search for the query in the conversation title (case insensitive if your DB supports it)
+            SQL`LOWER(${conversations.title}) LIKE LOWER(${"%" + query + "%"})`,
+            // You would also need to do a join to search in messages content
+            // This is a simplified approach and may need to be adjusted depending on your DB
+            SQL`EXISTS (
+              SELECT 1 FROM ${messages} 
+              WHERE ${messages.conversation_id} = ${conversations.id} 
+              AND LOWER(${messages.content}) LIKE LOWER(${"%" + query + "%"})
+            )`
+          )
+        ),
+        orderBy: [desc(conversations.last_message_at)],
+        with: {
+          messages: true,
+        },
+      });
+
+      const transformedResults = searchResults.map((conv) => transformDatabaseConversation(conv));
+
+      res.json(transformedResults);
+    } catch (error) {
+      console.error("Error searching conversations:", error);
+      res.status(500).json({ error: "Failed to search conversations" });
+    }
+  });
+
+  // Add endpoint to delete a conversation
+  app.delete("/api/conversations/:id", async (req, res) => {
+    const conversationId = parseInt(req.params.id);
+    if (isNaN(conversationId)) {
+      return res.status(400).json({ error: "Invalid conversation ID" });
+    }
+
+    try {
+      // Verify the conversation exists and belongs to the user
+      const conversation = await db.query.conversations.findFirst({
+        where: and(
+          eq(conversations.id, conversationId),
+          eq(conversations.user_id, req.user!.id)
+        ),
+      });
+
+      if (!conversation) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      // Delete all knowledge associations
+      await db
+        .delete(conversationKnowledge)
+        .where(eq(conversationKnowledge.conversation_id, conversationId));
+
+      // Delete all messages first (assuming CASCADE doesn't work)
+      await db
+        .delete(messages)
+        .where(eq(messages.conversation_id, conversationId));
+
+      // Then delete the conversation
+      await db
+        .delete(conversations)
+        .where(eq(conversations.id, conversationId));
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting conversation:", error);
+      res.status(500).json({ error: "Failed to delete conversation" });
+    }
+  });
+
+  // Upload route for files
+  app.post(
+    "/api/upload/file",
+    uploadSingleMiddleware,
+    handleUploadErrors,
+    async (req: Request, res: Response) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        const file = req.file;
+        console.log(`Processing uploaded file: ${file.originalname}`);
+
+        // Determine if this is an image or a document
+        const fileType = isImageFile(file.path) ? "image" : "document";
+        const url = `/uploads/${fileType === "image" ? "images" : "documents"}/${file.filename}`;
+
+        // For documents, extract the text content
+        let text = "";
+        if (fileType === "document") {
+          try {
+            text = await extractTextFromFile(file.path);
+            console.log(`Extracted ${text.length} characters from document`);
+          } catch (extractError) {
+            console.error("Error extracting text from document:", extractError);
+            text = "[Error extracting text from document]";
+          }
+        }
+
+        res.json({
+          success: true,
+          file: {
+            type: fileType,
+            name: file.originalname,
+            url,
+            text: fileType === "document" ? text : undefined,
+          },
+        });
+      } catch (error) {
+        console.error("Error processing uploaded file:", error);
+        res.status(500).json({ error: "Failed to process file" });
+      }
+    },
+  );
+
+  // Generate system prompt route
+  app.post(
+    "/api/system-prompt",
+    async (req: Request, res: Response) => {
+      try {
+        const { persona } = req.body;
+        
+        if (!persona || typeof persona !== "string") {
+          return res.status(400).json({ error: "Invalid persona" });
+        }
+        
+        const prompt = `As ${persona}, I will assist you with your questions and tasks.`;
+        
+        res.json({ prompt });
+      } catch (error) {
+        console.error("Error generating system prompt:", error);
+        res.status(500).json({ error: "Failed to generate system prompt" });
+      }
+    }
+  );
+
+  // Register knowledge-specific routes
+  app.use("/api/knowledge", knowledgeRoutes);
+
+  // Don't create a new server, just return the express app
+  // Let server/index.ts handle server creation and listening
+  return require('http').createServer(app);
 }
