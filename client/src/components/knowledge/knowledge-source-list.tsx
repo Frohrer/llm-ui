@@ -18,7 +18,15 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import { Trash, FileText, Globe, PlusCircle, Unlink, Link, Check } from "lucide-react";
+import {
+  Trash,
+  FileText,
+  Globe,
+  PlusCircle,
+  Unlink,
+  Link,
+  Check,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { KnowledgeSourceUpload } from "@/components/knowledge/knowledge-source-upload";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -68,16 +76,23 @@ export function KnowledgeSourceList({
   // This ensures the hook is always called, maintaining React's rules of hooks
   const dummyId = -1;
   const allKnowledgeSources = knowledgeSources;
-  const conversationKnowledgeSources = getConversationKnowledgeSources(conversationId || dummyId);
-  
+  const conversationKnowledgeSources = getConversationKnowledgeSources(
+    conversationId || dummyId,
+  );
+
   // Then determine which data to use based on mode
-  const dataQuery = mode === "conversation" && conversationId
-    ? conversationKnowledgeSources
-    : allKnowledgeSources;
+  const dataQuery =
+    mode === "conversation" && conversationId
+      ? conversationKnowledgeSources
+      : allKnowledgeSources;
 
   if (dataQuery.isLoading) {
     return (
-      <div className={gridLayout ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-4"}>
+      <div
+        className={
+          gridLayout ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-4"
+        }
+      >
         {Array.from({ length: gridLayout ? 4 : 3 }).map((_, index) => (
           <Card key={index} className="w-full">
             <CardHeader>
@@ -104,10 +119,12 @@ export function KnowledgeSourceList({
           <CardDescription>Failed to load knowledge sources</CardDescription>
         </CardHeader>
         <CardContent>
-          <p>{dataQuery.error?.message || 'Unknown error occurred'}</p>
+          <p>{dataQuery.error?.message || "Unknown error occurred"}</p>
         </CardContent>
         <CardFooter>
-          <Button onClick={() => dataQuery.refetch()} variant="outline">Retry</Button>
+          <Button onClick={() => dataQuery.refetch()} variant="outline">
+            Retry
+          </Button>
         </CardFooter>
       </Card>
     );
@@ -130,8 +147,8 @@ export function KnowledgeSourceList({
               <SheetHeader>
                 <SheetTitle>Add Knowledge Source</SheetTitle>
                 <SheetDescription>
-                  {mode === "conversation" 
-                    ? "Select a knowledge source to add to this conversation." 
+                  {mode === "conversation"
+                    ? "Select a knowledge source to add to this conversation."
                     : "Upload a file, add text, or link a URL as a knowledge source."}
                 </SheetDescription>
               </SheetHeader>
@@ -141,54 +158,73 @@ export function KnowledgeSourceList({
                     <p className="text-sm text-muted-foreground">
                       Select a knowledge source to add to this conversation:
                     </p>
-                    <div className={gridLayout ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-4"}>
-                      {allKnowledgeSources.data && allKnowledgeSources.data.map((source) => (
-                        <Card
-                          key={source.id}
-                          className="w-full hover:bg-accent/10 transition-colors cursor-pointer"
-                          onClick={() => {
-                            if (conversationId) {
-                              addKnowledgeToConversation({
-                                conversationId,
-                                knowledgeSourceId: source.id,
-                              });
-                              setIsUploadDialogOpen(false);
-                            }
-                          }}
-                        >
-                          <CardHeader>
-                            <CardTitle className="flex items-center">
-                              {(source.source_type === "file" || !source.source_type) && <FileText className="mr-2 h-4 w-4" />}
-                              {source.source_type === "url" && <Globe className="mr-2 h-4 w-4" />}
-                              {source.source_type === "text" && <FileText className="mr-2 h-4 w-4" />}
-                              {source.name}
-                            </CardTitle>
-                            
-                            <div className="flex gap-2 flex-wrap mt-2">
-                              <Badge variant={source.use_rag ? "default" : "outline"}>
-                                {source.use_rag ? "RAG" : "Full Text"}
-                              </Badge>
-                              <Badge variant="outline">{source.source_type || 'file'}</Badge>
-                            </div>
-                            
-                            <CardDescription className="mt-2">
-                              {source.description || (
-                                `${source.source_type || 'file'} knowledge source`
-                              )}
-                            </CardDescription>
-                          </CardHeader>
-                          <CardFooter>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              disabled={isAttaching}
-                            >
-                              <Link className="mr-2 h-4 w-4" />
-                              Add to conversation
-                            </Button>
-                          </CardFooter>
-                        </Card>
-                      ))}
+                    <div
+                      className={
+                        gridLayout
+                          ? "grid grid-cols-1 md:grid-cols-2 gap-4"
+                          : "space-y-4"
+                      }
+                    >
+                      {allKnowledgeSources.data &&
+                        allKnowledgeSources.data.map((source) => (
+                          <Card
+                            key={source.id}
+                            className="w-full hover:bg-accent/10 transition-colors cursor-pointer"
+                            onClick={() => {
+                              if (conversationId) {
+                                addKnowledgeToConversation({
+                                  conversationId,
+                                  knowledgeSourceId: source.id,
+                                });
+                                setIsUploadDialogOpen(false);
+                              }
+                            }}
+                          >
+                            <CardHeader>
+                              <CardTitle className="flex items-center">
+                                {(source.source_type === "file" ||
+                                  !source.source_type) && (
+                                  <FileText className="mr-2 h-4 w-4" />
+                                )}
+                                {source.source_type === "url" && (
+                                  <Globe className="mr-2 h-4 w-4" />
+                                )}
+                                {source.source_type === "text" && (
+                                  <FileText className="mr-2 h-4 w-4" />
+                                )}
+                                {source.name}
+                              </CardTitle>
+
+                              <div className="flex gap-2 flex-wrap mt-2">
+                                <Badge
+                                  variant={
+                                    source.use_rag ? "default" : "outline"
+                                  }
+                                >
+                                  {source.use_rag ? "RAG" : "Full Text"}
+                                </Badge>
+                                <Badge variant="outline">
+                                  {source.source_type || "file"}
+                                </Badge>
+                              </div>
+
+                              <CardDescription className="mt-2">
+                                {source.description ||
+                                  `${source.source_type || "file"} knowledge source`}
+                              </CardDescription>
+                            </CardHeader>
+                            <CardFooter>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={isAttaching}
+                              >
+                                <Link className="mr-2 h-4 w-4" />
+                                Add to conversation
+                              </Button>
+                            </CardFooter>
+                          </Card>
+                        ))}
                     </div>
                   </div>
                 ) : (
@@ -230,12 +266,18 @@ export function KnowledgeSourceList({
           </CardContent>
         </Card>
       ) : (
-        <div className={gridLayout ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-4"}>
+        <div
+          className={
+            gridLayout ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-4"
+          }
+        >
           {sources.map((source) => (
             <Card
               key={source.id}
               className={`w-full hover:bg-accent/10 transition-colors ${onSelectKnowledgeSource ? "cursor-pointer" : ""} ${
-                selectedSourceIds.includes(source.id) ? "border-primary border-2" : ""
+                selectedSourceIds.includes(source.id)
+                  ? "border-primary border-2"
+                  : ""
               }`}
               onClick={() => onSelectKnowledgeSource?.(source)}
             >
@@ -252,31 +294,42 @@ export function KnowledgeSourceList({
                   )}
                   {source.name}
                 </CardTitle>
-                
+
                 <div className="flex gap-2 flex-wrap mt-2">
                   <Badge variant={source.use_rag ? "default" : "outline"}>
                     {source.use_rag ? "RAG" : "Full Text"}
                   </Badge>
-                  <Badge variant="outline">{source.source_type || 'file'}</Badge>
-                  <Badge 
-                    variant={selectedSourceIds.includes(source.id) ? "default" : "outline"}
-                    className={selectedSourceIds.includes(source.id) ? "bg-green-500" : "text-gray-400"}
+                  <Badge variant="outline">
+                    {source.source_type || "file"}
+                  </Badge>
+                  <Badge
+                    variant={
+                      selectedSourceIds.includes(source.id)
+                        ? "default"
+                        : "outline"
+                    }
+                    className={
+                      selectedSourceIds.includes(source.id)
+                        ? "bg-green-500"
+                        : "text-gray-400"
+                    }
                   >
                     {selectedSourceIds.includes(source.id) ? (
                       <Check className="h-3.5 w-3.5 mr-1" />
                     ) : (
                       <Check className="h-3.5 w-3.5 mr-1" />
                     )}
-                    {selectedSourceIds.includes(source.id) ? "Selected" : "Select"}
+                    {selectedSourceIds.includes(source.id)
+                      ? "Selected"
+                      : "Select"}
                   </Badge>
                 </div>
-                
+
                 <CardDescription className="mt-2">
-                  {source.description || (
-                    mode === "all" 
+                  {source.description ||
+                    (mode === "all"
                       ? `Added ${formatDistanceToNow(new Date(source.created_at), { addSuffix: true })}`
-                      : `${source.source_type || 'file'} knowledge source`
-                  )}
+                      : `${source.source_type || "file"} knowledge source`)}
                 </CardDescription>
               </CardHeader>
               <CardFooter className="flex justify-between flex-wrap gap-2">
@@ -319,7 +372,9 @@ export function KnowledgeSourceList({
                         onSelectKnowledgeSource(source);
                       }
                     }}
-                    disabled={mode === "conversation" ? isDetaching : isAttaching}
+                    disabled={
+                      mode === "conversation" ? isDetaching : isAttaching
+                    }
                   >
                     {mode === "conversation" ? (
                       <>
@@ -329,7 +384,9 @@ export function KnowledgeSourceList({
                     ) : (
                       <>
                         <Link className="mr-2 h-4 w-4" />
-                        {selectedSourceIds.includes(source.id) ? "Selected" : "Attach"}
+                        {selectedSourceIds.includes(source.id)
+                          ? "Detach"
+                          : "Attach"}
                       </>
                     )}
                   </Button>
