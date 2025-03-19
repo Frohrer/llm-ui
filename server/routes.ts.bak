@@ -623,11 +623,9 @@ export function registerRoutes(app: Express): Server {
             knowledgeSystemMessage = knowledgeResult.systemMessage;
             console.log("Retrieved knowledge content for conversation and created system message notification");
             
-            // For Anthropic, we DON'T add system messages to the apiMessages array
-            // We'll use the system parameter when creating the API request instead
-            // Save the system message for UI display purposes
+            // If we have a system message, add it to the api messages
             if (knowledgeSystemMessage) {
-              await addKnowledgeSystemMessage(dbConversation.id, knowledgeSystemMessage);
+              apiMessages.push({ role: "system", content: knowledgeSystemMessage });
             }
           }
         } catch (knowledgeError) {
