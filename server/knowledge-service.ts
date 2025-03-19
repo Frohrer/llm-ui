@@ -465,6 +465,7 @@ export async function getConversationKnowledge(conversationId: number) {
 /**
  * Prepares knowledge content for use in a conversation
  * Depending on the size and RAG setting, either returns full content or relevant chunks
+ * Returns an object containing the content and sources used
  */
 export async function prepareKnowledgeContentForConversation(conversationId: number, query?: string) {
   try {
@@ -472,12 +473,16 @@ export async function prepareKnowledgeContentForConversation(conversationId: num
     const sources = await getConversationKnowledge(conversationId);
     
     if (!sources || sources.length === 0) {
-      return '';
+      return { content: '', usedSources: [] };
     }
     
     let content = '';
+    const usedSources: { id: number; name: string }[] = [];
     
     for (const source of sources) {
+      // Add each source to the usedSources array
+      usedSources.push({ id: source.id, name: source.name });
+      
       if (source.use_rag && source.total_chunks > 0 && query) {
         // Use RAG to find relevant chunks
         // This is a simple implementation - would use vector search in production
@@ -504,7 +509,7 @@ export async function prepareKnowledgeContentForConversation(conversationId: num
       }
     }
     
-    return content;
+    return { content, usedSources };
   } catch (error) {
     console.error('Error preparing knowledge content for conversation:', error);
     throw error;
