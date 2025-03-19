@@ -337,7 +337,10 @@ router.post("/", async (req: Request, res: Response) => {
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
 
       for await (const chunk of stream) {
-        if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text') {
+        // Debug log the chunk structure
+        // console.log("Anthropic chunk received:", JSON.stringify(chunk));
+        
+        if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text') {
           const content = chunk.delta.text || '';
           if (content) {
             streamedResponse += content;
@@ -347,6 +350,20 @@ router.post("/", async (req: Request, res: Response) => {
             );
             if (res.flush) res.flush();
           }
+        } else if (chunk.type === 'content_block_start' && chunk.content_block?.type === 'text') {
+          // Handle content_block_start for text blocks
+          const content = chunk.content_block.text || '';
+          if (content) {
+            streamedResponse += content;
+            lastChunkTime = Date.now();
+            res.write(
+              `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
+            );
+            if (res.flush) res.flush();
+          }
+        } else if (chunk.type === 'message_delta' && chunk.delta?.stop_reason) {
+          // Message completion
+          console.log("Anthropic message completed, reason:", chunk.delta.stop_reason);
         }
 
         // Check for timeout between chunks
