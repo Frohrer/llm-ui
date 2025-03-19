@@ -295,22 +295,29 @@ export function KnowledgeSourceList({
                   </Button>
                 )}
 
-                {/* Attach button in "all" mode */}
-                {mode === "all" && showAttachButton && conversationId && (
+                {/* Attach/Select button in "all" mode */}
+                {mode === "all" && showAttachButton && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      addKnowledgeToConversation({
-                        conversationId,
-                        knowledgeSourceId: source.id,
-                      });
+                      // If we have a conversation ID, attach directly
+                      if (conversationId) {
+                        addKnowledgeToConversation({
+                          conversationId,
+                          knowledgeSourceId: source.id,
+                        });
+                      } 
+                      // Otherwise, add to selected sources (for new conversations)
+                      else if (onSelectKnowledgeSource) {
+                        onSelectKnowledgeSource(source);
+                      }
                     }}
                     disabled={isAttaching}
                   >
                     <Link className="mr-2 h-4 w-4" />
-                    Attach
+                    {selectedSourceIds.includes(source.id) ? "Selected" : "Select"}
                   </Button>
                 )}
 
