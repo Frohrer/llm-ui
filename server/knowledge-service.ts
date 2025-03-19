@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
-import { knowledgeSources, knowledgeContent, conversationKnowledge, messages } from '../db/schema';
+import { knowledgeSources, knowledgeContent, conversationKnowledge } from '../db/schema';
 import type { SelectKnowledgeSource } from '../db/schema';
 import { extractTextFromFile, isImageFile } from './file-handler';
 import { eq, and, desc, asc } from 'drizzle-orm';
@@ -465,15 +465,8 @@ export async function getConversationKnowledge(conversationId: number) {
 /**
  * Prepares knowledge content for use in a conversation
  * Depending on the size and RAG setting, either returns full content or relevant chunks
- * @param conversationId - The ID of the conversation
- * @param query - Optional query to use for retrieving relevant chunks
- * @param forceInclude - Force inclusion of knowledge even if it's not the first message
  */
-export async function prepareKnowledgeContentForConversation(
-  conversationId: number, 
-  query?: string,
-  forceInclude: boolean = false
-) {
+export async function prepareKnowledgeContentForConversation(conversationId: number, query?: string) {
   try {
     // Get all knowledge sources for the conversation
     const sources = await getConversationKnowledge(conversationId);
@@ -482,46 +475,9 @@ export async function prepareKnowledgeContentForConversation(
       return '';
     }
     
-    // Get all messages in the conversation to check for already included knowledge
-    const allMessages = await db.select()
-      .from(messages)
-      .where(eq(messages.conversation_id, conversationId));
-    
-    // Initialize a set to track which knowledge sources have already been included
-    let includedKnowledgeIds = new Set<number>();
-    
-    // We add a property to track included knowledge sources in the conversation
-    // This gets checked for each message
-    if (!forceInclude && allMessages.length > 0) {
-      for (const message of allMessages) {
-        // If the message contains metadata about included knowledge, extract it
-        if (message.content && message.content.includes("[INCLUDED_KNOWLEDGE_IDS:")) {
-          try {
-            const match = message.content.match(/\[INCLUDED_KNOWLEDGE_IDS:(.*?)\]/);
-            if (match && match[1]) {
-              const idsString = match[1].trim();
-              const ids = idsString.split(',').map(id => parseInt(id.trim(), 10));
-              ids.forEach(id => includedKnowledgeIds.add(id));
-            }
-          } catch (e) {
-            console.error("Error parsing included knowledge IDs:", e);
-          }
-        }
-      }
-    }
-    
     let content = '';
-    let newlyIncludedIds: number[] = [];
     
     for (const source of sources) {
-      // Skip this source if it has already been included
-      if (includedKnowledgeIds.has(source.id) && !forceInclude) {
-        console.log(`Knowledge source ${source.id} already included in conversation ${conversationId}, skipping`);
-        continue;
-      }
-      
-      newlyIncludedIds.push(source.id);
-      
       if (source.use_rag && source.total_chunks > 0 && query) {
         // Use RAG to find relevant chunks
         // This is a simple implementation - would use vector search in production
@@ -546,17 +502,6 @@ export async function prepareKnowledgeContentForConversation(
         // Use full content text
         content += `\n\n### ${source.name}:\n${source.content_text}\n\n`;
       }
-    }
-    
-    // If we've included at least one new knowledge source, add metadata about it
-    if (newlyIncludedIds.length > 0) {
-      // Add a hidden marker with the IDs of included knowledge sources
-      // This will be stored with the message content but will be hidden from users
-      const allIncludedIds = [...includedKnowledgeIds, ...newlyIncludedIds];
-      content += `\n\n[INCLUDED_KNOWLEDGE_IDS:${newlyIncludedIds.join(',')}]`;
-      console.log(`Knowledge sources ${newlyIncludedIds.join(', ')} added to conversation ${conversationId}`);
-    } else if (includedKnowledgeIds.size > 0) {
-      console.log(`All knowledge sources already included in conversation ${conversationId}, skipping`);
     }
     
     return content;
