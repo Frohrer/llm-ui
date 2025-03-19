@@ -749,6 +749,9 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
           )}
         </>
       </div>
+      
+      {/* Knowledge notification component - headless component for tracking knowledge usage */}
+      {conversation && <KnowledgeNotification conversationId={conversation.id} />}
     </div>
   );
 }
