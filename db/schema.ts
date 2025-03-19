@@ -17,6 +17,7 @@ export const conversations = pgTable("conversations", {
   model: text("model").notNull(),
   created_at: timestamp("created_at").defaultNow().notNull(),
   last_message_at: timestamp("last_message_at").defaultNow().notNull(),
+  knowledge_injected: boolean("knowledge_injected").default(false), // Track if knowledge has been injected
 });
 
 export const messages = pgTable("messages", {
