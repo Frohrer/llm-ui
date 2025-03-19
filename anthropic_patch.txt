@@ -1,0 +1,22 @@
+      // Get knowledge content if requested
+      let knowledgeContent = '';
+      let knowledgeSystemMessage: string | null = null;
+      if (useKnowledge && dbConversation) {
+        try {
+          const knowledgeResult = await prepareKnowledgeContentForConversation(dbConversation.id, message, apiMessages);
+          if (knowledgeResult.shouldInjectToContext) {
+            knowledgeContent = knowledgeResult.content;
+            knowledgeSystemMessage = knowledgeResult.systemMessage;
+            console.log("Retrieved knowledge content for conversation and created system message notification");
+            
+            // For Anthropic, we DON'T add system messages to the apiMessages array
+            // We'll use the system parameter when creating the API request instead
+            // Save the system message for UI display purposes
+            if (knowledgeSystemMessage) {
+              await addKnowledgeSystemMessage(dbConversation.id, knowledgeSystemMessage);
+            }
+          }
+        } catch (knowledgeError) {
+          console.error("Error retrieving knowledge content:", knowledgeError);
+        }
+      }
