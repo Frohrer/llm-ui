@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
-import { knowledgeSources, knowledgeContent, conversationKnowledge } from '../db/schema';
+import { knowledgeSources, knowledgeContent, conversationKnowledge, messages } from '../db/schema';
 import type { SelectKnowledgeSource } from '../db/schema';
 import { extractTextFromFile, isImageFile } from './file-handler';
 import { eq, and, desc, asc } from 'drizzle-orm';
@@ -465,14 +465,41 @@ export async function getConversationKnowledge(conversationId: number) {
 /**
  * Prepares knowledge content for use in a conversation
  * Depending on the size and RAG setting, either returns full content or relevant chunks
+ * @param conversationId - The ID of the conversation
+ * @param query - Optional query to use for retrieving relevant chunks
+ * @param forceInclude - Force inclusion of knowledge even if it's not the first message
  */
-export async function prepareKnowledgeContentForConversation(conversationId: number, query?: string) {
+export async function prepareKnowledgeContentForConversation(
+  conversationId: number, 
+  query?: string,
+  forceInclude: boolean = false
+) {
   try {
     // Get all knowledge sources for the conversation
     const sources = await getConversationKnowledge(conversationId);
     
     if (!sources || sources.length === 0) {
       return '';
+    }
+    
+    // Check if this is the first message in the conversation
+    // We only want to include knowledge content in the first message unless forced
+    if (!forceInclude) {
+      try {
+        const messageCount = await db.select({ id: messages.id })
+          .from(messages)
+          .where(eq(messages.conversation_id, conversationId));
+        
+        // If there are more than 1 message (the current one being added), don't include knowledge
+        if (messageCount.length > 1) {
+          console.log(`Knowledge content skipped for existing conversation ${conversationId} with ${messageCount.length} messages`);
+          return '';
+        }
+        console.log(`Knowledge content INCLUDED for conversation ${conversationId} with ${messageCount.length} messages`);
+      } catch (error) {
+        console.error("Error checking message count:", error);
+        // Default to including knowledge if there's an error
+      }
     }
     
     let content = '';
