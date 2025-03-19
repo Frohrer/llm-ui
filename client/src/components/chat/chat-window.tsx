@@ -659,26 +659,19 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                   </div>
                 </SheetHeader>
                 <div className="py-4">
-                  {conversation ? (
-                    <KnowledgeSourceList 
-                      mode="conversation" 
-                      conversationId={conversation.id}
-                      showAttachButton={false} 
-                    />
-                  ) : (
-                    <KnowledgeSourceList 
-                      mode="all"
-                      showAttachButton={true} 
-                      onSelectKnowledgeSource={(source) => {
-                        if (pendingKnowledgeSources.includes(source.id)) {
-                          setPendingKnowledgeSources(prev => prev.filter(id => id !== source.id));
-                        } else {
-                          setPendingKnowledgeSources(prev => [...prev, source.id]);
-                        }
-                      }}
-                      selectedSourceIds={pendingKnowledgeSources}
-                    />
-                  )}
+                  <KnowledgeSourceList 
+                    mode={conversation ? "conversation" : "all"}
+                    conversationId={conversation?.id} 
+                    showAttachButton={true}
+                    onSelectKnowledgeSource={(source) => {
+                      if (pendingKnowledgeSources.includes(source.id)) {
+                        setPendingKnowledgeSources(prev => prev.filter(id => id !== source.id));
+                      } else {
+                        setPendingKnowledgeSources(prev => [...prev, source.id]);
+                      }
+                    }}
+                    selectedSourceIds={pendingKnowledgeSources}
+                  />
                 </div>
               </SheetContent>
             </Sheet>
@@ -698,26 +691,19 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
-                {conversation ? (
-                  <KnowledgeSourceList 
-                    mode="conversation" 
-                    conversationId={conversation.id}
-                    showAttachButton={false}
-                  />
-                ) : (
-                  <KnowledgeSourceList 
-                    mode="all"
-                    showAttachButton={true}
-                    onSelectKnowledgeSource={(source) => {
-                      if (pendingKnowledgeSources.includes(source.id)) {
-                        setPendingKnowledgeSources(prev => prev.filter(id => id !== source.id));
-                      } else {
-                        setPendingKnowledgeSources(prev => [...prev, source.id]);
-                      }
-                    }}
-                    selectedSourceIds={pendingKnowledgeSources}
-                  />
-                )}
+                <KnowledgeSourceList 
+                  mode={conversation ? "conversation" : "all"}
+                  conversationId={conversation?.id} 
+                  showAttachButton={true}
+                  onSelectKnowledgeSource={(source) => {
+                    if (pendingKnowledgeSources.includes(source.id)) {
+                      setPendingKnowledgeSources(prev => prev.filter(id => id !== source.id));
+                    } else {
+                      setPendingKnowledgeSources(prev => [...prev, source.id]);
+                    }
+                  }}
+                  selectedSourceIds={pendingKnowledgeSources}
+                />
               </div>
             </div>
           )}
