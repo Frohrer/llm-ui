@@ -21,7 +21,8 @@ import {
   cleanupImageFile
 } from "./file-handler";
 import knowledgeRoutes from "./routes/knowledge";
-import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "./knowledge-service";
+import { addKnowledgeToConversation } from "./knowledge-service";
+import { handleKnowledgePreparation } from "./knowledge-handler";
 import type { SQL } from "drizzle-orm";
 
 // Load provider configurations at startup
