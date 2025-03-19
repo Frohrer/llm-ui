@@ -1,18 +1,24 @@
-# Multi-LLM Chat Interface
+# Multi-LLM Chat Interface with Knowledge Management
 
-A sophisticated chat interface platform that enables seamless interactions with multiple AI language models. This application provides a unified interface for communicating with various AI providers while maintaining conversation history and providing a rich user experience.
+A sophisticated AI interaction platform that enables seamless conversations with multiple language models enhanced by custom knowledge sources. This application provides a unified interface for communicating with various AI providers while managing knowledge bases, maintaining conversation history, and providing a rich user experience.
 
 ## Features
 
-- 🤖 Multi-provider AI integration (OpenAI, Anthropic)
+- 🤖 Multi-provider AI integration (OpenAI, Anthropic, DeepSeek, Gemini)
+- 📚 Advanced knowledge management system
+  - 📄 Document upload (PDF, DOCX, TXT, CSV, XLSX, PPTX, MD)
+  - 🔗 URL content extraction and processing
+  - ✏️ Direct text entry for knowledge sources
+  - 🧠 Retrieval-Augmented Generation (RAG) support
 - 💬 Turn-based conversations with context preservation
 - 🔄 Real-time message streaming
-- 📝 Markdown rendering for AI responses (disabled for user messages)
+- 📝 Markdown rendering for AI responses
 - 🌓 Dark/light mode support
-- 🎨 Clean, professional UI using shadcn/ui
-- 📱 Responsive design
+- 🎨 Clean, professional UI using shadcn/ui components
+- 📱 Responsive design with mobile support
 - 🔧 Server-side provider configuration
-- 🗄️ PostgreSQL-backed conversation history
+- 🗄️ PostgreSQL-backed conversation and knowledge storage
+- 🔊 Speech-to-text and text-to-speech capabilities
 - 🔒 Cloudflare One authentication
 - 🐳 Docker deployment support
 
@@ -25,13 +31,20 @@ A sophisticated chat interface platform that enables seamless interactions with 
 - State Management: TanStack Query
 - Routing: wouter
 - Authentication: Cloudflare One
+- Knowledge Processing:
+  - Document Parsing: PDF.js, Mammoth, XLSX
+  - Web Content: Axios, Cheerio
+  - Text Processing: Custom chunking algorithms
+- Speech Capabilities: Microsoft Cognitive Services Speech SDK
 
 ## Prerequisites
 
 - Node.js 20 or higher
 - PostgreSQL 15 or higher
 - Cloudflare One account for authentication
-- API keys for the LLM providers you want to use (OpenAI/Anthropic/DeepSeek)
+- API keys for the LLM providers you want to use (OpenAI/Anthropic/DeepSeek/Gemini)
+- For speech features: Microsoft Cognitive Services Speech API credentials (optional)
+- Sufficient storage space for uploaded knowledge files
 
 ## Authentication
 
@@ -57,13 +70,20 @@ Create a `.env` file in the root directory with the following variables:
 # Required
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chat_app
 
-# Optional - Include only the API keys for the providers you want to use
+# LLM Provider API Keys - Include only the ones you want to use
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
 DEEPSEEK_API_KEY=your_deepseek_api_key
+GEMINI_API_KEY=your_gemini_api_key
+
+# Optional - Microsoft Cognitive Services for Speech Features
+SPEECH_KEY=your_azure_speech_key
+SPEECH_REGION=your_azure_speech_region
 ```
 
-Note: The application will only display and enable providers for which valid API keys are provided. Missing API keys will cause the corresponding provider to be hidden from the UI automatically.
+Notes:
+- The application will only display and enable LLM providers for which valid API keys are provided. Missing API keys will cause the corresponding provider to be hidden from the UI automatically.
+- Speech-to-text and text-to-speech features require valid Microsoft Cognitive Services credentials, but these features are optional and the application will work without them.
 
 ## Local Development
 
@@ -136,11 +156,29 @@ Note: If the API key for a provider is not available in the environment variable
 
 ## Usage
 
+### Basic Chat Usage
 1. Start a new conversation by clicking the "New Chat" button
 2. Select your preferred AI model from the dropdown
 3. Type your message and press Enter or click the send button
 4. View your conversation history in the sidebar
 5. Toggle between light and dark modes using the theme toggle button
+
+### Knowledge Management
+1. Access the Knowledge Management by clicking the "Knowledge" button in the sidebar
+2. Add knowledge sources in three ways:
+   - **File Upload**: Upload supported document types (PDF, DOCX, TXT, CSV, XLSX, PPTX, MD)
+   - **URL**: Enter a URL to automatically extract and process web content
+   - **Text**: Directly paste or type text content
+3. For each knowledge source, you can:
+   - Provide a name and optional description
+   - Enable/disable RAG (Retrieval-Augmented Generation) for large documents
+4. Manage your knowledge sources:
+   - View all saved knowledge sources
+   - Delete knowledge sources you no longer need
+   - Attach knowledge sources to specific conversations
+5. Use knowledge in conversations:
+   - Attached knowledge sources will be used to enhance AI responses
+   - The AI will automatically reference relevant knowledge when answering questions
 
 ## Contributing
 
