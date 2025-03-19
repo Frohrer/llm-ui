@@ -493,49 +493,64 @@ export async function getConversationKnowledge(conversationId: number) {
 
 /**
  * Prepares knowledge content for use in a conversation
- * Depending on the size and RAG setting, either returns full content or relevant chunks
- * Now also checks if knowledge has already been injected in the conversation
+ * Creates a system message notification for knowledge sources
+ * Ensures knowledge is only injected once per conversation
  */
 export async function prepareKnowledgeContentForConversation(
   conversationId: number, 
   query?: string, 
   context?: any[] // Optional context parameter to check for existing knowledge
-) {
+): Promise<{ content: string; shouldInjectToContext: boolean; systemMessage: string | null }> {
   try {
-    // Check if this is a new conversation (first message)
-    const messageCount = await db.query.messages.findMany({
-      where: eq(messages.conversation_id, conversationId),
+    // Check if knowledge has already been injected in this conversation via system messages
+    const existingSystemMessages = await db.query.messages.findMany({
+      where: and(
+        eq(messages.conversation_id, conversationId),
+        eq(messages.role, "system"),
+        like(messages.content, "%Knowledge sources added%")
+      ),
       columns: {
-        id: true
+        id: true,
+        content: true
       }
     });
     
-    // If message count is 1 or 0, this is the first user message - always include knowledge
-    // This happens when knowledge is added at the start of a conversation
-    const isFirstMessage = messageCount.length <= 1;
-    
-    // If not the first message and context is provided, check if knowledge has already been injected
-    if (!isFirstMessage && context && Array.isArray(context)) {
-      const knowledgeAlreadyIncluded = context.some(msg => 
-        typeof msg.content === 'string' && 
-        msg.content.includes('Knowledge Sources:')
-      );
-      
-      if (knowledgeAlreadyIncluded) {
-        console.log("Knowledge already included in conversation context - skipping injection");
-        return ''; // Return empty string to skip injection
-      }
+    // If we already have a system message about knowledge, don't inject again
+    if (existingSystemMessages.length > 0) {
+      console.log("Knowledge already added to conversation via system message - skipping injection");
+      return { 
+        content: '', 
+        shouldInjectToContext: false,
+        systemMessage: null 
+      };
     }
     
     // Get all knowledge sources for the conversation
     const sources = await getConversationKnowledge(conversationId);
     
     if (!sources || sources.length === 0) {
-      return '';
+      return { 
+        content: '', 
+        shouldInjectToContext: false,
+        systemMessage: null 
+      };
     }
     
     console.log(`Preparing knowledge content from ${sources.length} sources for first-time injection`);
     
+    // Create system message notification
+    const sourceNames = sources.map(s => s.name).join(", ");
+    const systemMessage = `Knowledge sources added to conversation: ${sourceNames}`;
+    
+    // Add system message to database
+    await db.insert(messages).values({
+      conversation_id: conversationId,
+      role: "system",
+      content: systemMessage,
+      created_at: new Date()
+    });
+    
+    // Prepare the full content for context injection
     let content = '';
     
     for (const source of sources) {
@@ -565,7 +580,11 @@ export async function prepareKnowledgeContentForConversation(
       }
     }
     
-    return content;
+    return {
+      content,
+      shouldInjectToContext: true,
+      systemMessage
+    };
   } catch (error) {
     console.error('Error preparing knowledge content for conversation:', error);
     throw error;
