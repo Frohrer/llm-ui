@@ -141,7 +141,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       
     // Find the first default model
     for (const provider of Object.values(providers)) {
-      const defaultModel = provider.models.find(m => m.defaultModel);
+      const defaultModel = provider.models.find((m: any) => m.defaultModel);
       if (defaultModel) {
         console.log('Setting default model:', defaultModel.id);
         setSelectedModel(defaultModel.id);
@@ -272,7 +272,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   const getModelDisplayName = (modelId: string): string => {
     if (!providers) return modelId;
     for (const provider of Object.values(providers)) {
-      const model = provider.models.find(m => m.id === modelId);
+      const model = provider.models.find((m: any) => m.id === modelId);
       if (model) {
         return `${provider.name} - ${model.name}`;
       }
