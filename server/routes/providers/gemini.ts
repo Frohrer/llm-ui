@@ -319,17 +319,17 @@ router.post("/", async (req: Request, res: Response) => {
           if (chunk && chunk.text) {
             const content = chunk.text;
             
-            // Skip empty content
-            if (!content.trim()) continue;
-            
-            streamedResponse += content;
-            lastChunkTime = Date.now();
-            
-            // Send formatted chunk to client
-            res.write(
-              `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
-            );
-            if (res.flush) res.flush();
+            // Check if content is a string and not empty
+            if (typeof content === 'string' && content !== '') {
+              streamedResponse += content;
+              lastChunkTime = Date.now();
+              
+              // Send formatted chunk to client
+              res.write(
+                `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
+              );
+              if (res.flush) res.flush();
+            }
           }
   
           // Check for timeout between chunks
