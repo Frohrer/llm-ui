@@ -432,11 +432,12 @@ export async function addKnowledgeToConversation(conversationId: number, knowled
       });
       
       if (source) {
-        // Add a system message indicating new knowledge was added
+        // Add a system message with special formatting to indicate knowledge was added
+        // This will appear as muted text without buttons or background
         await db.insert(messages).values({
           conversation_id: conversationId,
-          role: "assistant",
-          content: `Knowledge source "${source.name}" has been added to this conversation. This information will be used for future responses.`,
+          role: "system",  // Using system role for muted appearance
+          content: `Knowledge source "${source.name}" added to conversation`,
           created_at: new Date(),
         });
         
