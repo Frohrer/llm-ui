@@ -6,7 +6,7 @@ import { ModelSelector } from './model-selector';
 import type { Message as MessageType, Conversation } from '@/lib/llm/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { getAllProviders } from '@/lib/llm/providers';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
@@ -123,6 +123,20 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   const [showMobileKnowledgePanel, setShowMobileKnowledgePanel] = useState<boolean>(false);
   const [showDesktopKnowledgePanel, setShowDesktopKnowledgePanel] = useState<boolean>(false);
   const [pendingKnowledgeSources, setPendingKnowledgeSources] = useState<number[]>([]);
+  
+  // Check if conversation has knowledge attached
+  const conversationKnowledgeQuery = useQuery({
+    queryKey: ['/api/knowledge/conversation', conversation?.id],
+    queryFn: async () => {
+      if (conversation?.id) {
+        return getConversationKnowledge(conversation.id);
+      }
+      return [];
+    },
+    enabled: !!conversation?.id
+  });
+  
+  const hasKnowledgeAttached = !!(conversationKnowledgeQuery.data && conversationKnowledgeQuery.data.length > 0);
   
   // Update messages when conversation changes
   useEffect(() => {
