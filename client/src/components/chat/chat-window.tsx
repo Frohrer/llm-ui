@@ -293,7 +293,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
       console.log(`Checking provider ${provider.id}:`, provider);
       console.log('Provider models:', provider.models);
       
-      const model = provider.models.find(m => m.id === modelId);
+      const model = provider.models.find((m: any) => m.id === modelId);
       if (model) {
         console.log(`Found model ${model.id} with context length:`, model.contextLength);
         return model.contextLength;
@@ -307,7 +307,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
   const getProviderForModel = (modelId: string): string => {
     if (!providers) return '';
     for (const provider of Object.values(providers)) {
-      if (provider.models.some(m => m.id === modelId)) {
+      if (provider.models.some((m: any) => m.id === modelId)) {
         return provider.id;
       }
     }
@@ -551,7 +551,7 @@ export function ChatWindow({ conversation, onConversationUpdate, mobileMenuTrigg
               // Log the context length of the newly selected model
               if (providers) {
                 for (const provider of Object.values(providers)) {
-                  const model = provider.models.find(m => m.id === modelId);
+                  const model = provider.models.find((m: any) => m.id === modelId);
                   if (model) {
                     console.log(`Selected model ${model.name} with context length: ${model.contextLength}`);
                     break;
