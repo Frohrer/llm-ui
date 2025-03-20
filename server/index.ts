@@ -1,8 +1,13 @@
 import express, { type Request, Response, NextFunction } from "express";
+import path from "path";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
+
+// Serve uploaded files
+app.use("/uploads/images", express.static(path.join(process.cwd(), "uploads/images")));
+app.use("/uploads/documents", express.static(path.join(process.cwd(), "uploads/documents")));
 // Increase JSON body size limit for all routes
 app.use(
   express.json({
