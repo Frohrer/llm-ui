@@ -15,6 +15,7 @@ import {
   initializeDeepSeek,
   initializeGemini
 } from "./routes/providers";
+import { uploadSingleMiddleware, extractTextFromFile } from "./file-handler";
 
 // Load provider configurations at startup
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -112,6 +113,49 @@ export function registerRoutes(app: Express): Server {
 
   // Register knowledge routes
   app.use('/api/knowledge', knowledgeRoutes);
+
+  // File upload route for chat attachments
+  app.post('/api/upload', uploadSingleMiddleware, async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      // Get file path and determine if it's an image
+      const filePath = req.file.path;
+      const isImage = req.file.mimetype.startsWith('image/');
+      
+      // Create URL based on file type
+      const baseUrl = process.env.BASE_URL || `http://${req.headers.host}`;
+      const urlPath = isImage ? 'uploads/images/' : 'uploads/documents/';
+      const url = `${baseUrl}/${urlPath}${req.file.filename}`;
+      
+      // For documents, extract text content
+      let text: string | undefined;
+      if (!isImage) {
+        try {
+          text = await extractTextFromFile(filePath);
+        } catch (extractError) {
+          console.error('Error extracting text from file:', extractError);
+          text = `[Error extracting text from ${req.file.originalname}]`;
+        }
+      }
+      
+      // Return file info to client
+      res.json({
+        file: {
+          url,
+          text,
+          originalName: req.file.originalname,
+          size: req.file.size,
+          mimetype: req.file.mimetype
+        }
+      });
+    } catch (error) {
+      console.error('File upload error:', error);
+      res.status(500).json({ error: 'File upload failed' });
+    }
+  });
 
   // Error handler middleware
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
