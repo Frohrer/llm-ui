@@ -212,32 +212,27 @@ export function ChatWindow({
   }, [providers, selectedModel, conversation]);
 
   const isNearBottom = () => {
-    // Check scroll position in the ScrollArea viewport element
-    const viewport = document.querySelector(".scrollarea-viewport");
+    const chatContainer = containerRef.current?.closest('.relative.h-full');
+    const viewport = chatContainer?.querySelector('[data-radix-scroll-area-viewport]');
+    
     if (!viewport) return true;
 
+    const visibleHeight = viewport.clientHeight;
+    const scrollHeight = viewport.scrollHeight;
+    const currentScroll = viewport.scrollTop;
+    
     const threshold = 100;
-    const distanceFromBottom =
-      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    const distanceFromBottom = scrollHeight - (currentScroll + visibleHeight);
+    
     return distanceFromBottom <= threshold;
   };
 
   const scrollToBottom = () => {
-    // This is a very direct approach that will work in all browsers
-    window.scrollTo(0, document.body.scrollHeight);
-
-    // Also try to find any messages and scroll the last one into view
-    const messagesContainer = document.querySelector(".p-4.space-y-4");
-    if (messagesContainer && messagesContainer.children.length > 0) {
-      const lastMessage =
-        messagesContainer.children[messagesContainer.children.length - 1];
-      if (lastMessage) {
-        try {
-          lastMessage.scrollIntoView({ behavior: "smooth" });
-        } catch (e) {
-          console.error("Error using scrollIntoView:", e);
-        }
-      }
+    const chatContainer = containerRef.current?.closest('.relative.h-full');
+    const viewport = chatContainer?.querySelector('[data-radix-scroll-area-viewport]');
+    
+    if (viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
     }
 
     setShouldAutoScroll(true);
@@ -245,57 +240,35 @@ export function ChatWindow({
   };
 
   useEffect(() => {
-    // Add scroll event listener to the viewport
-    const viewport = document.querySelector(".scrollarea-viewport");
-
+    const chatContainer = containerRef.current?.closest('.relative.h-full');
+    const viewport = chatContainer?.querySelector('[data-radix-scroll-area-viewport]');
+    
     if (!viewport) return;
 
-    // Force show the scroll button initially if we have messages and we're not at the bottom
-    if (messages.length > 0) {
+    const checkScrollPosition = () => {
       const isAtBottom = isNearBottom();
       setShowScrollButton(!isAtBottom);
-    }
-
-    const handleScroll = () => {
-      const isBottom = isNearBottom();
-      setShouldAutoScroll(isBottom);
-      setShowScrollButton(!isBottom);
     };
 
-    // Use both viewport scroll events and mutations for detecting scroll position
-    viewport.addEventListener("scroll", handleScroll);
+    viewport.addEventListener("scroll", checkScrollPosition);
+    const initialCheckTimeout = setTimeout(checkScrollPosition, 100);
 
-    // Create mutation observer to watch for content changes that might affect scroll position
     const mutationObserver = new MutationObserver(() => {
-      handleScroll();
+      setTimeout(checkScrollPosition, 100);
     });
 
-    // Watch for changes to the message container
-    const messageContainer = document.querySelector(
-      ".scrollarea-viewport-view",
-    );
-    if (messageContainer) {
-      mutationObserver.observe(messageContainer, {
-        childList: true,
-        subtree: true,
-        characterData: true,
-      });
-    }
-
-    // Initial check
-    handleScroll();
+    mutationObserver.observe(viewport, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
 
     return () => {
-      viewport.removeEventListener("scroll", handleScroll);
+      clearTimeout(initialCheckTimeout);
+      viewport.removeEventListener("scroll", checkScrollPosition);
       mutationObserver.disconnect();
     };
-  }, [messages.length]);
-
-  useEffect(() => {
-    if (shouldAutoScroll) {
-      scrollToBottom();
-    }
-  }, [messages, streamedText, shouldAutoScroll]);
+  }, [messages.length, conversation?.id]);
 
   // Handle screen resize to appropriately manage knowledge panel visibility
   useEffect(() => {
@@ -702,14 +675,16 @@ export function ChatWindow({
                 </div>
               </ScrollArea>
 
-              {/* Scroll to bottom button - fixed position outside ScrollArea, always visible */}
-              <a
-                href="#bottom-anchor"
-                className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px] flex items-center justify-center"
-                style={{ width: "35px", height: "35px" }}
-              >
-                <ChevronDown className="h-5 w-5" />
-              </a>
+              {/* Scroll to bottom button */}
+              {showScrollButton && (
+                <button
+                  onClick={scrollToBottom}
+                  className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-secondary hover:bg-secondary/80 text-foreground border border-border z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px] flex items-center justify-center"
+                  style={{ width: "35px", height: "35px" }}
+                >
+                  <ChevronDown className="h-5 w-5" />
+                </button>
+              )}
             </div>
           </ResizablePanel>
 

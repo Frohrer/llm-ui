@@ -42,7 +42,9 @@ export function MainSidebar({
     <div className="flex flex-col h-full bg-background border-r">
       <div className="px-4 py-3 flex items-center justify-between">
         <div className="flex items-center">
-          <h1 className="text-xl font-bold">AI Chat</h1>
+          <h1 className="text-xl font-bold">
+            AI Chat{process.env.NEXT_PUBLIC_CUSTOMER_NAME ? ` - ${process.env.NEXT_PUBLIC_CUSTOMER_NAME}` : ''}
+          </h1>
         </div>
       </div>
       <Separator />

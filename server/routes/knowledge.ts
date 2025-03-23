@@ -1,7 +1,5 @@
 import express, { Request, Response } from 'express';
 import multer from 'multer';
-import path from 'path';
-import { nanoid } from 'nanoid';
 import { 
   createKnowledgeSourceFromFile, 
   createKnowledgeSourceFromText,
@@ -13,6 +11,13 @@ import {
   removeKnowledgeFromConversation,
   getConversationKnowledge
 } from '../knowledge-service';
+import { eq } from 'drizzle-orm';
+import { db } from '../../db/index';
+import { 
+  knowledgeSources, 
+  knowledgeContent, 
+  conversationKnowledge 
+} from '../../db/schema';
 
 const router = express.Router();
 
@@ -212,8 +217,28 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid ID' });
     }
     
-    const result = await deleteKnowledgeSource(req.user.id, id);
-    res.json(result);
+    // Delete in this order:
+    // 1. conversation_knowledge (join table)
+    // 2. knowledge_content (chunks)
+    // 3. knowledge_sources (main record)
+    await db.transaction(async (tx) => {
+      // Delete conversation associations
+      await tx.delete(conversationKnowledge)
+        .where(eq(conversationKnowledge.knowledge_source_id, id));
+      
+      // Delete content chunks
+      await tx.delete(knowledgeContent)
+        .where(eq(knowledgeContent.knowledge_source_id, id));
+      
+      // Finally delete the knowledge source itself
+      const result = await tx.delete(knowledgeSources)
+        .where(eq(knowledgeSources.id, id))
+        .returning();
+        
+      return result;
+    });
+    
+    res.json({ success: true });
   } catch (error: any) {
     console.error('Error deleting knowledge source:', error);
     res.status(500).json({ error: error.message || 'Failed to delete knowledge source' });

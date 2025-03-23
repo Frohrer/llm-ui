@@ -15,6 +15,9 @@ COPY . .
 # Build the application
 RUN npm run build
 
+# Ensure providers are copied to dist directory
+RUN mkdir -p dist/providers && cp -r server/config/providers/* dist/providers/
+
 # Production stage
 FROM node:20-slim
 
@@ -25,12 +28,18 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Copy built application from builder stage
+# Copy everything needed for the app to run
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/db ./db
+COPY --from=builder /app/client/src ./client/src
 COPY --from=builder /app/client/index.html ./client/index.html
-COPY --from=builder /app/server/config ./server/config
+COPY --from=builder /app/server ./server
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=builder /app/theme.json ./theme.json
+COPY --from=builder /app/vite.config.ts ./vite.config.ts
+COPY --from=builder /app/postcss.config.js ./postcss.config.js
+COPY --from=builder /app/tailwind.config.ts ./tailwind.config.ts
+COPY --from=builder /app/types ./types
 
 # Add wait-for-it script
 ADD https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh /wait-for-it.sh
