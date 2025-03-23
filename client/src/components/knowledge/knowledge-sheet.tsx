@@ -17,7 +17,7 @@ export function KnowledgeSheet({ trigger }: KnowledgeSheetProps) {
   const defaultTrigger = (
     <Button variant="ghost" className="flex items-center py-2 px-3 rounded-md text-sm font-medium w-full justify-start hover:bg-accent/50">
       <BookOpen className="mr-2 h-4 w-4" />
-      Knowledge
+      Add Knowledge Source
     </Button>
   );
 

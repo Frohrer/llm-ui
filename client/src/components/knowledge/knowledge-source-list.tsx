@@ -30,6 +30,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { KnowledgeSourceUpload } from "@/components/knowledge/knowledge-source-upload";
 import { Skeleton } from "@/components/ui/skeleton";
+import { KnowledgeSheet } from "./knowledge-sheet";
 
 export type KnowledgeSourceListMode = "all" | "conversation";
 
@@ -69,8 +70,6 @@ export function KnowledgeSourceList({
     removeKnowledgeFromConversation,
     isDetaching,
   } = useKnowledge();
-
-  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
 
   // Always call the hook with a clean dummy ID if not provided
   // This ensures the hook is always called, maintaining React's rules of hooks
@@ -136,105 +135,7 @@ export function KnowledgeSourceList({
     <div className="space-y-4">
       {showAddButton && (
         <div className="flex justify-between items-center">
-          <Sheet open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="sm">
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Add Knowledge
-              </Button>
-            </SheetTrigger>
-            <SheetContent className="w-[90%] sm:w-[540px] md:w-[720px] lg:w-[920px] overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle>Add Knowledge Source</SheetTitle>
-                <SheetDescription>
-                  {mode === "conversation"
-                    ? "Select a knowledge source to add to this conversation."
-                    : "Upload a file, add text, or link a URL as a knowledge source."}
-                </SheetDescription>
-              </SheetHeader>
-              <div className="py-6">
-                {mode === "conversation" ? (
-                  <div className="space-y-4">
-                    <p className="text-sm text-muted-foreground">
-                      Select a knowledge source to add to this conversation:
-                    </p>
-                    <div
-                      className={
-                        gridLayout
-                          ? "grid grid-cols-1 md:grid-cols-2 gap-4"
-                          : "space-y-4"
-                      }
-                    >
-                      {allKnowledgeSources.data &&
-                        allKnowledgeSources.data.map((source) => (
-                          <Card
-                            key={source.id}
-                            className="w-full hover:bg-accent/10 transition-colors cursor-pointer"
-                            onClick={() => {
-                              if (conversationId) {
-                                addKnowledgeToConversation({
-                                  conversationId,
-                                  knowledgeSourceId: source.id,
-                                });
-                                setIsUploadDialogOpen(false);
-                              }
-                            }}
-                          >
-                            <CardHeader>
-                              <CardTitle className="flex items-center">
-                                {(source.source_type === "file" ||
-                                  !source.source_type) && (
-                                  <FileText className="mr-2 h-4 w-4" />
-                                )}
-                                {source.source_type === "url" && (
-                                  <Globe className="mr-2 h-4 w-4" />
-                                )}
-                                {source.source_type === "text" && (
-                                  <FileText className="mr-2 h-4 w-4" />
-                                )}
-                                {source.name}
-                              </CardTitle>
-
-                              <div className="flex gap-2 flex-wrap mt-2">
-                                <Badge
-                                  variant={
-                                    source.use_rag ? "default" : "outline"
-                                  }
-                                >
-                                  {source.use_rag ? "RAG" : "Full Text"}
-                                </Badge>
-                                <Badge variant="outline">
-                                  {source.source_type || "file"}
-                                </Badge>
-                              </div>
-
-                              <CardDescription className="mt-2">
-                                {source.description ||
-                                  `${source.source_type || "file"} knowledge source`}
-                              </CardDescription>
-                            </CardHeader>
-                            <CardFooter>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={isAttaching}
-                              >
-                                <Link className="mr-2 h-4 w-4" />
-                                Add to conversation
-                              </Button>
-                            </CardFooter>
-                          </Card>
-                        ))}
-                    </div>
-                  </div>
-                ) : (
-                  <KnowledgeSourceUpload
-                    onSuccess={() => setIsUploadDialogOpen(false)}
-                  />
-                )}
-              </div>
-            </SheetContent>
-          </Sheet>
+          <KnowledgeSheet />
         </div>
       )}
 
@@ -255,13 +156,7 @@ export function KnowledgeSourceList({
                 : "Knowledge sources allow you to reference external information in your AI conversations. You can upload files (PDF, TXT, etc.), paste text, or add a URL."}
             </p>
             {showAddButton && (
-              <Button
-                variant="outline"
-                onClick={() => setIsUploadDialogOpen(true)}
-              >
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Add Knowledge Source
-              </Button>
+              <KnowledgeSheet />
             )}
           </CardContent>
         </Card>
