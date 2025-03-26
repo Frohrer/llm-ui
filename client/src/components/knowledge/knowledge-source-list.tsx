@@ -141,7 +141,7 @@ export function KnowledgeSourceList({
 
   return (
     <div className="h-[calc(100vh-4rem)] md:h-[calc(100vh-5rem)]">
-      <ScrollArea className="h-full px-4">
+      <ScrollArea className="h-full px-0">
         <div className="space-y-4 pr-2">
           {showAddButton && (
             <div className="flex justify-between items-center sticky top-0 bg-background z-10 pb-4">
@@ -149,7 +149,7 @@ export function KnowledgeSourceList({
             </div>
           )}
 
-          <div className="sticky top-14 bg-background z-10 pb-4">
+          <div className="sticky top-1 bg-background z-10 pb-4">
             <Input
               placeholder="Search knowledge sources..."
               value={searchQuery}
