@@ -10,10 +10,12 @@ import {
   anthropicRouter,
   deepseekRouter,
   geminiRouter,
+  falRouter,
   initializeOpenAI,
   initializeAnthropic,
   initializeDeepSeek,
-  initializeGemini
+  initializeGemini,
+  initializeFal,
 } from "./routes/providers";
 import { uploadSingleMiddleware, extractTextFromFile } from "./file-handler";
 
@@ -33,7 +35,8 @@ const clientsInitialized: Record<string, boolean> = {
   openai: false,
   anthropic: false,
   deepseek: false,
-  gemini: false
+  gemini: false,
+  fal: false
 };
 
 // Initialize clients from environment variables
@@ -51,6 +54,10 @@ if (process.env.DEEPSEEK_API_KEY) {
 
 if (process.env.GEMINI_API_KEY) {
   clientsInitialized.gemini = initializeGemini();
+}
+
+if (process.env.FAL_KEY) {
+  clientsInitialized.fal = initializeFal();
 }
 
 export function registerRoutes(app: Express): Server {
@@ -88,6 +95,8 @@ export function registerRoutes(app: Express): Server {
             return clientsInitialized.deepseek;
           case "gemini":
             return clientsInitialized.gemini;
+          case "falai":
+            return clientsInitialized.fal;
           default:
             return false;
         }
@@ -107,6 +116,7 @@ export function registerRoutes(app: Express): Server {
   app.use('/api/chat/anthropic', anthropicRouter);
   app.use('/api/chat/deepseek', deepseekRouter);
   app.use('/api/chat/gemini', geminiRouter);
+  app.use('/api/chat/falai', falRouter);
 
   // Register conversation routes
   app.use('/api/conversations', conversationsRoutes);

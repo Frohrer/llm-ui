@@ -39,11 +39,15 @@ export interface ModelConfig {
   defaultModel: boolean;
 }
 
-export interface LLMProvider {
+export interface ProviderConfig {
   id: string;
   name: string;
-  icon: IconType;  // Updated to use IconType from react-icons
+  icon: string;  // Just the icon name, not the component
   models: ModelConfig[];
+}
+
+export interface LLMProvider {
+  config: ProviderConfig;
   sendMessage(
     message: string, 
     conversationId?: string, 
