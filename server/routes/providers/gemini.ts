@@ -195,9 +195,6 @@ router.post("/", async (req: Request, res: Response) => {
           
           hasImageAttachment = true;
           console.log("Image successfully processed for Gemini");
-          
-          // Delete the file after processing
-          cleanupImageFile(att.url);
         } catch (imageError) {
           console.error("Error processing image for Gemini:", imageError);
           // Add error to document texts
@@ -212,15 +209,6 @@ router.post("/", async (req: Request, res: Response) => {
       else if (att.type === 'document' && att.text) {
         console.log(`Processing document attachment for Gemini: ${att.name}`);
         documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
-        
-        // Clean up document file after processing
-        try {
-          if (att.url) {
-            cleanupDocumentFile(att.url);
-          }
-        } catch (deleteError) {
-          console.error("Error deleting document file:", deleteError);
-        }
       }
     }
     

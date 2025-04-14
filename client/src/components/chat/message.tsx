@@ -91,13 +91,14 @@ export function Message({ message }: MessageProps) {
           "prose max-w-none",
           "prose-neutral dark:prose-invert",
           "prose-a:text-blue-600 dark:prose-a:text-blue-400",
-          // Add table styles
           "prose-table:table-auto prose-table:w-full",
           "prose-thead:bg-muted prose-thead:dark:bg-muted/50",
           "prose-tr:border-b prose-tr:border-border",
           "prose-th:p-2 prose-th:text-left",
           "prose-td:p-2",
+          "prose-img:max-w-full prose-img:h-auto prose-img:mx-auto",
         )}
+        transformImageUri={(uri: string) => uri}
         components={{
           code({ node, inline, className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || "");
@@ -127,6 +128,39 @@ export function Message({ message }: MessageProps) {
               <code {...props} className={className}>
                 {children}
               </code>
+            );
+          },
+          img: ({ src, alt }: { src?: string; alt?: string }) => {
+            // Handle both base64 and regular URL images
+            console.log("Image source received:", src);
+            
+            // If src is empty or undefined, try to extract from markdown content
+            if (!src && message.content) {
+              const match = message.content.match(/!\[.*?\]\((.*?)\)/);
+              if (match && match[1]) {
+                src = match[1];
+                console.log("Extracted image source from content:", src);
+              }
+            }
+
+            if (!src) {
+              console.error("No image source found");
+              return null;
+            }
+
+            return (
+              <div className="my-4 flex justify-center">
+                <img
+                  src={src}
+                  alt={alt || "Generated image"}
+                  className="max-w-full h-auto rounded-lg shadow-lg"
+                  style={{ maxHeight: "512px" }}
+                  onError={(e) => {
+                    console.error("Image failed to load:", src);
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </div>
             );
           },
           p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,

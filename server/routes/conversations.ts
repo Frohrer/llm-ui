@@ -3,6 +3,7 @@ import { db } from "@db";
 import { conversations, messages } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
+import { cleanupDocumentFile, cleanupImageFile } from "../file-handler";
 
 const router = express.Router();
 
@@ -75,6 +76,26 @@ router.delete("/:id", async (req: Request, res: Response) => {
         .status(404)
         .json({ error: "Conversation not found or unauthorized" });
     }
+
+    // Get all messages from the conversation to find attachments
+    const conversationMessages = await db.query.messages.findMany({
+      where: eq(messages.conversation_id, conversationId),
+    });
+
+    // Clean up any files associated with the messages
+    for (const message of conversationMessages) {
+      if (message.attachments) {
+        for (const attachment of message.attachments) {
+          if (attachment.type === 'image' && attachment.url) {
+            cleanupImageFile(attachment.url);
+          } else if (attachment.type === 'document' && attachment.url) {
+            cleanupDocumentFile(attachment.url);
+          }
+        }
+      }
+    }
+
+    // Delete messages and conversation
     await db
       .delete(messages)
       .where(eq(messages.conversation_id, conversationId));

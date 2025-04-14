@@ -1,0 +1,13 @@
+{
+    "id": "falai",
+    "name": "Fal.AI",
+    "icon": "SiFal",
+    "models": [
+      {
+        "id": "fal-ai/hidream-i1-full",
+        "name": "HiDream I1 Full",
+        "contextLength": 1024,
+        "defaultModel": false
+      }
+    ]
+  }
