@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import path from "path";
 import fs from "fs";
 import { db } from "@db";
@@ -199,7 +199,8 @@ router.post("/", async (req: Request, res: Response) => {
             type: "image_url", 
             image_url: { url: dataUri },
             base64: base64Image,
-            mimeType: mimeType
+            mimeType: mimeType,
+            fileName: fileName
           };
           
           hasImageAttachment = true;
@@ -237,13 +238,19 @@ router.post("/", async (req: Request, res: Response) => {
 
       try {
         // Handle image edit request
+        const imageFile = await toFile(
+          fs.createReadStream(path.join(process.cwd(), 'uploads', 'images', imageAttachmentContent.fileName)),
+          null,
+          {
+            type: imageAttachmentContent.mimeType
+          }
+        );
+
         const result = await client.images.edit({
           model: "gpt-image-1",
-          image: imageAttachmentContent.base64,
+          image: imageFile,
           prompt: message,
-          n: 1,
-          size: "1024x1024",
-          response_format: "b64_json"
+          n: 1
         });
 
         if (!result?.data?.[0]?.b64_json) {
