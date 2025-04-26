@@ -13,11 +13,6 @@ router.get("/", async (req: Request, res: Response) => {
     const userConversations = await db.query.conversations.findMany({
       where: eq(conversations.user_id, req.user!.id),
       orderBy: [desc(conversations.last_message_at)],
-      with: {
-        messages: {
-          orderBy: (messages, { asc }) => [asc(messages.created_at)],
-        },
-      },
     });
 
     const transformedConversations = userConversations.map(
@@ -31,8 +26,8 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
-// Get a specific conversation by ID
-router.get("/:id", async (req: Request, res: Response) => {
+// Get a specific conversation by ID with messages
+router.get("/:id/messages", async (req: Request, res: Response) => {
   try {
     const conversationId = parseInt(req.params.id);
     if (isNaN(conversationId)) {
@@ -57,7 +52,7 @@ router.get("/:id", async (req: Request, res: Response) => {
     res.json(transformDatabaseConversation(conversation));
   } catch (error) {
     console.error("Database error:", error);
-    res.status(500).json({ error: "Failed to fetch conversation" });
+    res.status(500).json({ error: "Failed to fetch conversation messages" });
   }
 });
 
