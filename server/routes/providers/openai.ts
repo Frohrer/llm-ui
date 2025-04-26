@@ -164,6 +164,9 @@ router.post("/", async (req: Request, res: Response) => {
     let imageAttachmentContent = null;
     let documentTexts: string[] = [];
     
+    // Check if this is an image edit request
+    const isImageEditRequest = model === "gpt-image-1-edit";
+    
     // Process each attachment
     for (const att of allAttachmentsToProcess) {
       // Handle image attachments
@@ -194,7 +197,9 @@ router.post("/", async (req: Request, res: Response) => {
           // Save for later use
           imageAttachmentContent = { 
             type: "image_url", 
-            image_url: { url: dataUri } 
+            image_url: { url: dataUri },
+            base64: base64Image,
+            mimeType: mimeType
           };
           
           hasImageAttachment = true;
@@ -215,7 +220,85 @@ router.post("/", async (req: Request, res: Response) => {
         documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
       }
     }
-    
+
+    // Handle image edit request
+    if (isImageEditRequest) {
+      if (!hasImageAttachment || !imageAttachmentContent) {
+        throw new Error("Image edit request requires an image attachment");
+      }
+
+      // Send initial conversation data
+      res.write(
+        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
+      );
+
+      // Send a single initial progress message
+      res.write(`data: ${JSON.stringify({ type: "chunk", content: "Starting image edit...\n" })}\n\n`);
+
+      try {
+        // Handle image edit request
+        const result = await client.images.edit({
+          model: "gpt-image-1",
+          image: imageAttachmentContent.base64,
+          prompt: message,
+          n: 1,
+          size: "1024x1024",
+          response_format: "b64_json"
+        });
+
+        if (!result?.data?.[0]?.b64_json) {
+          throw new Error("No image data received from OpenAI");
+        }
+
+        // Convert base64 to data URI
+        const editedImageDataUri = `data:${imageAttachmentContent.mimeType};base64,${result.data[0].b64_json}`;
+        streamedResponse = `![Edited Image](${editedImageDataUri})`;
+
+        // Insert the assistant message
+        const timestamp = new Date();
+        await db.insert(messages).values({
+          conversation_id: dbConversation.id,
+          role: "assistant",
+          content: streamedResponse,
+          created_at: timestamp,
+        });
+
+        // Get updated conversation data
+        const updatedConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, dbConversation.id),
+          with: {
+            messages: {
+              orderBy: (messages: any, { asc }: { asc: any }) => [asc(messages.created_at)],
+            },
+          },
+        });
+
+        if (!updatedConversation) {
+          throw new Error("Failed to retrieve conversation");
+        }
+
+        // Send the final response
+        res.write(
+          `data: ${JSON.stringify({
+            type: "end",
+            conversation: transformDatabaseConversation(updatedConversation),
+          })}\n\n`,
+        );
+
+      } catch (error) {
+        console.error("Image edit error:", error);
+        res.write(
+          `data: ${JSON.stringify({
+            type: "error",
+            error: error instanceof Error ? error.message : "Failed to edit image",
+          })}\n\n`,
+        );
+      }
+
+      res.end();
+      return;
+    }
+
     // Get knowledge content if requested
     let knowledgeContent = '';
     if (useKnowledge && dbConversation) {

@@ -32,6 +32,24 @@
       "name": "O1 Mini",
       "contextLength": 128000,
       "defaultModel": false
+    },
+    {
+      "id": "gpt-image-1-edit",
+      "name": "GPT Image Edit",
+      "contextLength": 32000,
+      "defaultModel": false
+    },
+    {
+      "id": "gpt-4.1",
+      "name": "GPT-4.1",
+      "contextLength": 128000,
+      "defaultModel": false
+    },
+    {
+      "id": "o3",
+      "name": "O3",
+      "contextLength": 128000,
+      "defaultModel": false
     }
   ]
 }
