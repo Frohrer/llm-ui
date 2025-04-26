@@ -180,7 +180,7 @@ router.post("/", async (req: Request, res: Response) => {
             onQueueUpdate: (update: FalQueueUpdate) => {
               if (update.status === "IN_PROGRESS" && update.logs.length > 0) {
                 const progressMsg = update.logs[update.logs.length - 1].message;
-                res.write(`data: ${JSON.stringify({ type: "chunk", content: `${progressMsg}\n` })}\n\n`);
+                res.write(`data: ${JSON.stringify({ type: "chunk", content: `${progressMsg}\n\n` })}\n\n`);
                 console.log("Generation progress:", progressMsg);
               }
             },
