@@ -17,7 +17,7 @@ import {
   initializeGemini,
   initializeFal,
 } from "./routes/providers";
-import { uploadSingleMiddleware, extractTextFromFile } from "./file-handler";
+import { uploadSingleMiddleware, extractTextFromFile, transformUrlToProxy } from "./file-handler";
 
 // Load provider configurations at startup
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -138,7 +138,10 @@ export function registerRoutes(app: Express): Server {
       // Create URL based on file type
       const baseUrl = process.env.BASE_URL || `http://${req.headers.host}`;
       const urlPath = isImage ? 'uploads/images/' : 'uploads/documents/';
-      const url = `${baseUrl}/${urlPath}${req.file.filename}`;
+      let url = `${baseUrl}/${urlPath}${req.file.filename}`;
+      
+      // Transform URL to use proxy domain if available
+      url = transformUrlToProxy(url);
       
       // For documents, extract text content
       let text: string | undefined;
