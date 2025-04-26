@@ -588,6 +588,12 @@ export function transformUrlToProxy(url: string): string {
     // Replace the hostname with the proxy domain and force https
     urlObj.hostname = proxyDomain;
     urlObj.protocol = 'https:';
+    
+    // Only keep port if it's explicitly provided in PROXY_DOMAIN
+    if (!proxyDomain.includes(':')) {
+      urlObj.port = '';
+    }
+    
     return urlObj.toString();
   } catch (error) {
     console.error('Error transforming URL:', error);
