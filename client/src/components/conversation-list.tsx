@@ -130,7 +130,7 @@ export function ConversationList({
                 onClick={() => onSelectConversation(conv)}
               >
                 <div className="flex flex-col items-start min-w-0 flex-1">
-                  <span className="text-sm md:text-base truncate w-full">
+                  <span className="text-xs md:text-sm truncate w-full max-w-[calc(100%-2rem)]">
                     {conv.title}
                   </span>
                   <span className="text-xs text-muted-foreground">
@@ -143,7 +143,7 @@ export function ConversationList({
               <Button
                 variant="ghost"
                 size="icon"
-                className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                className="shrink-0"
                 onClick={(e) => handleDelete(conv.id, e)}
               >
                 <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
