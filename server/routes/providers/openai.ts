@@ -339,7 +339,12 @@ router.post("/", async (req: Request, res: Response) => {
       
       // Add the image
       if (imageAttachmentContent) {
-        contentArray.push(imageAttachmentContent);
+        contentArray.push({
+          type: "image_url",
+          image_url: {
+            url: imageAttachmentContent.image_url.url
+          }
+        });
       }
       
       apiMessages.push({
