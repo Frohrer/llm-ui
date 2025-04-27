@@ -378,7 +378,7 @@ router.post("/", async (req: Request, res: Response) => {
           model,
           stream: true,
           max_completion_tokens: 4096, // Increased from 2048 to 4096
-          temperature: 0.7,
+          temperature: model === "o3" ? 1 : 0.7,
         });
         console.log("Stream created with model:", model); //Added logging
         break;
