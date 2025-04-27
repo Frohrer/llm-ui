@@ -149,7 +149,7 @@ export function ConversationList({
                 onClick={() => onSelectConversation(conv)}
               >
                 <div className="flex flex-col items-start min-w-0 flex-1">
-                  <span className="text-xs md:text-sm truncate w-full max-w-[calc(100%-2rem)]">
+                  <span className="text-sm md:text-base truncate w-full">
                     {conv.title}
                   </span>
                   <span className="text-xs text-muted-foreground">
