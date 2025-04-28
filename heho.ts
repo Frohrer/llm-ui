@@ -1,3 +1,6 @@
+here is the implementation from where it works
+
+cat conversation-list.tsx 
 import { useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -121,19 +124,19 @@ export function ConversationList({
         </h3>
         <div className="space-y-1">
           {conversations.map((conv) => (
-            <div key={conv.id} className="group grid grid-cols-[1fr,40px] items-center px-2 w-full">
+            <div key={conv.id} className="group flex items-center gap-2 px-2">
               <Button
                 variant={
                   conv.id === activeConversation?.id ? "secondary" : "ghost"
                 }
-                className="w-full justify-start text-left h-auto py-3 md:py-2 overflow-hidden pr-1"
+                className="flex-1 justify-start text-left h-auto py-3 md:py-2 min-w-0"
                 onClick={() => onSelectConversation(conv)}
               >
-                <div className="flex flex-col items-start w-full overflow-hidden">
-                  <span className="text-sm md:text-base truncate w-full inline-block">
+                <div className="flex flex-col items-start min-w-0 flex-1">
+                  <span className="text-sm md:text-base truncate w-full">
                     {conv.title}
                   </span>
-                  <span className="text-xs text-muted-foreground truncate w-full inline-block">
+                  <span className="text-xs text-muted-foreground">
                     {formatDistanceToNow(parseISO(conv.lastMessageAt), {
                       addSuffix: true,
                     })}
@@ -143,7 +146,7 @@ export function ConversationList({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 justify-self-end"
+                className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                 onClick={(e) => handleDelete(conv.id, e)}
               >
                 <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
