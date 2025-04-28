@@ -27,6 +27,20 @@ export function ConversationList({
     queryKey: ["/api/conversations"],
   });
 
+  // Query for messages when a conversation is selected
+  const { data: activeConversationWithMessages } = useQuery<Conversation>({
+    queryKey: ["/api/conversations", activeConversation?.id, "messages"],
+    queryFn: async () => {
+      if (!activeConversation?.id) return undefined;
+      const response = await fetch(`/api/conversations/${activeConversation.id}/messages`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch conversation messages");
+      }
+      return response.json();
+    },
+    enabled: !!activeConversation?.id,
+  });
+
   // Delete conversation mutation
   const deleteMutation = useMutation({
     mutationFn: async (conversationId: number) => {
@@ -91,6 +105,13 @@ export function ConversationList({
       {} as Record<"today" | "thisWeek" | "older", Conversation[]>,
     );
   }, [conversations]);
+
+  // Update active conversation with messages when they are loaded
+  useEffect(() => {
+    if (activeConversationWithMessages) {
+      onSelectConversation(activeConversationWithMessages);
+    }
+  }, [activeConversationWithMessages, onSelectConversation]);
 
   if (isLoading) {
     return (
