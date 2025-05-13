@@ -20,6 +20,7 @@ services:
       - AZURE_SPEECH_REGION=${AZURE_SPEECH_REGION}
       - NEXT_PUBLIC_CUSTOMER_NAME=${NEXT_PUBLIC_CUSTOMER_NAME}
       - FAL_KEY=${FAL_KEY}
+      - XAI_KEY=${XAI_KEY}
       - PROXY_DOMAIN=${PROXY_DOMAIN:-localhost}
     depends_on:
       - db

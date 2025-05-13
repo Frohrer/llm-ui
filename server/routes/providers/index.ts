@@ -3,6 +3,7 @@ import anthropicRouter, { initializeAnthropic, getAnthropicClient } from './anth
 import deepseekRouter, { initializeDeepSeek, getDeepSeekClient } from './deepseek';
 import geminiRouter, { initializeGemini, getGeminiClient } from './gemini';
 import { falRouter, initializeFal } from './fal';
+import grokRouter, { initializeGrok, getGrokClient } from './grok';
 
 export {
   openaiRouter,
@@ -10,13 +11,16 @@ export {
   deepseekRouter,
   geminiRouter,
   falRouter,
+  grokRouter,
   initializeOpenAI,
   initializeAnthropic,
   initializeDeepSeek,
   initializeGemini,
   initializeFal,
+  initializeGrok,
   getOpenAIClient,
   getAnthropicClient,
   getDeepSeekClient,
-  getGeminiClient
+  getGeminiClient,
+  getGrokClient
 };
