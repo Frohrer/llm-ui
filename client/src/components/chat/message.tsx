@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import type { Message as MessageType } from "@/lib/llm/types";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Check, Volume2, VolumeX, FileText, ExternalLink } from "lucide-react";
+import { Copy, Check, Volume2, VolumeX, FileText, ExternalLink, Wrench } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useSpeech } from "@/hooks/use-speech";
 import { Badge } from "@/components/ui/badge";
@@ -83,138 +83,234 @@ export function Message({ message }: MessageProps) {
     }
   };
 
+  // Helper function to format tool calls in code blocks
+  const formatToolCalls = (content: string) => {
+    // Check if the content includes tool call markers
+    if (
+      content.includes("Calling tool:") ||
+      content.includes("Tool Call:") ||
+      content.includes("Tool:") && content.includes("Result:")
+    ) {
+      // Split the content by newlines to process sections
+      const lines = content.split("\n");
+      const formattedLines = [];
+      let inToolCall = false;
+      let toolCallBuffer = [];
+      
+      for (const line of lines) {
+        if (
+          line.includes("Calling tool:") || 
+          line.includes("Tool Call:") || 
+          line.includes("Executing tools...") ||
+          (line.includes("Tool:") && !line.includes("Tool Execution Error"))
+        ) {
+          // Start collecting tool call content
+          if (toolCallBuffer.length > 0) {
+            // Format the previous tool call if there was one
+            formattedLines.push(
+              <div key={`tool-${formattedLines.length}`} className="my-2 p-2 bg-primary/5 border border-primary/20 rounded-md">
+                <div className="flex items-center gap-2 mb-1 text-primary font-medium">
+                  <Wrench className="h-4 w-4" />
+                  <span>Tool Interaction</span>
+                </div>
+                <div className="ml-2 pl-2 border-l-2 border-primary/30 text-sm">
+                  {toolCallBuffer.map((l, i) => (
+                    <div key={i}>{l}</div>
+                  ))}
+                </div>
+              </div>
+            );
+            toolCallBuffer = [];
+          }
+          
+          inToolCall = true;
+          toolCallBuffer.push(line);
+        } 
+        else if (inToolCall) {
+          // Add to the current tool call
+          toolCallBuffer.push(line);
+        } 
+        else {
+          // Regular content
+          formattedLines.push(line);
+        }
+      }
+      
+      // Add any remaining tool call content
+      if (inToolCall && toolCallBuffer.length > 0) {
+        formattedLines.push(
+          <div key={`tool-${formattedLines.length}`} className="my-2 p-2 bg-primary/5 border border-primary/20 rounded-md">
+            <div className="flex items-center gap-2 mb-1 text-primary font-medium">
+              <Wrench className="h-4 w-4" />
+              <span>Tool Interaction</span>
+            </div>
+            <div className="ml-2 pl-2 border-l-2 border-primary/30 text-sm">
+              {toolCallBuffer.map((l, i) => (
+                <div key={i}>{l}</div>
+              ))}
+            </div>
+          </div>
+        );
+      }
+      
+      return (
+        <div>
+          {formattedLines.map((item, index) => {
+            if (typeof item === "string") {
+              return <div key={index}>{item}</div>;
+            }
+            return item;
+          })}
+        </div>
+      );
+    }
+    
+    // No tool calls, return content as is
+    return content;
+  };
+
   const messageContent =
     message.role === "assistant" ? (
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        className={cn(
-          "prose max-w-none",
-          "prose-neutral dark:prose-invert",
-          "prose-a:text-blue-600 dark:prose-a:text-blue-400",
-          "prose-table:table-auto prose-table:w-full",
-          "prose-thead:bg-muted prose-thead:dark:bg-muted/50",
-          "prose-tr:border-b prose-tr:border-border",
-          "prose-th:p-2 prose-th:text-left",
-          "prose-td:p-2",
-          "prose-img:max-w-full prose-img:h-auto prose-img:mx-auto",
-        )}
-        transformImageUri={(uri: string) => uri}
-        components={{
-          code({ node, inline, className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || "");
-            const code = String(children).replace(/\n$/, "");
+      // Check if the message contains tool call markers
+      typeof message.content === "string" && 
+      (message.content.includes("Calling tool:") || 
+       message.content.includes("Tool Call:") || 
+       message.content.includes("Tool:") && message.content.includes("Result:")) ? (
+        <div className="prose dark:prose-invert max-w-none">
+          {formatToolCalls(message.content)}
+        </div>
+      ) : (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          className={cn(
+            "prose max-w-none",
+            "prose-neutral dark:prose-invert",
+            "prose-a:text-blue-600 dark:prose-a:text-blue-400",
+            "prose-table:table-auto prose-table:w-full",
+            "prose-thead:bg-muted prose-thead:dark:bg-muted/50",
+            "prose-tr:border-b prose-tr:border-border",
+            "prose-th:p-2 prose-th:text-left",
+            "prose-td:p-2",
+            "prose-img:max-w-full prose-img:h-auto prose-img:mx-auto",
+          )}
+          transformImageUri={(uri: string) => uri}
+          components={{
+            code({ node, inline, className, children, ...props }) {
+              const match = /language-(\w+)/.exec(className || "");
+              const code = String(children).replace(/\n$/, "");
 
-            return !inline && match ? (
-              <div className="relative group">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => handleCopyCode(code)}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-                <SyntaxHighlighter
-                  {...props}
-                  style={vscDarkPlus}
-                  language={match[1]}
-                  PreTag="div"
-                  className="!mt-0"
-                >
-                  {code}
-                </SyntaxHighlighter>
-              </div>
-            ) : (
-              <code {...props} className={className}>
-                {children}
-              </code>
-            );
-          },
-          img: ({ src, alt }: { src?: string; alt?: string }) => {
-            // Handle both base64 and regular URL images
-            console.log("Image source received:", src);
-            
-            // If src is empty or undefined, try to extract from markdown content
-            if (!src && message.content) {
-              const match = message.content.match(/!\[.*?\]\((.*?)\)/);
-              if (match && match[1]) {
-                src = match[1];
-                console.log("Extracted image source from content:", src);
+              return !inline && match ? (
+                <div className="relative group">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => handleCopyCode(code)}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                  <SyntaxHighlighter
+                    {...props}
+                    style={vscDarkPlus}
+                    language={match[1]}
+                    PreTag="div"
+                    className="!mt-0"
+                  >
+                    {code}
+                  </SyntaxHighlighter>
+                </div>
+              ) : (
+                <code {...props} className={className}>
+                  {children}
+                </code>
+              );
+            },
+            img: ({ src, alt }: { src?: string; alt?: string }) => {
+              // Handle both base64 and regular URL images
+              console.log("Image source received:", src);
+              
+              // If src is empty or undefined, try to extract from markdown content
+              if (!src && message.content) {
+                const match = message.content.match(/!\[.*?\]\((.*?)\)/);
+                if (match && match[1]) {
+                  src = match[1];
+                  console.log("Extracted image source from content:", src);
+                }
               }
-            }
 
-            if (!src) {
-              console.error("No image source found");
-              return null;
-            }
+              if (!src) {
+                console.error("No image source found");
+                return null;
+              }
 
-            return (
-              <div className="my-4 flex justify-center">
-                <img
-                  src={src}
-                  alt={alt || "Generated image"}
-                  className="max-w-full h-auto rounded-lg shadow-lg"
-                  style={{ maxHeight: "512px" }}
-                  onError={(e) => {
-                    console.error("Image failed to load:", src);
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
+              return (
+                <div className="my-4 flex justify-center">
+                  <img
+                    src={src}
+                    alt={alt || "Generated image"}
+                    className="max-w-full h-auto rounded-lg shadow-lg"
+                    style={{ maxHeight: "512px" }}
+                    onError={(e) => {
+                      console.error("Image failed to load:", src);
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                </div>
+              );
+            },
+            p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
+            ul: ({ children }) => (
+              <ul className="list-disc pl-6 mb-4">{children}</ul>
+            ),
+            ol: ({ children }) => (
+              <ol className="list-decimal pl-6 mb-4">{children}</ol>
+            ),
+            li: ({ children }) => <li className="mb-2">{children}</li>,
+            h1: ({ children }) => (
+              <h1 className="text-2xl font-bold mb-4">{children}</h1>
+            ),
+            h2: ({ children }) => (
+              <h2 className="text-xl font-bold mb-3">{children}</h2>
+            ),
+            h3: ({ children }) => (
+              <h3 className="text-lg font-bold mb-2">{children}</h3>
+            ),
+            blockquote: ({ children }) => (
+              <blockquote className="border-l-4 border-primary/20 pl-4 italic my-4">
+                {children}
+              </blockquote>
+            ),
+            a: ({ children, href }) => (
+              <a
+                href={href}
+                className="text-blue-600 dark:text-blue-400 underline hover:no-underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {children}
+              </a>
+            ),
+            table: ({ children }) => (
+              <div className="overflow-x-auto my-4">
+                <table className="w-full border-collapse">{children}</table>
               </div>
-            );
-          },
-          p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
-          ul: ({ children }) => (
-            <ul className="list-disc pl-6 mb-4">{children}</ul>
-          ),
-          ol: ({ children }) => (
-            <ol className="list-decimal pl-6 mb-4">{children}</ol>
-          ),
-          li: ({ children }) => <li className="mb-2">{children}</li>,
-          h1: ({ children }) => (
-            <h1 className="text-2xl font-bold mb-4">{children}</h1>
-          ),
-          h2: ({ children }) => (
-            <h2 className="text-xl font-bold mb-3">{children}</h2>
-          ),
-          h3: ({ children }) => (
-            <h3 className="text-lg font-bold mb-2">{children}</h3>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="border-l-4 border-primary/20 pl-4 italic my-4">
-              {children}
-            </blockquote>
-          ),
-          a: ({ children, href }) => (
-            <a
-              href={href}
-              className="text-blue-600 dark:text-blue-400 underline hover:no-underline"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {children}
-            </a>
-          ),
-          table: ({ children }) => (
-            <div className="overflow-x-auto my-4">
-              <table className="w-full border-collapse">{children}</table>
-            </div>
-          ),
-          thead: ({ children }) => (
-            <thead className="bg-muted dark:bg-muted/50">{children}</thead>
-          ),
-          tbody: ({ children }) => <tbody>{children}</tbody>,
-          tr: ({ children }) => (
-            <tr className="border-b border-border">{children}</tr>
-          ),
-          th: ({ children }) => (
-            <th className="p-2 text-left font-semibold">{children}</th>
-          ),
-          td: ({ children }) => <td className="p-2">{children}</td>,
-        }}
-      >
-        {message.content}
-      </ReactMarkdown>
+            ),
+            thead: ({ children }) => (
+              <thead className="bg-muted dark:bg-muted/50">{children}</thead>
+            ),
+            tbody: ({ children }) => <tbody>{children}</tbody>,
+            tr: ({ children }) => (
+              <tr className="border-b border-border">{children}</tr>
+            ),
+            th: ({ children }) => (
+              <th className="p-2 text-left font-semibold">{children}</th>
+            ),
+            td: ({ children }) => <td className="p-2">{children}</td>,
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
+      )
     ) : (
       <div className="text-base whitespace-pre-wrap">{message.content}</div>
     );

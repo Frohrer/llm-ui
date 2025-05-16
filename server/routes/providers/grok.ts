@@ -5,12 +5,9 @@ import { db } from "@db";
 import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
-import { 
-  cleanupDocumentFile,
-  cleanupImageFile
-} from "../../file-handler";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import OpenAI from "openai";
+import { getToolDefinitions, getTools, handleToolCalls } from "../../tools";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -45,6 +42,7 @@ router.post("/", async (req: Request, res: Response) => {
       allAttachments = [],
       useKnowledge = false,
       pendingKnowledgeSources = [],
+      useTools = false, // New parameter to enable/disable tool calling
     } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -291,34 +289,179 @@ router.post("/", async (req: Request, res: Response) => {
     }, 15000); // Send keep-alive every 15 seconds
 
     try {
-      // Use OpenAI SDK streaming with Grok model
-      const stream = await client.chat.completions.create({
+      // Set up the base request options
+      const requestOptions: any = {
         model: model,
         messages: apiMessages,
         stream: true,
         temperature: 0.7,
         max_tokens: 4096,
-      });
+      };
+
+      // Add tools if enabled
+      if (useTools) {
+        try {
+          console.log("Attempting to load tools for Grok...");
+          const toolDefinitions = await getToolDefinitions();
+          console.log(`Loaded ${toolDefinitions.length} tools:`, JSON.stringify(toolDefinitions));
+          
+          if (toolDefinitions.length > 0) {
+            requestOptions.tools = toolDefinitions;
+            requestOptions.tool_choice = "auto";
+            console.log(`Added ${toolDefinitions.length} tools to Grok request: ${toolDefinitions.map(t => t.function.name).join(', ')}`);
+          } else {
+            console.warn("No tools were loaded, tool calling will not work");
+            
+            // Log the specific issue for debugging
+            try {
+              const tools = await getTools();
+              console.log(`Raw tools loaded: ${tools.length}`);
+              
+              // Tell the user no tools are available
+              res.write(`data: ${JSON.stringify({ 
+                type: "chunk", 
+                content: "\n\nNote: Tools were requested but none are available. The server may need to be restarted or there may be configuration issues."
+              })}\n\n`);
+            } catch (innerError) {
+              console.error("Error getting raw tools:", innerError);
+            }
+          }
+        } catch (toolError) {
+          console.error("Error loading tools:", toolError);
+          
+          // Tell the user about the error
+          res.write(`data: ${JSON.stringify({ 
+            type: "chunk", 
+            content: `\n\nError loading tools: ${toolError instanceof Error ? toolError.message : 'Unknown error'}`
+          })}\n\n`);
+        }
+      } else {
+        console.log("Tool usage is disabled for this request");
+      }
+
+      // Use OpenAI SDK streaming with Grok model
+      const stream = await client.chat.completions.create(requestOptions);
 
       // Process the streaming response
       let lastChunkTime = Date.now();
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
+      let toolCallsInProgress: any[] = [];
+      let toolCallParts = '';
+      let isCollectingToolCall = false;
 
-      for await (const chunk of stream) {
+      for await (const chunk of stream as unknown as AsyncIterable<any>) {
         // Update last chunk time
         lastChunkTime = Date.now();
         
         const contentDelta = chunk.choices[0]?.delta?.content;
+        const toolCallsDelta = chunk.choices[0]?.delta?.tool_calls;
         
-        if (contentDelta) {
+        // Handle content chunks - only send to client if not part of a tool call
+        if (contentDelta && !toolCallsDelta) {
           streamedResponse += contentDelta;
           res.write(`data: ${JSON.stringify({ type: "chunk", content: contentDelta })}\n\n`);
-          if (res.flush) res.flush();
+        }
+        
+        // Handle tool call chunks if present and tool usage is enabled
+        if (useTools && toolCallsDelta && toolCallsDelta.length > 0) {
+          for (const toolCallDelta of toolCallsDelta) {
+            const { index, id, type, function: funcDelta } = toolCallDelta;
+            
+            // Initialize tool call if this is the first chunk
+            if (id && !toolCallsInProgress[index || 0]) {
+              toolCallsInProgress[index || 0] = {
+                id,
+                type,
+                function: {
+                  name: funcDelta?.name || '',
+                  arguments: ''
+                }
+              };
+            }
+            
+            // Append function arguments if present
+            if (funcDelta?.arguments) {
+              toolCallsInProgress[index || 0].function.arguments += funcDelta.arguments;
+            }
+            
+            // If there's a function name, set it
+            if (funcDelta?.name) {
+              toolCallsInProgress[index || 0].function.name = funcDelta.name;
+            }
+          }
         }
         
         // Check for timeout between chunks
         if (Date.now() - lastChunkTime > chunkTimeout) {
           throw new Error("Stream timeout - no data received for 30 seconds");
+        }
+      }
+
+      // Execute any tool calls if present and tool usage is enabled
+      if (useTools && toolCallsInProgress.length > 0) {
+        try {
+          console.log('Executing tool calls:', JSON.stringify(toolCallsInProgress));
+          
+          // Store tool calls as internal messages
+          const timestamp = new Date();
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "tool",
+            content: JSON.stringify(toolCallsInProgress),
+            metadata: { type: 'tool_calls' },
+            created_at: timestamp,
+          });
+          
+          // Execute all tool calls
+          const toolResults = await handleToolCalls(toolCallsInProgress);
+          
+          // Store tool results as internal messages
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "tool",
+            content: JSON.stringify(toolResults),
+            metadata: { type: 'tool_results' },
+            created_at: new Date(),
+          });
+          
+          // Get an additional LLM response with the tool results
+          const toolResponseMessages = [
+            ...apiMessages,
+            { role: 'assistant', content: null, tool_calls: toolCallsInProgress },
+            { role: 'tool', content: JSON.stringify(toolResults), tool_call_id: toolCallsInProgress[0].id }
+          ];
+          
+          // Get final response with tool results
+          const toolCompletionResponse = await client.chat.completions.create({
+            model: model,
+            messages: toolResponseMessages,
+            temperature: 0.7,
+            max_tokens: 4096,
+          });
+          
+          const toolFinalResponse = toolCompletionResponse.choices[0]?.message?.content || '';
+          
+          // Only send the final response if it's not empty
+          if (toolFinalResponse) {
+            res.write(`data: ${JSON.stringify({ 
+              type: "chunk", 
+              content: '\n\n' + toolFinalResponse 
+            })}\n\n`);
+            
+            // Add the final response to the streamed response
+            streamedResponse += '\n\n' + toolFinalResponse;
+          }
+          
+        } catch (toolError) {
+          console.error('Error executing tools:', toolError);
+          // Store tool error as internal message
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "tool",
+            content: JSON.stringify({ error: toolError instanceof Error ? toolError.message : 'Unknown tool execution error' }),
+            metadata: { type: 'tool_error' },
+            created_at: new Date(),
+          });
         }
       }
 

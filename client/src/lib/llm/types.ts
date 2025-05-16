@@ -10,9 +10,10 @@ export interface Attachment {
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'tool';
   content: string;
   timestamp: number;
+  metadata?: Record<string, any>;
   attachment?: Attachment;
   attachments?: Attachment[]; // Add support for multiple attachments
 }
@@ -53,7 +54,10 @@ export interface LLMProvider {
     conversationId?: string, 
     context?: Message[],
     attachment?: Attachment,
-    allAttachments?: Attachment[]
+    allAttachments?: Attachment[],
+    useKnowledge?: boolean,
+    pendingKnowledgeSources?: number[],
+    useTools?: boolean
   ): Promise<string>;
 }
 
@@ -74,6 +78,7 @@ export function transformDatabaseConversation(dbConv: SelectConversation & { mes
     createdAt: dbConv.created_at.toISOString(),
     messages: dbConv.messages 
       ? dbConv.messages
+          .filter(msg => msg.role !== 'tool') // Filter out tool messages
           .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
           .map(msg => ({
             id: msg.id,

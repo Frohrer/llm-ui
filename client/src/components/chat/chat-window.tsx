@@ -17,6 +17,7 @@ import {
   BookOpen,
   X,
   Database,
+  Wrench,
 } from "lucide-react";
 import { speechService } from "@/lib/speech-service";
 import {
@@ -33,6 +34,12 @@ import {
 } from "@/components/ui/sheet";
 import { KnowledgeSourceList } from "@/components/knowledge/knowledge-source-list";
 import { getConversationKnowledge } from "@/hooks/use-knowledge";
+import { 
+  Tooltip, 
+  TooltipContent, 
+  TooltipTrigger,
+  TooltipProvider
+} from "@/components/ui/tooltip";
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -78,7 +85,7 @@ export function ChatWindow({
         const loadedProviders = await getAllProviders();
         const providersMap = loadedProviders.reduce(
           (acc, provider) => {
-            acc[provider.id] = provider;
+            acc[provider.config.id] = provider;
             return acc;
           },
           {} as Record<string, any>,
@@ -148,6 +155,8 @@ export function ChatWindow({
   const [selectedModel, setSelectedModel] = useState<string>("");
   // Knowledge is always enabled now, but keeping for API compatibility
   const useKnowledge = true;
+  // Add useTools state for tool calling
+  const [useTools, setUseTools] = useState<boolean>(false);
   const [showMobileKnowledgePanel, setShowMobileKnowledgePanel] =
     useState<boolean>(false);
   const [showDesktopKnowledgePanel, setShowDesktopKnowledgePanel] =
@@ -344,7 +353,7 @@ export function ChatWindow({
     if (!providers) return "";
     for (const provider of Object.values(providers)) {
       if (provider.models.some((m: any) => m.id === modelId)) {
-        return provider.id;
+        return provider.config.id;
       }
     }
     throw new Error(`No provider found for model: ${modelId}`);
@@ -422,6 +431,7 @@ export function ChatWindow({
           allAttachments: allAttachments || [], // Send all attachments to be processed together
           useKnowledge: useKnowledge,
           pendingKnowledgeSources: pendingKnowledgeSources,
+          useTools: useTools, // Send useTools state to the API
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -495,6 +505,45 @@ export function ChatWindow({
                         }
                         return newText;
                       });
+                    }
+                    break;
+                  case "tool_call_progress":
+                    // Show tool call information in the UI
+                    if (data.tool_calls) {
+                      const toolCallContent = data.tool_calls.map((call: any, index: number) => {
+                        return `\n\nCalling tool: ${call.function?.name || "Unknown Tool"}\nWith parameters: ${call.function?.arguments || "{}"}`;
+                      }).join("");
+                      
+                      setStreamedText((prev) => {
+                        const newText = prev + toolCallContent;
+                        if (shouldAutoScroll) {
+                          setTimeout(scrollToBottom, 0);
+                        }
+                        return newText;
+                      });
+                    }
+                    break;
+                  case "tool_execution_start":
+                    setStreamedText((prev) => prev + "\n\nExecuting tools...");
+                    break;
+                  case "tool_execution_complete":
+                    if (data.results) {
+                      const resultContent = data.results.map((result: any) => {
+                        return `\n\nTool: ${result.toolName}\nResult: ${JSON.stringify(result.result, null, 2)}`;
+                      }).join("");
+                      
+                      setStreamedText((prev) => {
+                        const newText = prev + resultContent;
+                        if (shouldAutoScroll) {
+                          setTimeout(scrollToBottom, 0);
+                        }
+                        return newText;
+                      });
+                    }
+                    break;
+                  case "tool_execution_error":
+                    if (data.error) {
+                      setStreamedText((prev) => prev + `\n\nTool Execution Error: ${data.error}`);
                     }
                     break;
                   case "end":
@@ -611,6 +660,26 @@ export function ChatWindow({
             disabled={!!conversation || isLoading || isLoadingProviders}
             getModelDisplayName={getModelDisplayName}
           />
+          {/* Add Tools Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={`shrink-0 ${useTools ? "border-primary" : ""}`}
+                  onClick={() => setUseTools(!useTools)}
+                  aria-label="Toggle tool calling"
+                >
+                  <Wrench className="h-[1.2rem] w-[1.2rem]" />
+                  <span className="sr-only">Toggle tool calling</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {useTools ? "Tool calling enabled" : "Tool calling disabled"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <Button
             variant="outline"
             size="icon"
@@ -681,8 +750,11 @@ export function ChatWindow({
                   onClick={scrollToBottom}
                   className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-secondary hover:bg-secondary/80 text-foreground border border-border z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px] flex items-center justify-center"
                   style={{ width: "35px", height: "35px" }}
+                  aria-label="Scroll to bottom"
+                  title="Scroll to bottom"
                 >
                   <ChevronDown className="h-5 w-5" />
+                  <span className="sr-only">Scroll to bottom</span>
                 </button>
               )}
             </div>
