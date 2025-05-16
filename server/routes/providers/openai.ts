@@ -6,11 +6,8 @@ import { db } from "@db";
 import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
-import { 
-  cleanupDocumentFile,
-  cleanupImageFile
-} from "../../file-handler";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
+import { getToolDefinitions, handleToolCalls } from "../../tools";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -43,6 +40,7 @@ router.post("/", async (req: Request, res: Response) => {
       allAttachments = [],
       useKnowledge = false,
       pendingKnowledgeSources = [],
+      useTools = false,
     } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -378,14 +376,30 @@ router.post("/", async (req: Request, res: Response) => {
     // Stream the completion with retries
     while (retryCount < maxRetries) {
       try {
-        stream = await client.chat.completions.create({
+        const streamOptions: any = {
           messages: apiMessages,
           model,
           stream: true,
-          max_completion_tokens: 4096, // Increased from 2048 to 4096
+          max_completion_tokens: 4096,
           temperature: model === "o3" ? 1 : 0.7,
-        });
-        console.log("Stream created with model:", model); //Added logging
+        };
+
+        // Add tools if enabled
+        if (useTools) {
+          try {
+            const toolDefinitions = await getToolDefinitions();
+            if (toolDefinitions.length > 0) {
+              streamOptions.tools = toolDefinitions;
+              streamOptions.tool_choice = "auto";
+              console.log(`Added ${toolDefinitions.length} tools to request`);
+            }
+          } catch (toolError) {
+            console.error("Error loading tools:", toolError);
+          }
+        }
+
+        stream = await client.chat.completions.create(streamOptions);
+        console.log("Stream created with model:", model);
         break;
       } catch (error) {
         retryCount++;
@@ -413,21 +427,121 @@ router.post("/", async (req: Request, res: Response) => {
     try {
       let lastChunkTime = Date.now();
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
+      let toolCallsInProgress: any[] = [];
 
-      for await (const chunk of stream) {
+      for await (const chunk of stream as unknown as AsyncIterable<any>) {
         const content = chunk.choices[0]?.delta?.content || "";
-        if (content) {
+        const toolCallsDelta = chunk.choices[0]?.delta?.tool_calls;
+        
+        // Handle content chunks - only send to client if not part of a tool call
+        if (content && !toolCallsDelta) {
           streamedResponse += content;
           lastChunkTime = Date.now();
           res.write(
             `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
           );
-          if (res.flush) res.flush();
+        }
+
+        // Handle tool call chunks if present and tool usage is enabled
+        if (useTools && toolCallsDelta && toolCallsDelta.length > 0) {
+          for (const toolCallDelta of toolCallsDelta) {
+            const { index, id, type, function: funcDelta } = toolCallDelta;
+            
+            // Initialize tool call if this is the first chunk
+            if (id && !toolCallsInProgress[index || 0]) {
+              toolCallsInProgress[index || 0] = {
+                id,
+                type,
+                function: {
+                  name: funcDelta?.name || '',
+                  arguments: ''
+                }
+              };
+            }
+            
+            // Append function arguments if present
+            if (funcDelta?.arguments) {
+              toolCallsInProgress[index || 0].function.arguments += funcDelta.arguments;
+            }
+            
+            // If there's a function name, set it
+            if (funcDelta?.name) {
+              toolCallsInProgress[index || 0].function.name = funcDelta.name;
+            }
+          }
         }
 
         // Check for timeout between chunks
         if (Date.now() - lastChunkTime > chunkTimeout) {
           throw new Error("Stream timeout - no data received for 30 seconds");
+        }
+      }
+
+      // Execute any tool calls if present and tool usage is enabled
+      if (useTools && toolCallsInProgress.length > 0) {
+        try {
+          console.log('Executing tool calls:', JSON.stringify(toolCallsInProgress));
+          
+          // Store tool calls as internal messages
+          const timestamp = new Date();
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "tool",
+            content: JSON.stringify(toolCallsInProgress),
+            metadata: { type: 'tool_calls' },
+            created_at: timestamp,
+          });
+          
+          // Execute all tool calls
+          const toolResults = await handleToolCalls(toolCallsInProgress);
+          
+          // Store tool results as internal messages
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "tool",
+            content: JSON.stringify(toolResults),
+            metadata: { type: 'tool_results' },
+            created_at: new Date(),
+          });
+          
+          // Get an additional LLM response with the tool results
+          const toolResponseMessages = [
+            ...apiMessages,
+            { role: 'assistant', content: null, tool_calls: toolCallsInProgress },
+            { role: 'tool', content: JSON.stringify(toolResults), tool_call_id: toolCallsInProgress[0].id }
+          ];
+          
+          // Get final response with tool results
+          const toolCompletionResponse = await client.chat.completions.create({
+            model: model,
+            messages: toolResponseMessages,
+            temperature: 0.7,
+            max_tokens: 4096,
+          });
+          
+          const toolFinalResponse = toolCompletionResponse.choices[0]?.message?.content || '';
+          
+          // Only send the final response if it's not empty
+          if (toolFinalResponse) {
+            res.write(`data: ${JSON.stringify({ 
+              type: "chunk", 
+              content: '\n\n' + toolFinalResponse 
+            })}\n\n`);
+            
+            // Add the final response to the streamed response
+            streamedResponse += '\n\n' + toolFinalResponse;
+          }
+          
+        } catch (toolError) {
+          console.error('Error executing tools:', toolError);
+          // Store tool error as internal message
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "tool",
+            content: JSON.stringify({ error: toolError instanceof Error ? toolError.message : 'Unknown tool execution error' }),
+            metadata: { type: 'tool_error' },
+            created_at: new Date(),
+          });
         }
       }
 

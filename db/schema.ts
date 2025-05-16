@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean, json } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, json, jsonb } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
@@ -24,8 +24,9 @@ export const messages = pgTable("messages", {
   conversation_id: integer("conversation_id")
     .references(() => conversations.id)
     .notNull(),
-  role: text("role", { enum: ["user", "assistant"] }).notNull(),
+  role: text("role", { enum: ["user", "assistant", "tool"] }).notNull(),
   content: text("content").notNull(),
+  metadata: jsonb("metadata").default({}),
   created_at: timestamp("created_at").defaultNow().notNull(),
 });
 
