@@ -631,7 +631,7 @@ export function ChatWindow({
       <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
           {mobileMenuTrigger}
-          <h2 className="font-semibold text-base md:text-lg">
+          <h2 className="font-semibold text-base md:text-lg hidden md:block">
             {conversation?.title || "New Conversation"}
           </h2>
         </div>

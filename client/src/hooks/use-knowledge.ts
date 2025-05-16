@@ -9,6 +9,7 @@ export interface KnowledgeSource {
   source_type: 'file' | 'text' | 'url';
   type?: 'file' | 'text' | 'url'; // Keep for backward compatibility
   url?: string;
+  content_text?: string;
   content_length: number;
   use_rag: boolean;
   created_at: string;
@@ -167,6 +168,31 @@ export async function addKnowledgeUrl(
   return response.json();
 }
 
+// Update text knowledge source
+export async function updateKnowledgeText(
+  id: number,
+  data: {
+    name?: string;
+    description?: string;
+    text?: string;
+    useRag?: boolean;
+  }
+): Promise<KnowledgeSource> {
+  const response = await fetch(`/api/knowledge/text/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update knowledge text: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
 // Custom hook to manage knowledge sources
 export function useKnowledge() {
   const { toast } = useToast();
@@ -318,6 +344,26 @@ export function useKnowledge() {
     },
   });
 
+  // Update text knowledge source
+  const updateTextMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Parameters<typeof updateKnowledgeText>[1] }) => 
+      updateKnowledgeText(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-sources'] });
+      toast({
+        title: "Success",
+        description: "Knowledge source updated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   return {
     knowledgeSources,
     getConversationKnowledgeSources,
@@ -333,5 +379,8 @@ export function useKnowledge() {
     isAddingUrl: addKnowledgeUrlMutation.isPending,
     isAttaching: addKnowledgeToConversationMutation.isPending,
     isDetaching: removeKnowledgeFromConversationMutation.isPending,
+    updateKnowledgeText: (id: number, data: Parameters<typeof updateKnowledgeText>[1]) => 
+      updateTextMutation.mutate({ id, data }),
+    isUpdatingText: updateTextMutation.isPending,
   };
 }
