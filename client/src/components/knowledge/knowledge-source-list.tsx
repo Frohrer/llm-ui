@@ -10,14 +10,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -36,7 +28,6 @@ import {
   Edit,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { KnowledgeSourceUpload } from "@/components/knowledge/knowledge-source-upload";
 import { KnowledgeSourceEdit } from "@/components/knowledge/knowledge-source-edit";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KnowledgeSheet } from "./knowledge-sheet";

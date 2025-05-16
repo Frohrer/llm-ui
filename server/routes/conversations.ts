@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { db } from "@db";
-import { conversations, messages } from "@db/schema";
+import { conversations, messages, conversationKnowledge } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { cleanupDocumentFile, cleanupImageFile } from "../file-handler";
@@ -79,8 +79,9 @@ router.delete("/:id", async (req: Request, res: Response) => {
 
     // Clean up any files associated with the messages
     for (const message of conversationMessages) {
-      if (message.attachments) {
-        for (const attachment of message.attachments) {
+      const metadata = message.metadata as { attachments?: Array<{ type: string; url: string }> } | null;
+      if (metadata?.attachments) {
+        for (const attachment of metadata.attachments) {
           if (attachment.type === 'image' && attachment.url) {
             cleanupImageFile(attachment.url);
           } else if (attachment.type === 'document' && attachment.url) {
@@ -90,7 +91,13 @@ router.delete("/:id", async (req: Request, res: Response) => {
       }
     }
 
-    // Delete messages and conversation
+    // Delete in this order:
+    // 1. conversation_knowledge (join table)
+    // 2. messages
+    // 3. conversation
+    await db
+      .delete(conversationKnowledge)
+      .where(eq(conversationKnowledge.conversation_id, conversationId));
     await db
       .delete(messages)
       .where(eq(messages.conversation_id, conversationId));
