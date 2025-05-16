@@ -788,64 +788,72 @@ export function ChatWindow({
             >
               <SheetContent
                 side="right"
-                className="w-[300px] sm:w-[400px] md:hidden"
+                className="w-[300px] sm:w-[400px] md:hidden h-full flex flex-col"
               >
-                <SheetHeader>
+                <SheetHeader className="flex-shrink-0">
                   <div className="flex items-center justify-between">
                     <SheetTitle>Conversation Knowledge</SheetTitle>
                   </div>
                 </SheetHeader>
-                <div className="py-4">
-                  <KnowledgeSourceList
-                    mode={conversation ? "conversation" : "all"}
-                    conversationId={conversation?.id}
-                    showAttachButton={true}
-                    onSelectKnowledgeSource={(source) => {
-                      if (pendingKnowledgeSources.includes(source.id)) {
-                        setPendingKnowledgeSources((prev) =>
-                          prev.filter((id) => id !== source.id),
-                        );
-                      } else {
-                        setPendingKnowledgeSources((prev) => [
-                          ...prev,
-                          source.id,
-                        ]);
-                      }
-                    }}
-                    selectedSourceIds={pendingKnowledgeSources}
-                  />
-                </div>
+                <ScrollArea className="flex-1">
+                  <div className="py-4">
+                    <KnowledgeSourceList
+                      mode={conversation ? "conversation" : "all"}
+                      conversationId={conversation?.id}
+                      showAttachButton={true}
+                      onSelectKnowledgeSource={(source) => {
+                        if (pendingKnowledgeSources.includes(source.id)) {
+                          setPendingKnowledgeSources((prev) =>
+                            prev.filter((id) => id !== source.id),
+                          );
+                        } else {
+                          setPendingKnowledgeSources((prev) => [
+                            ...prev,
+                            source.id,
+                          ]);
+                        }
+                      }}
+                      selectedSourceIds={pendingKnowledgeSources}
+                    />
+                  </div>
+                </ScrollArea>
               </SheetContent>
             </Sheet>
           </div>
 
           {/* Desktop view - show as a sidebar */}
           {showDesktopKnowledgePanel && (
-            <div className="hidden md:block border-l w-[300px] overflow-auto">
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold">
-                    Conversation Knowledge
-                  </h3>
+            <div className="hidden md:block border-l w-[300px] h-full">
+              <div className="h-full flex flex-col">
+                <div className="p-4 border-b">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">
+                      Conversation Knowledge
+                    </h3>
+                  </div>
                 </div>
-                <KnowledgeSourceList
-                  mode={conversation ? "conversation" : "all"}
-                  conversationId={conversation?.id}
-                  showAttachButton={true}
-                  onSelectKnowledgeSource={(source) => {
-                    if (pendingKnowledgeSources.includes(source.id)) {
-                      setPendingKnowledgeSources((prev) =>
-                        prev.filter((id) => id !== source.id),
-                      );
-                    } else {
-                      setPendingKnowledgeSources((prev) => [
-                        ...prev,
-                        source.id,
-                      ]);
-                    }
-                  }}
-                  selectedSourceIds={pendingKnowledgeSources}
-                />
+                <ScrollArea className="flex-1">
+                  <div className="p-4">
+                    <KnowledgeSourceList
+                      mode={conversation ? "conversation" : "all"}
+                      conversationId={conversation?.id}
+                      showAttachButton={true}
+                      onSelectKnowledgeSource={(source) => {
+                        if (pendingKnowledgeSources.includes(source.id)) {
+                          setPendingKnowledgeSources((prev) =>
+                            prev.filter((id) => id !== source.id),
+                          );
+                        } else {
+                          setPendingKnowledgeSources((prev) => [
+                            ...prev,
+                            source.id,
+                          ]);
+                        }
+                      }}
+                      selectedSourceIds={pendingKnowledgeSources}
+                    />
+                  </div>
+                </ScrollArea>
               </div>
             </div>
           )}
