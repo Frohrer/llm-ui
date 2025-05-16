@@ -667,11 +667,14 @@ export function ChatWindow({
                 <Button
                   variant="outline"
                   size="icon"
-                  className={`shrink-0 ${useTools ? "border-primary" : ""}`}
+                  className="shrink-0 relative"
                   onClick={() => setUseTools(!useTools)}
                   aria-label="Toggle tool calling"
                 >
                   <Wrench className="h-[1.2rem] w-[1.2rem]" />
+                  {useTools && (
+                    <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-green-500 animate-pulse shadow-sm"></span>
+                  )}
                   <span className="sr-only">Toggle tool calling</span>
                 </Button>
               </TooltipTrigger>
