@@ -7,7 +7,33 @@
         "id": "fal-ai/hidream-i1-full",
         "name": "HiDream I1 Full",
         "contextLength": 1024,
-        "defaultModel": false
+        "defaultModel": false,
+        "parameters": {
+          "image_size": {
+            "width": 1024,
+            "height": 1024
+          },
+          "num_inference_steps": 50,
+          "guidance_scale": 5,
+          "num_images": 1,
+          "enable_safety_checker": false,
+          "output_format": "jpeg",
+          "sync_mode": true
+        }
+      },
+      {
+        "id": "fal-ai/flux-pro/v1.1-ultra",
+        "name": "Flux Pro Ultra",
+        "contextLength": 1024,
+        "defaultModel": false,
+        "parameters": {
+          "num_images": 1,
+          "enable_safety_checker": false,
+          "output_format": "jpeg",
+          "aspect_ratio": "16:9",
+          "sync_mode": true,
+          "raw": true
+        }
       }
     ]
   }
