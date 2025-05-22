@@ -48,6 +48,9 @@ COPY --from=builder /app/tailwind.config.ts ./tailwind.config.ts
 COPY --from=builder /app/types ./types
 COPY --from=builder /app/server/config/providers ./server/config/providers
 
+# Create screenshots directory
+RUN mkdir -p /app/public/screenshots && chmod 777 /app/public/screenshots
+
 # Add wait-for-it script
 ADD https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh /wait-for-it.sh
 RUN chmod +x /wait-for-it.sh
