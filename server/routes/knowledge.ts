@@ -9,7 +9,8 @@ import {
   deleteKnowledgeSource,
   addKnowledgeToConversation,
   removeKnowledgeFromConversation,
-  getConversationKnowledge
+  getConversationKnowledge,
+  updateKnowledgeSourceText
 } from '../knowledge-service';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db/index';
@@ -307,6 +308,36 @@ router.get('/conversation/:conversationId', async (req: Request, res: Response) 
   } catch (error: any) {
     console.error('Error getting conversation knowledge sources:', error);
     res.status(500).json({ error: error.message || 'Failed to get conversation knowledge sources' });
+  }
+});
+
+// Update a text knowledge source
+router.put('/text/:id', async (req: Request, res: Response) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+    
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid knowledge source ID' });
+    }
+    
+    const { name, description, text, useRag } = req.body;
+    
+    const knowledgeSource = await updateKnowledgeSourceText({
+      userId: req.user.id,
+      id,
+      name,
+      description,
+      text,
+      useRag: useRag === 'true' || useRag === true
+    });
+    
+    res.json(knowledgeSource);
+  } catch (error: any) {
+    console.error('Error updating knowledge source:', error);
+    res.status(500).json({ error: error.message || 'Failed to update knowledge source' });
   }
 });
 

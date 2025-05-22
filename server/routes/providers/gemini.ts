@@ -6,10 +6,6 @@ import { db } from "@db";
 import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
-import { 
-  cleanupDocumentFile,
-  cleanupImageFile
-} from "../../file-handler";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 
 const router = express.Router();
@@ -195,9 +191,6 @@ router.post("/", async (req: Request, res: Response) => {
           
           hasImageAttachment = true;
           console.log("Image successfully processed for Gemini");
-          
-          // Delete the file after processing
-          cleanupImageFile(att.url);
         } catch (imageError) {
           console.error("Error processing image for Gemini:", imageError);
           // Add error to document texts
@@ -212,15 +205,6 @@ router.post("/", async (req: Request, res: Response) => {
       else if (att.type === 'document' && att.text) {
         console.log(`Processing document attachment for Gemini: ${att.name}`);
         documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
-        
-        // Clean up document file after processing
-        try {
-          if (att.url) {
-            cleanupDocumentFile(att.url);
-          }
-        } catch (deleteError) {
-          console.error("Error deleting document file:", deleteError);
-        }
       }
     }
     

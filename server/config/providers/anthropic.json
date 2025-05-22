@@ -4,28 +4,58 @@
   "icon": "SiAntdesign",
   "models": [
     {
-      "id": "claude-3-7-sonnet-20250219",
+      "id": "claude-sonnet-4-0",
+      "name": "Claude 4 Sonnet",
+      "contextLength": 200000,
+      "defaultModel": false,
+      "features": {
+        "tools": true
+      }
+    },
+    {
+      "id": "claude-opus-4-0",
+      "name": "Claude 4 Opus",
+      "contextLength": 200000,
+      "defaultModel": false,
+      "features": {
+        "tools": true
+      }
+    },
+    {
+      "id": "claude-3-7-sonnet-latest",
       "name": "Claude 3.7 Sonnet",
-      "contextLength": 20000,
-      "defaultModel": false
+      "contextLength": 200000,
+      "defaultModel": false,
+      "features": {
+        "tools": true
+      }
     },
     {
       "id": "claude-3-opus-latest",
       "name": "Claude 3 Opus",
       "contextLength": 200000,
-      "defaultModel": false
+      "defaultModel": false,
+      "features": {
+        "tools": true
+      }
     },
     {
       "id": "claude-3-5-sonnet-latest",
       "name": "Claude 3.5 Sonnet",
       "contextLength": 200000,
-      "defaultModel": true
+      "defaultModel": true,
+      "features": {
+        "tools": true
+      }
     },
     {
       "id": "claude-3-5-haiku-latest",
       "name": "Claude 3.5 Haiku",
       "contextLength": 200000,
-      "defaultModel": false
+      "defaultModel": false,
+      "features": {
+        "tools": true
+      }
     }
   ]
 }

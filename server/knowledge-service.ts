@@ -508,3 +508,57 @@ export async function prepareKnowledgeContentForConversation(conversationId: num
     throw error;
   }
 }
+
+/**
+ * Updates a text knowledge source
+ */
+export async function updateKnowledgeSourceText(options: {
+  userId: number;
+  id: number;
+  name?: string;
+  description?: string;
+  text?: string;
+  useRag?: boolean;
+}) {
+  const { userId, id, name, description, text, useRag } = options;
+
+  try {
+    // Get the existing knowledge source
+    const existingSource = await db.query.knowledgeSources.findFirst({
+      where: and(
+        eq(knowledgeSources.id, id),
+        eq(knowledgeSources.user_id, userId),
+        eq(knowledgeSources.source_type, 'text')
+      ),
+    });
+
+    if (!existingSource) {
+      throw new Error('Knowledge source not found or not a text source');
+    }
+
+    // Update the knowledge source
+    const [updatedSource] = await db.update(knowledgeSources)
+      .set({
+        name: name ?? existingSource.name,
+        description: description ?? existingSource.description,
+        content_text: text ?? existingSource.content_text,
+        use_rag: useRag ?? existingSource.use_rag,
+        updated_at: new Date(),
+      })
+      .where(and(
+        eq(knowledgeSources.id, id),
+        eq(knowledgeSources.user_id, userId)
+      ))
+      .returning();
+
+    // If RAG is enabled and text was updated, reprocess chunks
+    if (useRag && text && text.length > 0) {
+      await processTextForChunks(updatedSource.id, text);
+    }
+
+    return updatedSource;
+  } catch (error) {
+    console.error('Error updating knowledge source:', error);
+    throw error;
+  }
+}

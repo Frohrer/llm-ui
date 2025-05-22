@@ -10,13 +10,12 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import {
   Trash,
@@ -26,9 +25,10 @@ import {
   Unlink,
   Link,
   Check,
+  Edit,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { KnowledgeSourceUpload } from "@/components/knowledge/knowledge-source-upload";
+import { KnowledgeSourceEdit } from "@/components/knowledge/knowledge-source-edit";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KnowledgeSheet } from "./knowledge-sheet";
 
@@ -60,6 +60,7 @@ export function KnowledgeSourceList({
   showAddButton = true,
   gridLayout = false,
 }: KnowledgeSourceListProps) {
+  const [editingSource, setEditingSource] = useState<KnowledgeSource | null>(null);
   const {
     knowledgeSources,
     getConversationKnowledgeSources,
@@ -155,9 +156,7 @@ export function KnowledgeSourceList({
                 ? "Knowledge sources provide context to the AI, allowing it to reference specific information in its responses."
                 : "Knowledge sources allow you to reference external information in your AI conversations. You can upload files (PDF, TXT, etc.), paste text, or add a URL."}
             </p>
-            {showAddButton && (
-              <KnowledgeSheet />
-            )}
+            <KnowledgeSheet />
           </CardContent>
         </Card>
       ) : (
@@ -228,20 +227,49 @@ export function KnowledgeSourceList({
                 </CardDescription>
               </CardHeader>
               <CardFooter className="flex justify-between flex-wrap gap-2">
-                {mode === "all" && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteKnowledgeSource(source.id);
-                    }}
-                    disabled={isDeleting}
-                  >
-                    <Trash className="mr-2 h-4 w-4" />
-                    Delete
-                  </Button>
-                )}
+                <div className="flex gap-2">
+                  {mode === "all" && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteKnowledgeSource(source.id);
+                      }}
+                      disabled={isDeleting}
+                    >
+                      <Trash className="mr-2 h-4 w-4" />
+                      Delete
+                    </Button>
+                  )}
+
+                  {mode === "all" && source.source_type === "text" && (
+                    <Dialog open={editingSource?.id === source.id} onOpenChange={(open) => !open && setEditingSource(null)}>
+                      <DialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingSource(source);
+                          }}
+                        >
+                          <Edit className="mr-2 h-4 w-4" />
+                          Edit
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-[600px]">
+                        <DialogHeader>
+                          <DialogTitle>Edit Knowledge Source</DialogTitle>
+                        </DialogHeader>
+                        <KnowledgeSourceEdit
+                          source={source}
+                          onSuccess={() => setEditingSource(null)}
+                        />
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                </div>
 
                 {/* Universal Attach/Detach button for all modes */}
                 {showAttachButton && (
@@ -279,9 +307,7 @@ export function KnowledgeSourceList({
                     ) : (
                       <>
                         <Link className="mr-2 h-4 w-4" />
-                        {selectedSourceIds.includes(source.id)
-                          ? "Detach"
-                          : "Attach"}
+                        {conversationId ? "Attach" : "Select"}
                       </>
                     )}
                   </Button>
