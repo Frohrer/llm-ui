@@ -689,7 +689,6 @@ export function ChatWindow({
             className={`shrink-0 relative ${showDesktopKnowledgePanel || showMobileKnowledgePanel ? "border-primary" : ""}`}
             onClick={() => {
               if (window.innerWidth >= 768) {
-                // md breakpoint
                 setShowDesktopKnowledgePanel(!showDesktopKnowledgePanel);
               } else {
                 setShowMobileKnowledgePanel(!showMobileKnowledgePanel);
@@ -778,86 +777,50 @@ export function ChatWindow({
           </ResizablePanel>
         </ResizablePanelGroup>
 
-        {/* Knowledge panel - shown as a sheet on mobile and as a sidebar on desktop */}
-        <>
-          {/* Mobile view - show as a sheet */}
-          <div className="md:hidden">
-            <Sheet
-              open={showMobileKnowledgePanel}
-              onOpenChange={setShowMobileKnowledgePanel}
-            >
-              <SheetContent
-                side="right"
-                className="w-[300px] sm:w-[400px] md:hidden h-full flex flex-col"
-              >
-                <SheetHeader className="flex-shrink-0">
-                  <div className="flex items-center justify-between">
-                    <SheetTitle>Conversation Knowledge</SheetTitle>
-                  </div>
-                </SheetHeader>
-                <ScrollArea className="flex-1">
-                  <div className="py-4">
-                    <KnowledgeSourceList
-                      mode={conversation ? "conversation" : "all"}
-                      conversationId={conversation?.id}
-                      showAttachButton={true}
-                      onSelectKnowledgeSource={(source) => {
-                        if (pendingKnowledgeSources.includes(source.id)) {
-                          setPendingKnowledgeSources((prev) =>
-                            prev.filter((id) => id !== source.id),
-                          );
-                        } else {
-                          setPendingKnowledgeSources((prev) => [
-                            ...prev,
-                            source.id,
-                          ]);
-                        }
-                      }}
-                      selectedSourceIds={pendingKnowledgeSources}
-                    />
-                  </div>
-                </ScrollArea>
-              </SheetContent>
-            </Sheet>
-          </div>
-
-          {/* Desktop view - show as a sidebar */}
-          {showDesktopKnowledgePanel && (
-            <div className="hidden md:block border-l w-[300px] h-full">
-              <div className="h-full flex flex-col">
-                <div className="p-4 border-b">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">
-                      Conversation Knowledge
-                    </h3>
-                  </div>
-                </div>
-                <ScrollArea className="flex-1">
-                  <div className="p-4">
-                    <KnowledgeSourceList
-                      mode={conversation ? "conversation" : "all"}
-                      conversationId={conversation?.id}
-                      showAttachButton={true}
-                      onSelectKnowledgeSource={(source) => {
-                        if (pendingKnowledgeSources.includes(source.id)) {
-                          setPendingKnowledgeSources((prev) =>
-                            prev.filter((id) => id !== source.id),
-                          );
-                        } else {
-                          setPendingKnowledgeSources((prev) => [
-                            ...prev,
-                            source.id,
-                          ]);
-                        }
-                      }}
-                      selectedSourceIds={pendingKnowledgeSources}
-                    />
-                  </div>
-                </ScrollArea>
+        {/* Knowledge panel - shown as a sheet on all devices */}
+        <Sheet
+          open={showMobileKnowledgePanel || showDesktopKnowledgePanel}
+          onOpenChange={(open) => {
+            if (window.innerWidth >= 768) {
+              setShowDesktopKnowledgePanel(open);
+            } else {
+              setShowMobileKnowledgePanel(open);
+            }
+          }}
+        >
+          <SheetContent
+            side="right"
+            className="w-[300px] sm:w-[400px] h-full flex flex-col"
+          >
+            <SheetHeader className="flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <SheetTitle>Conversation Knowledge</SheetTitle>
               </div>
-            </div>
-          )}
-        </>
+            </SheetHeader>
+            <ScrollArea className="flex-1">
+              <div className="py-4">
+                <KnowledgeSourceList
+                  mode={conversation ? "conversation" : "all"}
+                  conversationId={conversation?.id}
+                  showAttachButton={true}
+                  onSelectKnowledgeSource={(source) => {
+                    if (pendingKnowledgeSources.includes(source.id)) {
+                      setPendingKnowledgeSources((prev) =>
+                        prev.filter((id) => id !== source.id),
+                      );
+                    } else {
+                      setPendingKnowledgeSources((prev) => [
+                        ...prev,
+                        source.id,
+                      ]);
+                    }
+                  }}
+                  selectedSourceIds={pendingKnowledgeSources}
+                />
+              </div>
+            </ScrollArea>
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   );
