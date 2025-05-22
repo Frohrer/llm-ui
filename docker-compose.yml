@@ -28,6 +28,9 @@ services:
       - SMTP_SECURE=${SMTP_SECURE}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
+      - GHOST_API_KEY=${GHOST_API_KEY}
+      - GHOST_API_URL=${GHOST_API_URL}
+      - SCREENSHOTONE_KEY=${SCREENSHOTONE_KEY}
     depends_on:
       - db
     restart: unless-stopped
