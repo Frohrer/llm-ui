@@ -257,6 +257,7 @@ router.post("/", async (req: Request, res: Response) => {
           
           requestOptions.tools = anthropicTools;
           console.log(`Added ${anthropicTools.length} tools to Anthropic request: ${anthropicTools.map(t => t.name).join(', ')}`);
+          console.log("Tool definitions:", JSON.stringify(anthropicTools, null, 2));
         } else {
           console.warn("No tools were loaded, tool calling will not work");
           
@@ -340,6 +341,15 @@ router.post("/", async (req: Request, res: Response) => {
     // Add the messages to the request
     requestOptions.messages = apiMessages;
 
+    // Debug the final request
+    console.log("Final Anthropic request options:", JSON.stringify({
+      model: requestOptions.model,
+      messages: requestOptions.messages,
+      tools: requestOptions.tools ? `${requestOptions.tools.length} tools` : 'no tools',
+      max_tokens: requestOptions.max_tokens,
+      temperature: requestOptions.temperature
+    }, null, 2));
+
     // Send initial conversation data
     res.write(
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
@@ -378,6 +388,9 @@ router.post("/", async (req: Request, res: Response) => {
       for await (const chunk of stream as any) {
         // Debug the received chunk structure - uncomment for debugging
         console.log("Anthropic chunk received type:", chunk.type);
+        if (chunk.type === 'content_block_start' && chunk.content_block) {
+          console.log("Content block type:", chunk.content_block.type);
+        }
         
         // Handle all types of content from Claude API
         if (chunk.type === 'content_block_delta') {
@@ -395,6 +408,19 @@ router.post("/", async (req: Request, res: Response) => {
               console.log("Received empty content_block_delta, not sending to user");
             }
           }
+          // Handle tool input delta - tool arguments come in deltas
+          else if (contentDelta && 'partial_json' in contentDelta) {
+            console.log("Received tool input delta:", JSON.stringify(contentDelta));
+            // Find the current tool call being built and update its arguments
+            if (toolCallsInProgress.length > 0) {
+              const currentToolCall = toolCallsInProgress[toolCallsInProgress.length - 1];
+              if (!currentToolCall.argumentsJson) {
+                currentToolCall.argumentsJson = '';
+              }
+              currentToolCall.argumentsJson += contentDelta.partial_json;
+              lastChunkTime = Date.now();
+            }
+          }
         } 
         else if (chunk.type === 'content_block_start') {
           const contentBlock = chunk.content_block;
@@ -410,6 +436,25 @@ router.post("/", async (req: Request, res: Response) => {
               lastChunkTime = Date.now();
               console.log("Received empty content_block_start, not sending to user");
             }
+          }
+          // Handle tool_use content blocks
+          else if (contentBlock && contentBlock.type === 'tool_use') {
+            console.log("Tool use detected in content_block_start:", JSON.stringify(contentBlock));
+            
+            // Add the tool call to the in-progress array
+            const toolCall = {
+              id: contentBlock.id,
+              name: contentBlock.name,
+              arguments: contentBlock.input || {},
+              argumentsJson: '' // For accumulating partial JSON
+            };
+            
+            toolCallsInProgress.push(toolCall);
+            
+            // Update the last chunk time to prevent timeout
+            lastChunkTime = Date.now();
+            
+            // Don't notify the client that a tool is being used - silently handle tools
           }
         }
         else if (chunk.type === 'message_delta' && chunk.delta && chunk.delta.stop_reason) {
@@ -435,24 +480,7 @@ router.post("/", async (req: Request, res: Response) => {
             }
           }
         }
-        else if (chunk.type === 'tool_use') {
-          // Handle tool use
-          console.log("Tool use detected:", JSON.stringify(chunk));
-          
-          // Add the tool call to the in-progress array
-          const toolCall = {
-            id: chunk.id,
-            name: chunk.name,
-            arguments: chunk.input || {}
-          };
-          
-          toolCallsInProgress.push(toolCall);
-          
-          // Update the last chunk time to prevent timeout
-          lastChunkTime = Date.now();
-          
-          // Don't notify the client that a tool is being used - silently handle tools
-        }
+
 
         // Check for timeout between chunks
         if (Date.now() - lastChunkTime > chunkTimeout) {
@@ -462,6 +490,8 @@ router.post("/", async (req: Request, res: Response) => {
 
       // Log the state after stream completion
       console.log(`Stream completed. Has content: ${streamedResponse.trim().length > 0}, Tool calls: ${toolCallsInProgress.length}`);
+      console.log("Final streamedResponse:", JSON.stringify(streamedResponse));
+      console.log("Tool calls in progress:", JSON.stringify(toolCallsInProgress));
       
       // Check if the stream ended with stop_reason="tool_use" but no tool calls were registered
       // This might happen if there's a bug in how we process tool_use events
@@ -550,8 +580,28 @@ router.post("/", async (req: Request, res: Response) => {
             created_at: timestamp,
           });
           
-          // Execute all tool calls
-          const toolResults = await handleToolCalls(toolCallsInProgress);
+          // Execute all tool calls - convert to format expected by handleToolCalls
+          const formattedToolCalls = toolCallsInProgress.map(toolCall => {
+            // If we have accumulated JSON arguments, parse them, otherwise use the initial arguments
+            let finalArguments = toolCall.arguments;
+            if (toolCall.argumentsJson && toolCall.argumentsJson.trim()) {
+              try {
+                finalArguments = JSON.parse(toolCall.argumentsJson);
+                console.log(`Parsed tool arguments from JSON: ${JSON.stringify(finalArguments)}`);
+              } catch (parseError) {
+                console.error(`Failed to parse tool arguments JSON: ${toolCall.argumentsJson}`, parseError);
+                // Fall back to initial arguments
+              }
+            }
+            
+            return {
+              id: toolCall.id,
+              name: toolCall.name,
+              arguments: finalArguments
+            };
+          });
+          
+          const toolResults = await handleToolCalls(formattedToolCalls);
           console.log("Tool execution results:", JSON.stringify(toolResults, null, 2));
           
           // Store tool results as internal messages
@@ -567,15 +617,24 @@ router.post("/", async (req: Request, res: Response) => {
           // Create messages in the format Anthropic expects
           const toolResponseMessages = [
             ...apiMessages,
-            // Use plain text for the assistant's tool call
+            // Assistant message with tool use
             { 
               role: 'assistant' as const, 
-              content: `I'm using the ${toolCallsInProgress[0].name} tool with input: ${JSON.stringify(toolCallsInProgress[0].arguments)}`
+              content: formattedToolCalls.map(toolCall => ({
+                type: 'tool_use',
+                id: toolCall.id,
+                name: toolCall.name,
+                input: toolCall.arguments
+              }))
             },
-            // Tool response as plain text
+            // User message with tool results
             { 
               role: 'user' as const, 
-              content: `Here is the result from the ${toolCallsInProgress[0].name} tool: ${JSON.stringify(toolResults[0].result, null, 2)}`
+              content: toolResults.map(result => ({
+                type: 'tool_result',
+                tool_use_id: result.toolCallId,
+                content: JSON.stringify(result.result, null, 2)
+              }))
             }
           ];
           
@@ -587,6 +646,7 @@ router.post("/", async (req: Request, res: Response) => {
             const toolCompletionResponse = await client.messages.create({
               model: model,
               messages: toolResponseMessages as any,
+              tools: requestOptions.tools, // Include tools in the completion request
               temperature: 0.7,
               max_tokens: 4096,
             });
