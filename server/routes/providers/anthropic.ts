@@ -630,53 +630,53 @@ router.post("/", async (req: Request, res: Response) => {
             // User message with tool results
             { 
               role: 'user' as const, 
-              content: toolResults.map(result => ({
-                type: 'tool_result',
-                tool_use_id: result.toolCallId,
-                content: JSON.stringify(result.result, null, 2)
-              }))
+              content: toolResults.map(result => {
+                // Provide the full tool results to Anthropic
+                let formattedContent = '';
+                
+                try {
+                  // Always provide the complete result as JSON
+                  formattedContent = JSON.stringify(result.result, null, 2);
+                } catch (error) {
+                  formattedContent = `Error formatting tool result: ${error instanceof Error ? error.message : 'Unknown error'}`;
+                }
+                
+                return {
+                  type: 'tool_result',
+                  tool_use_id: result.toolCallId,
+                  content: formattedContent
+                };
+              })
             }
           ];
-          
-          console.log("Sending tool results back to Anthropic for processing:", 
-            JSON.stringify(toolResults[0].result, null, 2));
           
           try {
             // Get final response with tool results
             const toolCompletionResponse = await client.messages.create({
               model: model,
               messages: toolResponseMessages as any,
-              tools: requestOptions.tools, // Include tools in the completion request
+              // Don't include tools to prevent loops
               temperature: 0.7,
               max_tokens: 4096,
             });
             
-            // Safely access content array and get text
+            // Get text content from response
             let toolFinalResponse = '';
             if (toolCompletionResponse.content && toolCompletionResponse.content.length > 0) {
-              const contentBlock = toolCompletionResponse.content[0];
-              if (contentBlock.type === 'text') {
-                toolFinalResponse = contentBlock.text;
-                console.log("Received final response from Anthropic after tool execution:", toolFinalResponse);
-              } else {
-                console.log("Unexpected content block type in tool completion response:", contentBlock.type);
+              const textBlocks = toolCompletionResponse.content.filter(block => block.type === 'text');
+              if (textBlocks.length > 0) {
+                toolFinalResponse = textBlocks.map(block => block.text).join('\n\n');
               }
-            } else {
-              console.log("No content blocks in tool completion response from Anthropic");
             }
             
-            // Send the tool result and final response to the user
+            // Send the response to the client
             if (toolFinalResponse) {
-              // Add the final response to the streamed response
-              streamedResponse = toolFinalResponse; // Replace empty streamedResponse with tool result response
-              
-              // Send the response to the client
+              streamedResponse = toolFinalResponse;
               res.write(`data: ${JSON.stringify({ 
                 type: "chunk", 
                 content: toolFinalResponse 
               })}\n\n`);
             } else {
-              // If no response after tool execution, provide a generic message
               const fallbackMessage = "I've processed your request but couldn't generate a response.";
               streamedResponse = fallbackMessage;
               res.write(`data: ${JSON.stringify({ 
@@ -687,7 +687,6 @@ router.post("/", async (req: Request, res: Response) => {
           } catch (toolResponseError) {
             console.error("Error getting response after tool execution:", toolResponseError);
             
-            // Handle error with tool response
             const errorMessage = `Error processing tool results: ${toolResponseError instanceof Error ? toolResponseError.message : 'Unknown error'}`;
             streamedResponse = errorMessage;
             
