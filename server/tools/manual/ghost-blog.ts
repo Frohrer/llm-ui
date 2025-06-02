@@ -68,15 +68,15 @@ export const ghostBlogTool: Tool = {
       const { title, content, status = 'published', tags = [] } = params;
       
       // Get API URL and key from environment variables or provided params
-      const apiUrl = params.apiUrl || process.env.GHOST_API_URL;
-      const apiKey = params.apiKey || process.env.GHOST_API_KEY;
+      const apiUrl = process.env.GHOST_API_URL;
+      const apiKey = process.env.GHOST_API_KEY;
       
       if (!apiUrl) {
-        throw new Error('Ghost API URL not provided. Set GHOST_API_URL environment variable or provide apiUrl parameter');
+        throw new Error('Ghost API URL not provided. Set GHOST_API_URL environment variable');
       }
       
       if (!apiKey) {
-        throw new Error('Ghost API key not provided. Set GHOST_API_KEY environment variable or provide apiKey parameter');
+        throw new Error('Ghost API key not provided. Set GHOST_API_KEY environment variabler');
       }
 
       // Split the key into ID and SECRET
