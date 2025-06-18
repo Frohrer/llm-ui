@@ -28,6 +28,7 @@ const fileFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
   useRag: z.boolean().default(true),
+  isShared: z.boolean().default(false),
   file: z.any().refine((file) => file instanceof File, "File is required"),
 });
 
@@ -36,6 +37,7 @@ const textFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
   useRag: z.boolean().default(true),
+  isShared: z.boolean().default(false),
   text: z.string().min(1, "Text content is required"),
 });
 
@@ -44,6 +46,7 @@ const urlFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
   useRag: z.boolean().default(true),
+  isShared: z.boolean().default(false),
   url: z.string().url("Please enter a valid URL"),
 });
 
@@ -58,6 +61,7 @@ export function KnowledgeSourceUpload({ onSuccess }: KnowledgeSourceUploadProps)
       name: "",
       description: "",
       useRag: true,
+      isShared: false,
     },
   });
 
@@ -68,6 +72,7 @@ export function KnowledgeSourceUpload({ onSuccess }: KnowledgeSourceUploadProps)
       name: "",
       description: "",
       useRag: true,
+      isShared: false,
       text: "",
     },
   });
@@ -79,6 +84,7 @@ export function KnowledgeSourceUpload({ onSuccess }: KnowledgeSourceUploadProps)
       name: "",
       description: "",
       useRag: true,
+      isShared: false,
       url: "",
     },
   });
@@ -90,6 +96,7 @@ export function KnowledgeSourceUpload({ onSuccess }: KnowledgeSourceUploadProps)
       name: data.name,
       description: data.description,
       useRag: data.useRag,
+      isShared: data.isShared,
     });
     
     fileForm.reset();
@@ -103,6 +110,7 @@ export function KnowledgeSourceUpload({ onSuccess }: KnowledgeSourceUploadProps)
       name: data.name,
       description: data.description,
       useRag: data.useRag,
+      isShared: data.isShared,
     });
     
     textForm.reset();
@@ -116,6 +124,7 @@ export function KnowledgeSourceUpload({ onSuccess }: KnowledgeSourceUploadProps)
       name: data.name,
       description: data.description,
       useRag: data.useRag,
+      isShared: data.isShared,
     });
     
     urlForm.reset();
@@ -221,6 +230,28 @@ export function KnowledgeSourceUpload({ onSuccess }: KnowledgeSourceUploadProps)
               )}
             />
             
+            <FormField
+              control={fileForm.control}
+              name="isShared"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">Share with all users</FormLabel>
+                    <FormDescription>
+                      Make this knowledge source available to all users
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
             <Button type="submit" disabled={isUploading} className="w-full">
               {isUploading ? "Uploading..." : "Upload File"}
             </Button>
@@ -301,6 +332,28 @@ export function KnowledgeSourceUpload({ onSuccess }: KnowledgeSourceUploadProps)
               )}
             />
             
+            <FormField
+              control={textForm.control}
+              name="isShared"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">Share with all users</FormLabel>
+                    <FormDescription>
+                      Make this knowledge source available to all users
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
             <Button type="submit" disabled={isAddingText} className="w-full">
               {isAddingText ? "Adding..." : "Add Text"}
             </Button>
@@ -367,6 +420,28 @@ export function KnowledgeSourceUpload({ onSuccess }: KnowledgeSourceUploadProps)
                     <FormLabel className="text-base">Use RAG</FormLabel>
                     <FormDescription>
                       Enable Retrieval-Augmented Generation for web content
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
+            <FormField
+              control={urlForm.control}
+              name="isShared"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">Share with all users</FormLabel>
+                    <FormDescription>
+                      Make this knowledge source available to all users
                     </FormDescription>
                   </div>
                   <FormControl>

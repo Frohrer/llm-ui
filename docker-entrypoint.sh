@@ -5,11 +5,11 @@ set -e
 echo "Waiting for PostgreSQL to be ready..."
 /wait-for-it.sh db:5432 -t 60
 
-# Push database schema
-echo "Pushing database schema..."
-npm run db:push
+# Run database migrations
+echo "Running database migrations..."
+node scripts/migrate.js
 if [ $? -ne 0 ]; then
-    echo "Failed to push database schema"
+    echo "Failed to run database migrations"
     exit 1
 fi
 
