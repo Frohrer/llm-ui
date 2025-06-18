@@ -26,11 +26,14 @@ import {
   Link,
   Check,
   Edit,
+  Share2,
+  Users,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { KnowledgeSourceEdit } from "@/components/knowledge/knowledge-source-edit";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KnowledgeSheet } from "./knowledge-sheet";
+import { useUser } from "@/hooks/use-user";
 
 export type KnowledgeSourceListMode = "all" | "conversation";
 
@@ -61,6 +64,7 @@ export function KnowledgeSourceList({
   gridLayout = false,
 }: KnowledgeSourceListProps) {
   const [editingSource, setEditingSource] = useState<KnowledgeSource | null>(null);
+  const { user } = useUser();
   const {
     knowledgeSources,
     getConversationKnowledgeSources,
@@ -70,6 +74,8 @@ export function KnowledgeSourceList({
     isAttaching,
     removeKnowledgeFromConversation,
     isDetaching,
+    toggleKnowledgeSourceSharing,
+    isTogglingSharing,
   } = useKnowledge();
 
   // Always call the hook with a clean dummy ID if not provided
@@ -196,6 +202,12 @@ export function KnowledgeSourceList({
                   <Badge variant="outline">
                     {source.source_type || "file"}
                   </Badge>
+                  {source.is_shared && (
+                    <Badge variant="secondary">
+                      <Users className="h-3.5 w-3.5 mr-1" />
+                      Shared
+                    </Badge>
+                  )}
                   <Badge
                     variant={
                       selectedSourceIds.includes(source.id)
@@ -227,7 +239,7 @@ export function KnowledgeSourceList({
                 </CardDescription>
               </CardHeader>
               <CardFooter className="flex justify-between flex-wrap gap-2">
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   {mode === "all" && (
                     <Button
                       variant="destructive"
@@ -268,6 +280,22 @@ export function KnowledgeSourceList({
                         />
                       </DialogContent>
                     </Dialog>
+                  )}
+
+                  {/* Only show share button for sources owned by current user */}
+                  {mode === "all" && user && source.user_id === user.id && (
+                    <Button
+                      variant={source.is_shared ? "default" : "outline"}
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleKnowledgeSourceSharing(source.id);
+                      }}
+                      disabled={isTogglingSharing}
+                    >
+                      <Share2 className="mr-2 h-4 w-4" />
+                      {source.is_shared ? "Unshare" : "Share"}
+                    </Button>
                   )}
                 </div>
 
