@@ -1,40 +1,38 @@
-import { OpenAIProvider } from './openai';
-import { AnthropicProvider } from './anthropic';
-import { DeepSeekProvider } from './deepseek';
-import { GeminiProvider } from './gemini';
-import type { LLMProvider } from '../types';
+import type { LLMProvider, ProviderConfig } from '../types';
+import { UnifiedProvider } from './unified';
 import { useState, useEffect } from 'react';
-let providersCache: Record<string, LLMProvider>;
+
+let providersCache: Record<string, LLMProvider> = {};
 
 export async function initializeProviders() {
-  if (providersCache) return providersCache;
+  if (Object.keys(providersCache).length > 0) return providersCache;
 
   const response = await fetch('/api/providers');
   if (!response.ok) {
     throw new Error('Failed to fetch provider configurations');
   }
 
-  const configs = await response.json();
-  providersCache = {};
+  const configs: ProviderConfig[] = await response.json();
+  console.log('Received provider configs:', configs);
 
   for (const config of configs) {
-    switch (config.id) {
-      case 'openai':
-        providersCache[config.id] = new OpenAIProvider(config);
-        break;
-      case 'anthropic':
-        providersCache[config.id] = new AnthropicProvider(config);
-        break;
-      case 'deepseek':
-        providersCache[config.id] = new DeepSeekProvider(config);
-        break;
-      case 'gemini':
-        providersCache[config.id] = new GeminiProvider(config);
-        break;
-      // New providers can be added here
+    try {
+      // Ensure the config has all required fields
+      const validatedConfig: ProviderConfig = {
+        id: config.id,
+        name: config.name,
+        icon: config.icon,
+        models: Array.isArray(config.models) ? config.models : []
+      };
+
+      console.log('Creating provider with config:', validatedConfig);
+      providersCache[config.id] = new UnifiedProvider(validatedConfig);
+    } catch (error) {
+      console.error(`Failed to initialize provider ${config.id}:`, error);
     }
   }
 
+  console.log('Initialized providers:', Object.keys(providersCache));
   return providersCache;
 }
 
@@ -53,7 +51,8 @@ export function useProviders() {
         
         // Set the first provider as active by default
         if (Object.keys(loadedProviders).length > 0 && !activeProvider) {
-          setActiveProvider(loadedProviders[Object.keys(loadedProviders)[0]]);
+          const firstProviderId = Object.keys(loadedProviders)[0];
+          setActiveProvider(loadedProviders[firstProviderId]);
         }
         setIsLoading(false);
       } catch (err) {
@@ -75,7 +74,7 @@ export function useProviders() {
 }
 
 export async function getProvider(id: string): Promise<LLMProvider> {
-  if (!providersCache) {
+  if (Object.keys(providersCache).length === 0) {
     await initializeProviders();
   }
 
@@ -86,7 +85,7 @@ export async function getProvider(id: string): Promise<LLMProvider> {
 }
 
 export async function getAllProviders(): Promise<LLMProvider[]> {
-  if (!providersCache) {
+  if (Object.keys(providersCache).length === 0) {
     await initializeProviders();
   }
   return Object.values(providersCache);

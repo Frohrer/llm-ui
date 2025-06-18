@@ -26,35 +26,39 @@ export function KnowledgeSheet({ trigger }: KnowledgeSheetProps) {
       <SheetTrigger asChild>
         {trigger || defaultTrigger}
       </SheetTrigger>
-      <SheetContent side="right" className="w-full sm:max-w-xl md:max-w-2xl lg:max-w-4xl xl:max-w-5xl overflow-y-auto">
-        <SheetHeader className="mb-6">
-          <SheetTitle className="text-2xl">Knowledge Sources</SheetTitle>
-        </SheetHeader>
-        
-        <div className="mb-6 flex justify-end">
-          <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Add Knowledge Source
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px]">
-              <DialogHeader>
-                <DialogTitle>Add Knowledge Source</DialogTitle>
-              </DialogHeader>
-              <KnowledgeSourceUpload
-                onSuccess={() => setIsUploadDialogOpen(false)}
-              />
-            </DialogContent>
-          </Dialog>
+      <SheetContent side="right" className="w-full sm:max-w-xl md:max-w-2xl lg:max-w-4xl xl:max-w-5xl p-0 flex flex-col">
+        <div className="p-6 border-b">
+          <SheetHeader>
+            <SheetTitle className="text-2xl">Knowledge Sources</SheetTitle>
+          </SheetHeader>
+          
+          <div className="mt-6 flex justify-end">
+            <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Add Knowledge Source
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[600px]">
+                <DialogHeader>
+                  <DialogTitle>Add Knowledge Source</DialogTitle>
+                </DialogHeader>
+                <KnowledgeSourceUpload
+                  onSuccess={() => setIsUploadDialogOpen(false)}
+                />
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
-        <KnowledgeSourceList 
-          mode="all" 
-          gridLayout={true} 
-          showAddButton={false} 
-        />
+        <div className="flex-1 overflow-y-auto p-6">
+          <KnowledgeSourceList 
+            mode="all" 
+            gridLayout={true} 
+            showAddButton={false} 
+          />
+        </div>
       </SheetContent>
     </Sheet>
   );

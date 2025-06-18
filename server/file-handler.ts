@@ -572,3 +572,31 @@ export const uploadSingleMiddleware = upload.single('file');
 
 // Multiple file upload middleware (max 5 files at once)
 export const uploadMultipleMiddleware = upload.array('files', 5);
+
+// Function to transform URLs to use proxy domain/hostname
+export function transformUrlToProxy(url: string): string {
+  // Get the proxy domain/hostname from environment variable
+  const proxyDomain = process.env.PROXY_DOMAIN;
+  
+  if (!proxyDomain) {
+    console.warn('PROXY_DOMAIN environment variable not set, using original URL');
+    return url;
+  }
+
+  try {
+    const urlObj = new URL(url);
+    // Replace the hostname with the proxy domain and force https
+    urlObj.hostname = proxyDomain;
+    urlObj.protocol = 'https:';
+    
+    // Only keep port if it's explicitly provided in PROXY_DOMAIN
+    if (!proxyDomain.includes(':')) {
+      urlObj.port = '';
+    }
+    
+    return urlObj.toString();
+  } catch (error) {
+    console.error('Error transforming URL:', error);
+    return url;
+  }
+}

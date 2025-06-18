@@ -10,12 +10,16 @@ import {
   anthropicRouter,
   deepseekRouter,
   geminiRouter,
+  falRouter,
+  grokRouter,
   initializeOpenAI,
   initializeAnthropic,
   initializeDeepSeek,
-  initializeGemini
+  initializeGemini,
+  initializeFal,
+  initializeGrok,
 } from "./routes/providers";
-import { uploadSingleMiddleware, extractTextFromFile } from "./file-handler";
+import { uploadSingleMiddleware, extractTextFromFile, transformUrlToProxy } from "./file-handler";
 
 // Load provider configurations at startup
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -33,7 +37,9 @@ const clientsInitialized: Record<string, boolean> = {
   openai: false,
   anthropic: false,
   deepseek: false,
-  gemini: false
+  gemini: false,
+  fal: false,
+  grok: false
 };
 
 // Initialize clients from environment variables
@@ -51,6 +57,14 @@ if (process.env.DEEPSEEK_API_KEY) {
 
 if (process.env.GEMINI_API_KEY) {
   clientsInitialized.gemini = initializeGemini();
+}
+
+if (process.env.FAL_KEY) {
+  clientsInitialized.fal = initializeFal();
+}
+
+if (process.env.XAI_KEY) {
+  clientsInitialized.grok = initializeGrok();
 }
 
 export function registerRoutes(app: Express): Server {
@@ -88,6 +102,10 @@ export function registerRoutes(app: Express): Server {
             return clientsInitialized.deepseek;
           case "gemini":
             return clientsInitialized.gemini;
+          case "falai":
+            return clientsInitialized.fal;
+          case "grok":
+            return clientsInitialized.grok;
           default:
             return false;
         }
@@ -107,6 +125,8 @@ export function registerRoutes(app: Express): Server {
   app.use('/api/chat/anthropic', anthropicRouter);
   app.use('/api/chat/deepseek', deepseekRouter);
   app.use('/api/chat/gemini', geminiRouter);
+  app.use('/api/chat/falai', falRouter);
+  app.use('/api/chat/grok', grokRouter);
 
   // Register conversation routes
   app.use('/api/conversations', conversationsRoutes);
@@ -128,7 +148,10 @@ export function registerRoutes(app: Express): Server {
       // Create URL based on file type
       const baseUrl = process.env.BASE_URL || `http://${req.headers.host}`;
       const urlPath = isImage ? 'uploads/images/' : 'uploads/documents/';
-      const url = `${baseUrl}/${urlPath}${req.file.filename}`;
+      let url = `${baseUrl}/${urlPath}${req.file.filename}`;
+      
+      // Transform URL to use proxy domain if available
+      url = transformUrlToProxy(url);
       
       // For documents, extract text content
       let text: string | undefined;

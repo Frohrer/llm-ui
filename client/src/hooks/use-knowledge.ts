@@ -9,8 +9,10 @@ export interface KnowledgeSource {
   source_type: 'file' | 'text' | 'url';
   type?: 'file' | 'text' | 'url'; // Keep for backward compatibility
   url?: string;
+  content_text?: string;
   content_length: number;
   use_rag: boolean;
+  is_shared: boolean;
   created_at: string;
   user_id: number;
 }
@@ -87,7 +89,8 @@ export async function uploadKnowledgeFile(
   file: File,
   name: string,
   description?: string,
-  useRag?: boolean
+  useRag?: boolean,
+  isShared?: boolean
 ): Promise<KnowledgeSource> {
   const formData = new FormData();
   formData.append('file', file);
@@ -99,6 +102,10 @@ export async function uploadKnowledgeFile(
   
   if (useRag !== undefined) {
     formData.append('useRag', useRag.toString());
+  }
+
+  if (isShared !== undefined) {
+    formData.append('isShared', isShared.toString());
   }
 
   const response = await fetch('/api/knowledge/file', {
@@ -118,7 +125,8 @@ export async function addKnowledgeText(
   text: string,
   name: string,
   description?: string,
-  useRag?: boolean
+  useRag?: boolean,
+  isShared?: boolean
 ): Promise<KnowledgeSource> {
   const response = await fetch('/api/knowledge/text', {
     method: 'POST',
@@ -130,6 +138,7 @@ export async function addKnowledgeText(
       name,
       description,
       useRag,
+      isShared,
     }),
   });
 
@@ -145,7 +154,8 @@ export async function addKnowledgeUrl(
   url: string,
   name: string,
   description?: string,
-  useRag?: boolean
+  useRag?: boolean,
+  isShared?: boolean
 ): Promise<KnowledgeSource> {
   const response = await fetch('/api/knowledge/url', {
     method: 'POST',
@@ -157,11 +167,53 @@ export async function addKnowledgeUrl(
       name,
       description,
       useRag,
+      isShared,
     }),
   });
 
   if (!response.ok) {
     throw new Error(`Failed to add knowledge URL: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// Update text knowledge source
+export async function updateKnowledgeText(
+  id: number,
+  data: {
+    name?: string;
+    description?: string;
+    text?: string;
+    useRag?: boolean;
+  }
+): Promise<KnowledgeSource> {
+  const response = await fetch(`/api/knowledge/text/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update knowledge text: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// Toggle sharing status of a knowledge source
+export async function toggleKnowledgeSourceSharing(id: number): Promise<KnowledgeSource> {
+  const response = await fetch(`/api/knowledge/${id}/share`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to toggle knowledge source sharing: ${response.statusText}`);
   }
 
   return response.json();
@@ -216,8 +268,8 @@ export function useKnowledge() {
 
   // Upload a file as a knowledge source
   const uploadKnowledgeFileMutation = useMutation({
-    mutationFn: (params: { file: File; name: string; description?: string; useRag?: boolean }) => 
-      uploadKnowledgeFile(params.file, params.name, params.description, params.useRag),
+    mutationFn: (params: { file: File; name: string; description?: string; useRag?: boolean; isShared?: boolean }) => 
+      uploadKnowledgeFile(params.file, params.name, params.description, params.useRag, params.isShared),
     onSuccess: () => {
       toast({
         title: "Knowledge file uploaded",
@@ -236,8 +288,8 @@ export function useKnowledge() {
 
   // Add text as a knowledge source
   const addKnowledgeTextMutation = useMutation({
-    mutationFn: (params: { text: string; name: string; description?: string; useRag?: boolean }) => 
-      addKnowledgeText(params.text, params.name, params.description, params.useRag),
+    mutationFn: (params: { text: string; name: string; description?: string; useRag?: boolean; isShared?: boolean }) => 
+      addKnowledgeText(params.text, params.name, params.description, params.useRag, params.isShared),
     onSuccess: () => {
       toast({
         title: "Knowledge text added",
@@ -256,8 +308,8 @@ export function useKnowledge() {
 
   // Add URL as a knowledge source
   const addKnowledgeUrlMutation = useMutation({
-    mutationFn: (params: { url: string; name: string; description?: string; useRag?: boolean }) => 
-      addKnowledgeUrl(params.url, params.name, params.description, params.useRag),
+    mutationFn: (params: { url: string; name: string; description?: string; useRag?: boolean; isShared?: boolean }) => 
+      addKnowledgeUrl(params.url, params.name, params.description, params.useRag, params.isShared),
     onSuccess: () => {
       toast({
         title: "Knowledge URL added",
@@ -318,6 +370,47 @@ export function useKnowledge() {
     },
   });
 
+  // Update text knowledge source
+  const updateTextMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Parameters<typeof updateKnowledgeText>[1] }) => 
+      updateKnowledgeText(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-sources'] });
+      toast({
+        title: "Success",
+        description: "Knowledge source updated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Toggle knowledge source sharing
+  const toggleSharingMutation = useMutation({
+    mutationFn: (id: number) => toggleKnowledgeSourceSharing(id),
+    onSuccess: (updatedSource) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/knowledge'] });
+      toast({
+        title: updatedSource.is_shared ? "Knowledge source shared" : "Knowledge source unshared",
+        description: updatedSource.is_shared 
+          ? "This knowledge source is now shared with all users." 
+          : "This knowledge source is now private to you.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to toggle sharing",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   return {
     knowledgeSources,
     getConversationKnowledgeSources,
@@ -327,11 +420,16 @@ export function useKnowledge() {
     addKnowledgeUrl: addKnowledgeUrlMutation.mutate,
     addKnowledgeToConversation: addKnowledgeToConversationMutation.mutate,
     removeKnowledgeFromConversation: removeKnowledgeFromConversationMutation.mutate,
+    toggleKnowledgeSourceSharing: toggleSharingMutation.mutate,
     isDeleting: deleteKnowledgeSourceMutation.isPending,
     isUploading: uploadKnowledgeFileMutation.isPending,
     isAddingText: addKnowledgeTextMutation.isPending,
     isAddingUrl: addKnowledgeUrlMutation.isPending,
     isAttaching: addKnowledgeToConversationMutation.isPending,
     isDetaching: removeKnowledgeFromConversationMutation.isPending,
+    isTogglingSharing: toggleSharingMutation.isPending,
+    updateKnowledgeText: (id: number, data: Parameters<typeof updateKnowledgeText>[1]) => 
+      updateTextMutation.mutate({ id, data }),
+    isUpdatingText: updateTextMutation.isPending,
   };
 }

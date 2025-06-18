@@ -10,9 +10,10 @@ export interface Attachment {
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'tool';
   content: string;
   timestamp: number;
+  metadata?: Record<string, any>;
   attachment?: Attachment;
   attachments?: Attachment[]; // Add support for multiple attachments
 }
@@ -39,17 +40,24 @@ export interface ModelConfig {
   defaultModel: boolean;
 }
 
-export interface LLMProvider {
+export interface ProviderConfig {
   id: string;
   name: string;
-  icon: IconType;  // Updated to use IconType from react-icons
+  icon: string;  // Just the icon name, not the component
   models: ModelConfig[];
+}
+
+export interface LLMProvider {
+  config: ProviderConfig;
   sendMessage(
     message: string, 
     conversationId?: string, 
     context?: Message[],
     attachment?: Attachment,
-    allAttachments?: Attachment[]
+    allAttachments?: Attachment[],
+    useKnowledge?: boolean,
+    pendingKnowledgeSources?: number[],
+    useTools?: boolean
   ): Promise<string>;
 }
 
@@ -60,7 +68,7 @@ export interface LLMConfig {
 }
 
 // Helper function to transform database response to frontend format
-export function transformDatabaseConversation(dbConv: SelectConversation & { messages: SelectMessage[] }): Conversation {
+export function transformDatabaseConversation(dbConv: SelectConversation & { messages?: SelectMessage[] }): Conversation {
   return {
     id: dbConv.id,
     title: dbConv.title,
@@ -68,13 +76,16 @@ export function transformDatabaseConversation(dbConv: SelectConversation & { mes
     model: dbConv.model,
     lastMessageAt: dbConv.last_message_at.toISOString(),
     createdAt: dbConv.created_at.toISOString(),
-    messages: dbConv.messages
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-      .map(msg => ({
-        id: msg.id,
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-        created_at: msg.created_at.toISOString()
-      }))
+    messages: dbConv.messages 
+      ? dbConv.messages
+          .filter(msg => msg.role !== 'tool') // Filter out tool messages
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+          .map(msg => ({
+            id: msg.id,
+            role: msg.role as 'user' | 'assistant',
+            content: msg.content,
+            created_at: msg.created_at.toISOString()
+          }))
+      : []
   };
 }
