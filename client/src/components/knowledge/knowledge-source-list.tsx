@@ -78,6 +78,8 @@ export function KnowledgeSourceList({
     isTogglingSharing,
   } = useKnowledge();
 
+  const [searchQuery, setSearchQuery] = useState("");
+
   // Always call the hook with a clean dummy ID if not provided
   // This ensures the hook is always called, maintaining React's rules of hooks
   const dummyId = -1;
@@ -137,6 +139,10 @@ export function KnowledgeSourceList({
   }
 
   const sources = dataQuery.data || [];
+  const filteredSources = sources.filter(source => 
+    source.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    source.description?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="space-y-4">
@@ -230,12 +236,14 @@ export function KnowledgeSourceList({
                       : "Select"}
                   </Badge>
                 </div>
-
-                <CardDescription className="mt-2">
-                  {source.description ||
-                    (mode === "all"
-                      ? `Added ${formatDistanceToNow(new Date(source.created_at), { addSuffix: true })}`
-                      : `${source.source_type || "file"} knowledge source`)}
+          {filteredSources.length === 0 ? (
+            <Card className="w-full">
+              <CardHeader>
+                <CardTitle>No Knowledge Sources</CardTitle>
+                <CardDescription>
+                  {mode === "conversation"
+                    ? "This conversation doesn't have any knowledge sources attached."
+                    : "You haven't added any knowledge sources yet."}
                 </CardDescription>
               </CardHeader>
               <CardFooter className="flex justify-between flex-wrap gap-2">
@@ -338,13 +346,57 @@ export function KnowledgeSourceList({
                         {conversationId ? "Attach" : "Select"}
                       </>
                     )}
-                  </Button>
-                )}
-              </CardFooter>
-            </Card>
-          ))}
+
+                    {/* Universal Attach/Detach button for all modes */}
+                    {showAttachButton && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (mode === "conversation" && conversationId) {
+                            // Detach in conversation mode
+                            removeKnowledgeFromConversation({
+                              conversationId,
+                              knowledgeSourceId: source.id,
+                            });
+                          } else if (conversationId) {
+                            // Attach in all mode with existing conversation
+                            addKnowledgeToConversation({
+                              conversationId,
+                              knowledgeSourceId: source.id,
+                            });
+                          } else if (onSelectKnowledgeSource) {
+                            // Select for new conversation
+                            onSelectKnowledgeSource(source);
+                          }
+                        }}
+                        disabled={
+                          mode === "conversation" ? isDetaching : isAttaching
+                        }
+                      >
+                        {mode === "conversation" ? (
+                          <>
+                            <Unlink className="mr-2 h-4 w-4" />
+                            Detach
+                          </>
+                        ) : (
+                          <>
+                            <Link className="mr-2 h-4 w-4" />
+                            {selectedSourceIds.includes(source.id)
+                              ? "Detach"
+                              : "Attach"}
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </CardFooter>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </ScrollArea>
     </div>
   );
 }
