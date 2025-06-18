@@ -1,8 +1,9 @@
 import express, { Request, Response } from 'express';
 import { db } from "@db";
-import { conversations, messages } from "@db/schema";
+import { conversations, messages, conversationKnowledge } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
+import { cleanupDocumentFile, cleanupImageFile } from "../file-handler";
 
 const router = express.Router();
 
@@ -12,11 +13,6 @@ router.get("/", async (req: Request, res: Response) => {
     const userConversations = await db.query.conversations.findMany({
       where: eq(conversations.user_id, req.user!.id),
       orderBy: [desc(conversations.last_message_at)],
-      with: {
-        messages: {
-          orderBy: (messages, { asc }) => [asc(messages.created_at)],
-        },
-      },
     });
 
     const transformedConversations = userConversations.map(
@@ -30,8 +26,8 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
-// Get a specific conversation by ID
-router.get("/:id", async (req: Request, res: Response) => {
+// Get a specific conversation by ID with messages
+router.get("/:id/messages", async (req: Request, res: Response) => {
   try {
     const conversationId = parseInt(req.params.id);
     if (isNaN(conversationId)) {
@@ -56,7 +52,7 @@ router.get("/:id", async (req: Request, res: Response) => {
     res.json(transformDatabaseConversation(conversation));
   } catch (error) {
     console.error("Database error:", error);
-    res.status(500).json({ error: "Failed to fetch conversation" });
+    res.status(500).json({ error: "Failed to fetch conversation messages" });
   }
 });
 
@@ -75,6 +71,33 @@ router.delete("/:id", async (req: Request, res: Response) => {
         .status(404)
         .json({ error: "Conversation not found or unauthorized" });
     }
+
+    // Get all messages from the conversation to find attachments
+    const conversationMessages = await db.query.messages.findMany({
+      where: eq(messages.conversation_id, conversationId),
+    });
+
+    // Clean up any files associated with the messages
+    for (const message of conversationMessages) {
+      const metadata = message.metadata as { attachments?: Array<{ type: string; url: string }> } | null;
+      if (metadata?.attachments) {
+        for (const attachment of metadata.attachments) {
+          if (attachment.type === 'image' && attachment.url) {
+            cleanupImageFile(attachment.url);
+          } else if (attachment.type === 'document' && attachment.url) {
+            cleanupDocumentFile(attachment.url);
+          }
+        }
+      }
+    }
+
+    // Delete in this order:
+    // 1. conversation_knowledge (join table)
+    // 2. messages
+    // 3. conversation
+    await db
+      .delete(conversationKnowledge)
+      .where(eq(conversationKnowledge.conversation_id, conversationId));
     await db
       .delete(messages)
       .where(eq(messages.conversation_id, conversationId));
