@@ -26,8 +26,8 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Install git
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+# Install git and postgresql-client
+RUN apt-get update && apt-get install -y git postgresql-client && rm -rf /var/lib/apt/lists/*
 
 # Copy package files and install ALL dependencies (not just production)
 # This is necessary because Vite is used in the server code
@@ -37,7 +37,6 @@ RUN npm ci
 # Copy everything needed for the app to run
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/db ./db
-COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/client/src ./client/src
 COPY --from=builder /app/client/index.html ./client/index.html
