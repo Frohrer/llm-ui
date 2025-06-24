@@ -17,17 +17,19 @@ const smtpConfig = {
   }
 };
 
-// Validate required SMTP configuration
-if (!smtpConfig.host || !smtpConfig.auth.user || !smtpConfig.auth.pass) {
-  throw new Error('Missing required SMTP configuration in environment variables');
-}
+// Check if SMTP is configured
+const isSmtpConfigured = () => {
+  return !!(smtpConfig.host && smtpConfig.auth.user && smtpConfig.auth.pass);
+};
 
-// Validate port and security settings
-if (smtpConfig.secure && smtpConfig.port !== 465) {
-  console.warn('Warning: Using secure:true with non-standard port. Standard secure port is 465');
-}
-if (!smtpConfig.secure && smtpConfig.port !== 587 && smtpConfig.port !== 25) {
-  console.warn('Warning: Using secure:false with non-standard port. Standard non-secure ports are 587 or 25');
+// Validate port and security settings (only if SMTP is configured)
+if (isSmtpConfigured()) {
+  if (smtpConfig.secure && smtpConfig.port !== 465) {
+    console.warn('Warning: Using secure:true with non-standard port. Standard secure port is 465');
+  }
+  if (!smtpConfig.secure && smtpConfig.port !== 587 && smtpConfig.port !== 25) {
+    console.warn('Warning: Using secure:false with non-standard port. Standard non-secure ports are 587 or 25');
+  }
 }
 
 export const sendEmailTool: Tool = {
@@ -61,6 +63,15 @@ export const sendEmailTool: Tool = {
     text: string,
     html?: string
   }) => {
+    // Check if SMTP is configured
+    if (!isSmtpConfigured()) {
+      return {
+        success: false,
+        error: 'SMTP not configured',
+        details: 'SMTP environment variables (SMTP_HOST, SMTP_USER, SMTP_PASS) are not set. Email functionality is disabled.'
+      };
+    }
+
     try {
       // Create transporter using environment variables
       const transporter = nodemailer.createTransport(smtpConfig);
