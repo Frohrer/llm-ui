@@ -73,6 +73,23 @@ export function transformDatabaseConversation(dbConv: SelectConversation & { mes
     lastMessageAt: dbConv.last_message_at.toISOString(),
     createdAt: dbConv.created_at.toISOString(),
     messages: dbConv.messages
+      .filter(msg => {
+        // Filter out tool messages and internal system messages
+        if (msg.role === 'tool') return false;
+        
+        // Filter out messages that look like tool calls/results (JSON arrays/objects starting with specific patterns)
+        if (msg.role === 'assistant' && msg.content) {
+          const content = msg.content.trim();
+          // Check if content looks like tool call JSON
+          if (content.startsWith('[{"id":"call_') || 
+              content.startsWith('[{"toolCallId":"') ||
+              (content.startsWith('[{') && content.includes('"function":'))) {
+            return false;
+          }
+        }
+        
+        return msg.role === 'user' || msg.role === 'assistant';
+      })
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
       .map(msg => ({
         id: msg.id,
