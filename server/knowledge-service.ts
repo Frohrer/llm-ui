@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid';
 import { db } from '../db';
 import { knowledgeSources, knowledgeContent, conversationKnowledge } from '../db/schema';
 import { extractTextFromFile, isImageFile } from './file-handler';
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { eq, and, desc, asc, or } from 'drizzle-orm';
 
 // Constants for knowledge sources management
 const KNOWLEDGE_DIR = 'uploads/knowledge';
@@ -28,6 +28,7 @@ export interface CreateKnowledgeSourceFileOptions {
   description?: string;
   file: Express.Multer.File;
   useRag?: boolean;
+  isShared?: boolean;
 }
 
 export interface CreateKnowledgeSourceTextOptions {
@@ -36,6 +37,7 @@ export interface CreateKnowledgeSourceTextOptions {
   description?: string;
   text: string;
   useRag?: boolean;
+  isShared?: boolean;
 }
 
 export interface CreateKnowledgeSourceUrlOptions {
@@ -44,13 +46,14 @@ export interface CreateKnowledgeSourceUrlOptions {
   description?: string;
   url: string;
   useRag?: boolean;
+  isShared?: boolean;
 }
 
 /**
  * Creates a knowledge source from an uploaded file
  */
 export async function createKnowledgeSourceFromFile(options: CreateKnowledgeSourceFileOptions) {
-  const { userId, name, description, file, useRag = false } = options;
+  const { userId, name, description, file, useRag = false, isShared = false } = options;
 
   try {
     // Generate a unique filename
@@ -97,6 +100,7 @@ export async function createKnowledgeSourceFromFile(options: CreateKnowledgeSour
       content_text: contentText,
       is_processed: isProcessed,
       use_rag: useRag,
+      is_shared: isShared,
       metadata: {
         originalName: file.originalname,
       },
@@ -118,7 +122,7 @@ export async function createKnowledgeSourceFromFile(options: CreateKnowledgeSour
  * Creates a knowledge source from pasted text
  */
 export async function createKnowledgeSourceFromText(options: CreateKnowledgeSourceTextOptions) {
-  const { userId, name, description, text, useRag = false } = options;
+  const { userId, name, description, text, useRag = false, isShared = false } = options;
 
   try {
     // Create knowledge source record
@@ -130,6 +134,7 @@ export async function createKnowledgeSourceFromText(options: CreateKnowledgeSour
       content_text: text,
       is_processed: true,
       use_rag: useRag,
+      is_shared: isShared,
     }).returning();
 
     // If RAG is enabled, process for chunking
@@ -151,7 +156,7 @@ export async function createKnowledgeSourceFromText(options: CreateKnowledgeSour
  * 3. Storing the extracted content
  */
 export async function createKnowledgeSourceFromUrl(options: CreateKnowledgeSourceUrlOptions) {
-  const { userId, name, description, url, useRag = false } = options;
+  const { userId, name, description, url, useRag = false, isShared = false } = options;
   
   try {
     // Import axios and cheerio here to prevent issues with circular dependencies
@@ -218,6 +223,7 @@ export async function createKnowledgeSourceFromUrl(options: CreateKnowledgeSourc
       content_text: contentText,
       is_processed: isProcessed,
       use_rag: useRag,
+      is_shared: isShared,
       metadata: {
         contentType,
         title: title || null,
@@ -244,6 +250,7 @@ export async function createKnowledgeSourceFromUrl(options: CreateKnowledgeSourc
       content_text: `[Error fetching URL content: ${error.message || 'Unknown error'}]`,
       is_processed: false,
       use_rag: useRag,
+      is_shared: isShared,
       metadata: {
         error: error.message || 'Unknown error',
         fetchAttemptAt: new Date().toISOString(),
@@ -321,12 +328,15 @@ export async function processTextForChunks(knowledgeSourceId: number, text: stri
 }
 
 /**
- * Gets all knowledge sources for a user
+ * Gets all knowledge sources for a user (including shared ones)
  */
 export async function getKnowledgeSources(userId: number) {
   try {
     return await db.query.knowledgeSources.findMany({
-      where: eq(knowledgeSources.user_id, userId),
+      where: or(
+        eq(knowledgeSources.user_id, userId),
+        eq(knowledgeSources.is_shared, true)
+      ),
       orderBy: (knowledgeSources, { desc }) => [desc(knowledgeSources.created_at)],
     });
   } catch (error) {
@@ -336,14 +346,17 @@ export async function getKnowledgeSources(userId: number) {
 }
 
 /**
- * Gets a knowledge source by ID for a specific user
+ * Gets a knowledge source by ID for a specific user (including shared ones)
  */
 export async function getKnowledgeSource(userId: number, id: number) {
   try {
     return await db.query.knowledgeSources.findFirst({
       where: and(
         eq(knowledgeSources.id, id),
-        eq(knowledgeSources.user_id, userId)
+        or(
+          eq(knowledgeSources.user_id, userId),
+          eq(knowledgeSources.is_shared, true)
+        )
       ),
       with: {
         chunks: {
@@ -358,15 +371,18 @@ export async function getKnowledgeSource(userId: number, id: number) {
 }
 
 /**
- * Deletes a knowledge source
+ * Deletes a knowledge source (users can delete their own sources or shared sources)
  */
 export async function deleteKnowledgeSource(userId: number, id: number) {
   try {
-    // Get the knowledge source to check file path
+    // Get the knowledge source to check file path and permissions
     const source = await db.query.knowledgeSources.findFirst({
       where: and(
         eq(knowledgeSources.id, id),
-        eq(knowledgeSources.user_id, userId)
+        or(
+          eq(knowledgeSources.user_id, userId),
+          eq(knowledgeSources.is_shared, true)
+        )
       ),
     });
     
@@ -381,10 +397,7 @@ export async function deleteKnowledgeSource(userId: number, id: number) {
     
     // Delete the knowledge source (chunks will be automatically deleted due to foreign key constraints)
     await db.delete(knowledgeSources)
-      .where(and(
-        eq(knowledgeSources.id, id),
-        eq(knowledgeSources.user_id, userId)
-      ));
+      .where(eq(knowledgeSources.id, id));
     
     return { success: true };
   } catch (error) {
@@ -505,6 +518,93 @@ export async function prepareKnowledgeContentForConversation(conversationId: num
     return content;
   } catch (error) {
     console.error('Error preparing knowledge content for conversation:', error);
+    throw error;
+  }
+}
+
+/**
+ * Updates a text knowledge source (users can edit their own sources or shared sources)
+ */
+export async function updateKnowledgeSourceText(options: {
+  userId: number;
+  id: number;
+  name?: string;
+  description?: string;
+  text?: string;
+  useRag?: boolean;
+}) {
+  const { userId, id, name, description, text, useRag } = options;
+
+  try {
+    // Get the existing knowledge source
+    const existingSource = await db.query.knowledgeSources.findFirst({
+      where: and(
+        eq(knowledgeSources.id, id),
+        eq(knowledgeSources.source_type, 'text'),
+        or(
+          eq(knowledgeSources.user_id, userId),
+          eq(knowledgeSources.is_shared, true)
+        )
+      ),
+    });
+
+    if (!existingSource) {
+      throw new Error('Knowledge source not found or not a text source');
+    }
+
+    // Update the knowledge source
+    const [updatedSource] = await db.update(knowledgeSources)
+      .set({
+        name: name ?? existingSource.name,
+        description: description ?? existingSource.description,
+        content_text: text ?? existingSource.content_text,
+        use_rag: useRag ?? existingSource.use_rag,
+        updated_at: new Date(),
+      })
+      .where(eq(knowledgeSources.id, id))
+      .returning();
+
+    // If RAG is enabled and text was updated, reprocess chunks
+    if (useRag && text && text.length > 0) {
+      await processTextForChunks(updatedSource.id, text);
+    }
+
+    return updatedSource;
+  } catch (error) {
+    console.error('Error updating knowledge source:', error);
+    throw error;
+  }
+}
+
+/**
+ * Toggles the sharing status of a knowledge source
+ */
+export async function toggleKnowledgeSourceSharing(userId: number, id: number) {
+  try {
+    // Get the existing knowledge source (only owner can toggle sharing)
+    const existingSource = await db.query.knowledgeSources.findFirst({
+      where: and(
+        eq(knowledgeSources.id, id),
+        eq(knowledgeSources.user_id, userId)
+      ),
+    });
+
+    if (!existingSource) {
+      throw new Error('Knowledge source not found or you do not have permission to modify it');
+    }
+
+    // Toggle the sharing status
+    const [updatedSource] = await db.update(knowledgeSources)
+      .set({
+        is_shared: !existingSource.is_shared,
+        updated_at: new Date(),
+      })
+      .where(eq(knowledgeSources.id, id))
+      .returning();
+
+    return updatedSource;
+  } catch (error) {
+    console.error('Error toggling knowledge source sharing:', error);
     throw error;
   }
 }

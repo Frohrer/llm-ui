@@ -27,6 +27,20 @@ export function ConversationList({
     queryKey: ["/api/conversations"],
   });
 
+  // Query for messages when a conversation is selected
+  const { data: activeConversationWithMessages } = useQuery<Conversation>({
+    queryKey: ["/api/conversations", activeConversation?.id, "messages"],
+    queryFn: async () => {
+      if (!activeConversation?.id) return undefined;
+      const response = await fetch(`/api/conversations/${activeConversation.id}/messages`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch conversation messages");
+      }
+      return response.json();
+    },
+    enabled: !!activeConversation?.id,
+  });
+
   // Delete conversation mutation
   const deleteMutation = useMutation({
     mutationFn: async (conversationId: number) => {
@@ -92,6 +106,13 @@ export function ConversationList({
     );
   }, [conversations]);
 
+  // Update active conversation with messages when they are loaded
+  useEffect(() => {
+    if (activeConversationWithMessages) {
+      onSelectConversation(activeConversationWithMessages);
+    }
+  }, [activeConversationWithMessages, onSelectConversation]);
+
   if (isLoading) {
     return (
       <div className="p-4 text-muted-foreground text-sm md:text-base">
@@ -121,19 +142,19 @@ export function ConversationList({
         </h3>
         <div className="space-y-1">
           {conversations.map((conv) => (
-            <div key={conv.id} className="group flex items-center gap-2 px-2">
+            <div key={conv.id} className="group grid grid-cols-[1fr,40px] items-center px-2 w-full">
               <Button
                 variant={
                   conv.id === activeConversation?.id ? "secondary" : "ghost"
                 }
-                className="flex-1 justify-start text-left h-auto py-3 md:py-2 min-w-0"
+                className="w-full justify-start text-left h-auto py-3 md:py-2 overflow-hidden pr-1"
                 onClick={() => onSelectConversation(conv)}
               >
-                <div className="flex flex-col items-start min-w-0 flex-1">
-                  <span className="text-sm md:text-base truncate w-full">
+                <div className="flex flex-col items-start w-full overflow-hidden">
+                  <span className="text-sm md:text-base truncate w-full inline-block">
                     {conv.title}
                   </span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-muted-foreground truncate w-full inline-block">
                     {formatDistanceToNow(parseISO(conv.lastMessageAt), {
                       addSuffix: true,
                     })}
@@ -143,7 +164,7 @@ export function ConversationList({
               <Button
                 variant="ghost"
                 size="icon"
-                className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                className="h-8 w-8 justify-self-end"
                 onClick={(e) => handleDelete(conv.id, e)}
               >
                 <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />

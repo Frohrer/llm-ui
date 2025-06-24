@@ -1,0 +1,43 @@
+{
+  "id": "grok",
+  "name": "Grok AI",
+  "icon": "SiX",
+  "models": [
+    {
+      "id": "grok-3",
+      "name": "Grok-3",
+      "contextLength": 131072,
+      "defaultModel": true
+    },
+    {
+      "id": "grok-3-fast",
+      "name": "Grok-3 Fast",
+      "contextLength": 131072,
+      "defaultModel": false
+    },
+    {
+      "id": "grok-3-mini",
+      "name": "Grok-3 Mini",
+      "contextLength": 131072,
+      "defaultModel": false
+    },
+    {
+      "id": "grok-3-mini-fast",
+      "name": "Grok-3 Mini Fast",
+      "contextLength": 131072,
+      "defaultModel": false
+    },
+    {
+      "id": "grok-2-vision",
+      "name": "Grok-2 Vision",
+      "contextLength": 32768,
+      "defaultModel": false
+    },
+    {
+      "id": "grok-2-image",
+      "name": "Grok-2 Image",
+      "contextLength": 1024,
+      "defaultModel": false
+    }
+  ]
+} 

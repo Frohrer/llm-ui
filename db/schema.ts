@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean, json } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, json, jsonb } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
@@ -26,7 +26,7 @@ export const messages = pgTable("messages", {
     .notNull(),
   role: text("role", { enum: ["user", "assistant", "tool"] }).notNull(),
   content: text("content").notNull(),
-  metadata: json("metadata"), // For storing tool call metadata and other internal data
+  metadata: jsonb("metadata").default({}),
   created_at: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -46,6 +46,7 @@ export const knowledgeSources = pgTable("knowledge_sources", {
   embedding_model: text("embedding_model"), // Model used for embeddings, if any
   is_processed: boolean("is_processed").default(false), // Whether text has been extracted/processed
   use_rag: boolean("use_rag").default(false), // Use RAG for this knowledge source
+  is_shared: boolean("is_shared").default(false), // Whether knowledge source is shared across all users
   metadata: json("metadata"), // Flexible field for source-specific metadata
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),

@@ -1,5 +1,4 @@
 import express, { Request, Response } from 'express';
-import OpenAI, { toFile } from "openai";
 import path from "path";
 import fs from "fs";
 import { db } from "@db";
@@ -7,40 +6,43 @@ import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
-import { getToolDefinitions, handleToolCalls } from "../../tools";
+import OpenAI from "openai";
+import { getToolDefinitions, getTools, handleToolCalls } from "../../tools";
 
 const router = express.Router();
 let client: OpenAI | null = null;
+const API_BASE_URL = 'https://api.x.ai/v1';
 
-// Initialize the OpenAI client
-export function initializeOpenAI(apiKey?: string) {
-  if (apiKey || process.env.OPENAI_API_KEY) {
+// Initialize the Grok client using OpenAI SDK with custom base URL
+export function initializeGrok(apiKey?: string) {
+  if (apiKey || process.env.XAI_KEY) {
     client = new OpenAI({
-      apiKey: apiKey || process.env.OPENAI_API_KEY,
+      apiKey: apiKey || process.env.XAI_KEY,
+      baseURL: API_BASE_URL
     });
     return true;
   }
   return false;
 }
 
-// Get the OpenAI client instance
-export function getOpenAIClient() {
+// Get the Grok client
+export function getGrokClient() {
   return client;
 }
 
-// Create or continue an OpenAI chat conversation
+// Create or continue a Grok chat conversation
 router.post("/", async (req: Request, res: Response) => {
   try {
     const {
       message,
       conversationId,
       context = [],
-      model = "gpt-4",
+      model = "grok-3",
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
       pendingKnowledgeSources = [],
-      useTools = false,
+      useTools = false, // New parameter to enable/disable tool calling
     } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -48,10 +50,10 @@ router.post("/", async (req: Request, res: Response) => {
     }
     
     if (!client) {
-      return res.status(503).json({ error: "OpenAI service not initialized" });
+      return res.status(503).json({ error: "Grok service not initialized" });
     }
     
-    console.log(`Processing message with ${allAttachments.length} attachments for OpenAI`);
+    console.log(`Processing message with ${allAttachments.length} attachments for Grok`);
 
     // Set up SSE headers with keep-alive
     res.setHeader("Content-Type", "text/event-stream");
@@ -70,7 +72,7 @@ router.post("/", async (req: Request, res: Response) => {
         .insert(conversations)
         .values({
           title: conversationTitle,
-          provider: "openai",
+          provider: "grok",
           model,
           user_id: req.user!.id,
           created_at: timestamp,
@@ -136,41 +138,37 @@ router.post("/", async (req: Request, res: Response) => {
       dbConversation = existingConversation;
     }
 
-    // Ensure context messages are properly ordered
+    // Ensure context messages are properly ordered and format for OpenAI
     const apiMessages = context
       .sort(
         (a: any, b: any) =>
           new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       )
       .map((msg: any) => ({
-        role: msg.role,
+        role: msg.role === "user" ? "user" : "assistant",
         content: msg.content,
       }));
 
     // Process attachments based on type
-    let stream;
     const maxRetries = 3;
     let retryCount = 0;
     
     // Get all attachments (prioritize the allAttachments array if it exists)
     const allAttachmentsToProcess = allAttachments.length > 0 ? allAttachments : (attachment ? [attachment] : []);
     
-    console.log(`Processing ${allAttachmentsToProcess.length} attachments for OpenAI`);
+    console.log(`Processing ${allAttachmentsToProcess.length} attachments for Grok`);
     
     // Variables to track attachment types
     let hasImageAttachment = false;
-    let imageAttachmentContent = null;
+    let imageAttachments: any[] = [];
     let documentTexts: string[] = [];
-    
-    // Check if this is an image edit request
-    const isImageEditRequest = model === "gpt-image-1-edit";
     
     // Process each attachment
     for (const att of allAttachmentsToProcess) {
       // Handle image attachments
       if (att.type === 'image') {
         try {
-          console.log("Processing image attachment for OpenAI:", att.url);
+          console.log("Processing image attachment for Grok:", att.url);
           
           // Extract filename from URL
           const fileName = att.url.split('/').pop();
@@ -185,26 +183,19 @@ router.post("/", async (req: Request, res: Response) => {
           if (!fs.existsSync(imagePath)) {
             throw new Error('Image file not found on server');
           }
-          
-          // Read the image as base64
-          const imageBuffer = fs.readFileSync(imagePath);
-          const base64Image = imageBuffer.toString('base64');
-          const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
-          const dataUri = `data:${mimeType};base64,${base64Image}`;
-          
-          // Save for later use
-          imageAttachmentContent = { 
-            type: "image_url", 
-            image_url: { url: dataUri },
-            base64: base64Image,
-            mimeType: mimeType,
-            fileName: fileName
-          };
+
+          // For OpenAI-compatible API, add the image URL
+          imageAttachments.push({
+            type: "image_url",
+            image_url: {
+              url: att.url
+            }
+          });
           
           hasImageAttachment = true;
-          console.log("Image successfully processed for OpenAI");
+          console.log("Image URL added for Grok");
         } catch (imageError) {
-          console.error("Error processing image for OpenAI:", imageError);
+          console.error("Error processing image for Grok:", imageError);
           // Add error to document texts
           if (imageError instanceof Error) {
             documentTexts.push(`[Image processing failed: ${imageError.message}]`);
@@ -215,95 +206,11 @@ router.post("/", async (req: Request, res: Response) => {
       } 
       // Handle document attachments
       else if (att.type === 'document' && att.text) {
-        console.log(`Processing document attachment for OpenAI: ${att.name}`);
+        console.log(`Processing document attachment for Grok: ${att.name}`);
         documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
       }
     }
-
-    // Handle image edit request
-    if (isImageEditRequest) {
-      if (!hasImageAttachment || !imageAttachmentContent) {
-        throw new Error("Image edit request requires an image attachment");
-      }
-
-      // Send initial conversation data
-      res.write(
-        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
-      );
-
-      // Send a single initial progress message
-      res.write(`data: ${JSON.stringify({ type: "chunk", content: "Starting image edit...\n" })}\n\n`);
-
-      try {
-        // Handle image edit request
-        const imageFile = await toFile(
-          fs.createReadStream(path.join(process.cwd(), 'uploads', 'images', imageAttachmentContent.fileName)),
-          null,
-          {
-            type: imageAttachmentContent.mimeType
-          }
-        );
-
-        const result = await client.images.edit({
-          model: "gpt-image-1",
-          image: imageFile,
-          prompt: message,
-          n: 1
-        });
-
-        if (!result?.data?.[0]?.b64_json) {
-          throw new Error("No image data received from OpenAI");
-        }
-
-        // Convert base64 to data URI
-        const editedImageDataUri = `data:${imageAttachmentContent.mimeType};base64,${result.data[0].b64_json}`;
-        streamedResponse = `![Edited Image](${editedImageDataUri})`;
-
-        // Insert the assistant message
-        const timestamp = new Date();
-        await db.insert(messages).values({
-          conversation_id: dbConversation.id,
-          role: "assistant",
-          content: streamedResponse,
-          created_at: timestamp,
-        });
-
-        // Get updated conversation data
-        const updatedConversation = await db.query.conversations.findFirst({
-          where: eq(conversations.id, dbConversation.id),
-          with: {
-            messages: {
-              orderBy: (messages: any, { asc }: { asc: any }) => [asc(messages.created_at)],
-            },
-          },
-        });
-
-        if (!updatedConversation) {
-          throw new Error("Failed to retrieve conversation");
-        }
-
-        // Send the final response
-        res.write(
-          `data: ${JSON.stringify({
-            type: "end",
-            conversation: transformDatabaseConversation(updatedConversation),
-          })}\n\n`,
-        );
-
-      } catch (error) {
-        console.error("Image edit error:", error);
-        res.write(
-          `data: ${JSON.stringify({
-            type: "error",
-            error: error instanceof Error ? error.message : "Failed to edit image",
-          })}\n\n`,
-        );
-      }
-
-      res.end();
-      return;
-    }
-
+    
     // Get knowledge content if requested
     let knowledgeContent = '';
     if (useKnowledge && dbConversation) {
@@ -317,13 +224,16 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    // Create the message content based on what we have
-    if (hasImageAttachment) {
-      // For OpenAI, we use a different format with content array
-      let contentArray: any[] = [];
-      
-      // Add text first with any document content
+    // Check if we should use a vision model for images
+    const isVisionModel = model === "grok-2-vision" || model === "grok-2-image";
+    const useVisionModel = hasImageAttachment && isVisionModel;
+
+    // Create the message based on what we have
+    if (hasImageAttachment && useVisionModel) {
+      // For Grok with images, create a message with text and image attachments
       let textContent = message;
+      
+      // Add document content
       if (documentTexts.length > 0) {
         textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
       }
@@ -333,24 +243,19 @@ router.post("/", async (req: Request, res: Response) => {
         textContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
       }
       
-      contentArray.push({ type: "text", text: textContent });
-      
-      // Add the image
-      if (imageAttachmentContent) {
-        contentArray.push({
-          type: "image_url",
-          image_url: {
-            url: imageAttachmentContent.image_url.url
-          }
-        });
-      }
-      
+      // Push the user message with text and image content
       apiMessages.push({
         role: "user",
-        content: contentArray
+        content: [
+          {
+            type: "text",
+            text: textContent
+          },
+          ...imageAttachments
+        ]
       });
       
-      console.log("Multimodal message with image, documents, and knowledge added for OpenAI");
+      console.log("Multimodal message with images, documents, and knowledge added for Grok");
     } 
     else if (documentTexts.length > 0 || knowledgeContent) {
       // Text-only message with documents or knowledge
@@ -365,55 +270,12 @@ router.post("/", async (req: Request, res: Response) => {
       }
       
       apiMessages.push({ role: "user", content: userContent });
-      console.log("Message with document/knowledge content added for OpenAI");
+      console.log("Message with document/knowledge content added for Grok");
     } 
     else {
       // Regular text message without attachments or knowledge
       apiMessages.push({ role: "user", content: message });
-      console.log("Plain text message added for OpenAI");
-    }
-
-    // Stream the completion with retries
-    while (retryCount < maxRetries) {
-      try {
-        const streamOptions: any = {
-          messages: apiMessages,
-          model,
-          stream: true,
-          max_completion_tokens: 4096,
-          temperature: model === "o3" ? 1 : 0.7,
-        };
-
-        // Add tools if enabled
-        if (useTools) {
-          try {
-            const toolDefinitions = await getToolDefinitions();
-            if (toolDefinitions.length > 0) {
-              streamOptions.tools = toolDefinitions;
-              streamOptions.tool_choice = "auto";
-              console.log(`Added ${toolDefinitions.length} tools to OpenAI request: ${toolDefinitions.map(t => t.function.name).join(', ')}`);
-            } else {
-              console.warn("Tools requested but no tools available");
-            }
-          } catch (toolError) {
-            console.error("Error loading tools:", toolError);
-          }
-        }
-
-        stream = await client.chat.completions.create(streamOptions);
-        console.log("Stream created with model:", model);
-        break;
-      } catch (error) {
-        retryCount++;
-        if (retryCount === maxRetries) throw error;
-        await new Promise((resolve) =>
-          setTimeout(resolve, 1000 * retryCount),
-        ); // Exponential backoff
-      }
-    }
-
-    if (!stream) {
-      throw new Error("Failed to create stream after retries");
+      console.log("Plain text message added for Grok");
     }
 
     // Send initial conversation data
@@ -427,23 +289,58 @@ router.post("/", async (req: Request, res: Response) => {
     }, 15000); // Send keep-alive every 15 seconds
 
     try {
+      // Set up the base request options
+      const requestOptions: any = {
+        model: model,
+        messages: apiMessages,
+        stream: true,
+        temperature: 0.7,
+        max_tokens: 4096,
+      };
+
+      // Add tools if enabled
+      if (useTools) {
+        try {
+          console.log("Attempting to load tools for Grok...");
+          const toolDefinitions = await getToolDefinitions();
+          
+          if (toolDefinitions.length > 0) {
+            requestOptions.tools = toolDefinitions;
+            requestOptions.tool_choice = "auto";
+            console.log(`Added ${toolDefinitions.length} tools to Grok request: ${toolDefinitions.map(t => t.function.name).join(', ')}`);
+          } else {
+            console.warn("No tools were loaded, tool calling will not work");
+          }
+        } catch (toolError) {
+          console.error("Error loading tools:", toolError);
+        }
+      } else {
+        console.log("Tool usage is disabled for this request");
+      }
+
+      // Use OpenAI SDK streaming with Grok model
+      const stream = await client.chat.completions.create(requestOptions);
+
+      // Process the streaming response
       let lastChunkTime = Date.now();
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
       let toolCallsInProgress: any[] = [];
+      let toolCallParts = '';
+      let isCollectingToolCall = false;
 
       for await (const chunk of stream as unknown as AsyncIterable<any>) {
-        const content = chunk.choices[0]?.delta?.content || "";
+        // Update last chunk time
+        lastChunkTime = Date.now();
+        
+        const contentDelta = chunk.choices[0]?.delta?.content;
         const toolCallsDelta = chunk.choices[0]?.delta?.tool_calls;
         
         // Handle content chunks - only send to client if not part of a tool call
-        if (content && !toolCallsDelta) {
-          streamedResponse += content;
-          lastChunkTime = Date.now();
-          res.write(
-            `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
-          );
+        if (contentDelta && !toolCallsDelta) {
+          streamedResponse += contentDelta;
+          res.write(`data: ${JSON.stringify({ type: "chunk", content: contentDelta })}\n\n`);
         }
-
+        
         // Handle tool call chunks if present and tool usage is enabled
         if (useTools && toolCallsDelta && toolCallsDelta.length > 0) {
           for (const toolCallDelta of toolCallsDelta) {
@@ -473,7 +370,7 @@ router.post("/", async (req: Request, res: Response) => {
             }
           }
         }
-
+        
         // Check for timeout between chunks
         if (Date.now() - lastChunkTime > chunkTimeout) {
           throw new Error("Stream timeout - no data received for 30 seconds");
@@ -589,7 +486,7 @@ router.post("/", async (req: Request, res: Response) => {
         }
       }
 
-      // Save the complete response only after successful streaming
+      // Save the complete response
       const timestamp = new Date();
       await db.insert(messages).values({
         conversation_id: dbConversation.id,
@@ -603,7 +500,7 @@ router.post("/", async (req: Request, res: Response) => {
         where: eq(conversations.id, dbConversation.id),
         with: {
           messages: {
-            orderBy: (messages, { asc }) => [asc(messages.created_at)],
+            orderBy: (messages: any, { asc }: any) => [asc(messages.created_at)],
           },
         },
       });
@@ -620,7 +517,6 @@ router.post("/", async (req: Request, res: Response) => {
       );
     } catch (streamError) {
       console.error("Streaming error:", streamError);
-      console.log("Completion reason:", (stream as any)?.response?.reason); //Added logging for completion reason
       res.write(
         `data: ${JSON.stringify({
           type: "error",
@@ -642,4 +538,4 @@ router.post("/", async (req: Request, res: Response) => {
   }
 });
 
-export default router;
+export default router; 

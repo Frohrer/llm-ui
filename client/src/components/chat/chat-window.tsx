@@ -17,6 +17,7 @@ import {
   BookOpen,
   X,
   Database,
+  Wrench,
 } from "lucide-react";
 import { speechService } from "@/lib/speech-service";
 import {
@@ -33,6 +34,12 @@ import {
 } from "@/components/ui/sheet";
 import { KnowledgeSourceList } from "@/components/knowledge/knowledge-source-list";
 import { getConversationKnowledge } from "@/hooks/use-knowledge";
+import { 
+  Tooltip, 
+  TooltipContent, 
+  TooltipTrigger,
+  TooltipProvider
+} from "@/components/ui/tooltip";
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -78,7 +85,7 @@ export function ChatWindow({
         const loadedProviders = await getAllProviders();
         const providersMap = loadedProviders.reduce(
           (acc, provider) => {
-            acc[provider.id] = provider;
+            acc[provider.config.id] = provider;
             return acc;
           },
           {} as Record<string, any>,
@@ -148,6 +155,8 @@ export function ChatWindow({
   const [selectedModel, setSelectedModel] = useState<string>("");
   // Knowledge is always enabled now, but keeping for API compatibility
   const useKnowledge = true;
+  // Add useTools state for tool calling
+  const [useTools, setUseTools] = useState<boolean>(false);
   const [showMobileKnowledgePanel, setShowMobileKnowledgePanel] =
     useState<boolean>(false);
   const [showDesktopKnowledgePanel, setShowDesktopKnowledgePanel] =
@@ -344,7 +353,7 @@ export function ChatWindow({
     if (!providers) return "";
     for (const provider of Object.values(providers)) {
       if (provider.models.some((m: any) => m.id === modelId)) {
-        return provider.id;
+        return provider.config.id;
       }
     }
     throw new Error(`No provider found for model: ${modelId}`);
@@ -422,6 +431,7 @@ export function ChatWindow({
           allAttachments: allAttachments || [], // Send all attachments to be processed together
           useKnowledge: useKnowledge,
           pendingKnowledgeSources: pendingKnowledgeSources,
+          useTools: useTools, // Send useTools state to the API
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -495,6 +505,45 @@ export function ChatWindow({
                         }
                         return newText;
                       });
+                    }
+                    break;
+                  case "tool_call_progress":
+                    // Show tool call information in the UI
+                    if (data.tool_calls) {
+                      const toolCallContent = data.tool_calls.map((call: any, index: number) => {
+                        return `\n\nCalling tool: ${call.function?.name || "Unknown Tool"}\nWith parameters: ${call.function?.arguments || "{}"}`;
+                      }).join("");
+                      
+                      setStreamedText((prev) => {
+                        const newText = prev + toolCallContent;
+                        if (shouldAutoScroll) {
+                          setTimeout(scrollToBottom, 0);
+                        }
+                        return newText;
+                      });
+                    }
+                    break;
+                  case "tool_execution_start":
+                    setStreamedText((prev) => prev + "\n\nExecuting tools...");
+                    break;
+                  case "tool_execution_complete":
+                    if (data.results) {
+                      const resultContent = data.results.map((result: any) => {
+                        return `\n\nTool: ${result.toolName}\nResult: ${JSON.stringify(result.result, null, 2)}`;
+                      }).join("");
+                      
+                      setStreamedText((prev) => {
+                        const newText = prev + resultContent;
+                        if (shouldAutoScroll) {
+                          setTimeout(scrollToBottom, 0);
+                        }
+                        return newText;
+                      });
+                    }
+                    break;
+                  case "tool_execution_error":
+                    if (data.error) {
+                      setStreamedText((prev) => prev + `\n\nTool Execution Error: ${data.error}`);
                     }
                     break;
                   case "end":
@@ -582,7 +631,7 @@ export function ChatWindow({
       <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
           {mobileMenuTrigger}
-          <h2 className="font-semibold text-base md:text-lg">
+          <h2 className="font-semibold text-base md:text-lg hidden md:block">
             {conversation?.title || "New Conversation"}
           </h2>
         </div>
@@ -611,13 +660,35 @@ export function ChatWindow({
             disabled={!!conversation || isLoading || isLoadingProviders}
             getModelDisplayName={getModelDisplayName}
           />
+          {/* Add Tools Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0 relative"
+                  onClick={() => setUseTools(!useTools)}
+                  aria-label="Toggle tool calling"
+                >
+                  <Wrench className="h-[1.2rem] w-[1.2rem]" />
+                  {useTools && (
+                    <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-green-500 animate-pulse shadow-sm"></span>
+                  )}
+                  <span className="sr-only">Toggle tool calling</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {useTools ? "Tool calling enabled" : "Tool calling disabled"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <Button
             variant="outline"
             size="icon"
             className={`shrink-0 relative ${showDesktopKnowledgePanel || showMobileKnowledgePanel ? "border-primary" : ""}`}
             onClick={() => {
               if (window.innerWidth >= 768) {
-                // md breakpoint
                 setShowDesktopKnowledgePanel(!showDesktopKnowledgePanel);
               } else {
                 setShowMobileKnowledgePanel(!showMobileKnowledgePanel);
@@ -681,8 +752,11 @@ export function ChatWindow({
                   onClick={scrollToBottom}
                   className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-secondary hover:bg-secondary/80 text-foreground border border-border z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px] flex items-center justify-center"
                   style={{ width: "35px", height: "35px" }}
+                  aria-label="Scroll to bottom"
+                  title="Scroll to bottom"
                 >
                   <ChevronDown className="h-5 w-5" />
+                  <span className="sr-only">Scroll to bottom</span>
                 </button>
               )}
             </div>
@@ -703,56 +777,28 @@ export function ChatWindow({
           </ResizablePanel>
         </ResizablePanelGroup>
 
-        {/* Knowledge panel - shown as a sheet on mobile and as a sidebar on desktop */}
-        <>
-          {/* Mobile view - show as a sheet */}
-          <div className="md:hidden">
-            <Sheet
-              open={showMobileKnowledgePanel}
-              onOpenChange={setShowMobileKnowledgePanel}
-            >
-              <SheetContent
-                side="right"
-                className="w-[300px] sm:w-[400px] md:hidden"
-              >
-                <SheetHeader>
-                  <div className="flex items-center justify-between">
-                    <SheetTitle>Conversation Knowledge</SheetTitle>
-                  </div>
-                </SheetHeader>
-                <div className="py-4">
-                  <KnowledgeSourceList
-                    mode={conversation ? "conversation" : "all"}
-                    conversationId={conversation?.id}
-                    showAttachButton={true}
-                    onSelectKnowledgeSource={(source) => {
-                      if (pendingKnowledgeSources.includes(source.id)) {
-                        setPendingKnowledgeSources((prev) =>
-                          prev.filter((id) => id !== source.id),
-                        );
-                      } else {
-                        setPendingKnowledgeSources((prev) => [
-                          ...prev,
-                          source.id,
-                        ]);
-                      }
-                    }}
-                    selectedSourceIds={pendingKnowledgeSources}
-                  />
-                </div>
-              </SheetContent>
-            </Sheet>
-          </div>
-
-          {/* Desktop view - show as a sidebar */}
-          {showDesktopKnowledgePanel && (
-            <div className="hidden md:block border-l w-[300px] overflow-auto">
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold">
-                    Conversation Knowledge
-                  </h3>
-                </div>
+        {/* Knowledge panel - shown as a sheet on all devices */}
+        <Sheet
+          open={showMobileKnowledgePanel || showDesktopKnowledgePanel}
+          onOpenChange={(open) => {
+            if (window.innerWidth >= 768) {
+              setShowDesktopKnowledgePanel(open);
+            } else {
+              setShowMobileKnowledgePanel(open);
+            }
+          }}
+        >
+          <SheetContent
+            side="right"
+            className="w-[300px] sm:w-[400px] h-full flex flex-col"
+          >
+            <SheetHeader className="flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <SheetTitle>Conversation Knowledge</SheetTitle>
+              </div>
+            </SheetHeader>
+            <ScrollArea className="flex-1">
+              <div className="py-4">
                 <KnowledgeSourceList
                   mode={conversation ? "conversation" : "all"}
                   conversationId={conversation?.id}
@@ -772,9 +818,9 @@ export function ChatWindow({
                   selectedSourceIds={pendingKnowledgeSources}
                 />
               </div>
-            </div>
-          )}
-        </>
+            </ScrollArea>
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   );

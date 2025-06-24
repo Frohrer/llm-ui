@@ -10,9 +10,10 @@ export interface Attachment {
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'tool';
   content: string;
   timestamp: number;
+  metadata?: Record<string, any>;
   attachment?: Attachment;
   attachments?: Attachment[]; // Add support for multiple attachments
 }
@@ -53,7 +54,10 @@ export interface LLMProvider {
     conversationId?: string, 
     context?: Message[],
     attachment?: Attachment,
-    allAttachments?: Attachment[]
+    allAttachments?: Attachment[],
+    useKnowledge?: boolean,
+    pendingKnowledgeSources?: number[],
+    useTools?: boolean
   ): Promise<string>;
 }
 
@@ -64,7 +68,7 @@ export interface LLMConfig {
 }
 
 // Helper function to transform database response to frontend format
-export function transformDatabaseConversation(dbConv: SelectConversation & { messages: SelectMessage[] }): Conversation {
+export function transformDatabaseConversation(dbConv: SelectConversation & { messages?: SelectMessage[] }): Conversation {
   return {
     id: dbConv.id,
     title: dbConv.title,
@@ -72,30 +76,16 @@ export function transformDatabaseConversation(dbConv: SelectConversation & { mes
     model: dbConv.model,
     lastMessageAt: dbConv.last_message_at.toISOString(),
     createdAt: dbConv.created_at.toISOString(),
-    messages: dbConv.messages
-      .filter(msg => {
-        // Filter out tool messages and internal system messages
-        if (msg.role === 'tool') return false;
-        
-        // Filter out messages that look like tool calls/results (JSON arrays/objects starting with specific patterns)
-        if (msg.role === 'assistant' && msg.content) {
-          const content = msg.content.trim();
-          // Check if content looks like tool call JSON
-          if (content.startsWith('[{"id":"call_') || 
-              content.startsWith('[{"toolCallId":"') ||
-              (content.startsWith('[{') && content.includes('"function":'))) {
-            return false;
-          }
-        }
-        
-        return msg.role === 'user' || msg.role === 'assistant';
-      })
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-      .map(msg => ({
-        id: msg.id,
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-        created_at: msg.created_at.toISOString()
-      }))
+    messages: dbConv.messages 
+      ? dbConv.messages
+          .filter(msg => msg.role !== 'tool') // Filter out tool messages
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+          .map(msg => ({
+            id: msg.id,
+            role: msg.role as 'user' | 'assistant',
+            content: msg.content,
+            created_at: msg.created_at.toISOString()
+          }))
+      : []
   };
 }

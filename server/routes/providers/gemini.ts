@@ -6,10 +6,6 @@ import { db } from "@db";
 import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
-import { 
-  cleanupDocumentFile,
-  cleanupImageFile
-} from "../../file-handler";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 
 const router = express.Router();

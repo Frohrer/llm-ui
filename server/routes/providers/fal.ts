@@ -5,6 +5,7 @@ import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { transformDatabaseConversation } from "@/lib/llm/types";
+import * as falConfig from "../../config/providers/falai.json";
 
 // Define types for fal.ai responses
 interface FalQueueUpdate {
@@ -30,6 +31,14 @@ interface FalResponse {
 interface ChatMessage {
   role: string;
   content: string;
+}
+
+interface ModelConfig {
+  id: string;
+  name: string;
+  contextLength: number;
+  defaultModel: boolean;
+  parameters: Record<string, any>;
 }
 
 const router = Router();
@@ -153,34 +162,31 @@ router.post("/", async (req: Request, res: Response) => {
                            model.toLowerCase().includes("hidream") ||
                            model.toLowerCase().includes("stable") ||
                            model.toLowerCase().includes("sd") ||
-                           model.toLowerCase().includes("diffusion");
+                           model.toLowerCase().includes("diffusion") ||
+                           model.toLowerCase().includes("flux"); // Add Flux Pro to image models
 
       if (isImageRequest) {
         // Send a single initial progress message
         res.write(`data: ${JSON.stringify({ type: "chunk", content: "Starting image generation...\n" })}\n\n`);
 
         try {
+          // Find model configuration
+          const modelConfig = (falConfig as any).models.find((m: ModelConfig) => m.id === model);
+          if (!modelConfig) {
+            throw new Error(`Model configuration not found for ${model}`);
+          }
+
           // Handle image generation request
           const result = await fal.subscribe(model, {
             input: {
               prompt: userMessage,
-              negative_prompt: "",
-              image_size: {
-                width: 1024,
-                height: 1024
-              },
-              num_inference_steps: 50,
-              guidance_scale: 5,
-              num_images: 1,
-              enable_safety_checker: true,
-              output_format: "jpeg",
-              sync_mode: true // Ensure we get the image URL directly
+              ...modelConfig.parameters
             },
             logs: true,
             onQueueUpdate: (update: FalQueueUpdate) => {
               if (update.status === "IN_PROGRESS" && update.logs.length > 0) {
                 const progressMsg = update.logs[update.logs.length - 1].message;
-                res.write(`data: ${JSON.stringify({ type: "chunk", content: `${progressMsg}\n` })}\n\n`);
+                res.write(`data: ${JSON.stringify({ type: "chunk", content: `${progressMsg}\n\n` })}\n\n`);
                 console.log("Generation progress:", progressMsg);
               }
             },
@@ -192,17 +198,21 @@ router.post("/", async (req: Request, res: Response) => {
           }
 
           const falResponse = result.data as FalResponse;
-          if (!falResponse.images?.[0]?.url) {
-            // Check if we got a base64 image
-            if (falResponse.images?.[0] && typeof falResponse.images[0].url === 'string' && falResponse.images[0].url.startsWith('data:image')) {
-              // Use the base64 image directly
-              console.log("Base64 image received:", falResponse.images[0]);
+          if (model.toLowerCase().includes("flux")) {
+            // For Flux Pro model, the image is returned directly in base64
+            if (falResponse.images?.[0]?.url) {
+              console.log("Base64 image received from Flux Pro");
               streamedResponse = `![Generated Image](${falResponse.images[0].url})`;
             } else {
+              console.error("No image data in Flux Pro response:", falResponse);
+              throw new Error("No image data received from Flux Pro model");
+            }
+          } else {
+            // For other models (like HiDream)
+            if (!falResponse.images?.[0]?.url) {
               console.error("No image URL in response:", falResponse);
               throw new Error("No image URL received in response");
             }
-          } else {
             console.log("Image URL received:", falResponse.images[0]);
             streamedResponse = `![Generated Image](${falResponse.images[0].url})`;
           }
@@ -265,7 +275,7 @@ router.post("/", async (req: Request, res: Response) => {
         res.write(`data: ${JSON.stringify({ type: "chunk", content: "Processing your message...\n" })}\n\n`);
 
         try {
-          const resultPromise = fal.subscribe("fal-ai/llama-2-70b-chat", { // Use a specific chat model
+          const resultPromise = fal.subscribe(model, { // Use the model from configuration
             input: {
               prompt: formattedMessages.map(msg => `${msg.role}: ${msg.content}`).join("\n"),
               max_tokens: 1000,
