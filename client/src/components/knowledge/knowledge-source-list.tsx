@@ -10,13 +10,12 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import {
   Trash,
@@ -26,11 +25,15 @@ import {
   Unlink,
   Link,
   Check,
+  Edit,
+  Share2,
+  Users,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { KnowledgeSourceUpload } from "@/components/knowledge/knowledge-source-upload";
+import { KnowledgeSourceEdit } from "@/components/knowledge/knowledge-source-edit";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KnowledgeSheet } from "./knowledge-sheet";
+import { useUser } from "@/hooks/use-user";
 
 export type KnowledgeSourceListMode = "all" | "conversation";
 
@@ -60,6 +63,8 @@ export function KnowledgeSourceList({
   showAddButton = true,
   gridLayout = false,
 }: KnowledgeSourceListProps) {
+  const [editingSource, setEditingSource] = useState<KnowledgeSource | null>(null);
+  const { user } = useUser();
   const {
     knowledgeSources,
     getConversationKnowledgeSources,
@@ -69,7 +74,11 @@ export function KnowledgeSourceList({
     isAttaching,
     removeKnowledgeFromConversation,
     isDetaching,
+    toggleKnowledgeSourceSharing,
+    isTogglingSharing,
   } = useKnowledge();
+
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Always call the hook with a clean dummy ID if not provided
   // This ensures the hook is always called, maintaining React's rules of hooks
@@ -130,6 +139,10 @@ export function KnowledgeSourceList({
   }
 
   const sources = dataQuery.data || [];
+  const filteredSources = sources.filter(source => 
+    source.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    source.description?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="space-y-4">
@@ -155,9 +168,7 @@ export function KnowledgeSourceList({
                 ? "Knowledge sources provide context to the AI, allowing it to reference specific information in its responses."
                 : "Knowledge sources allow you to reference external information in your AI conversations. You can upload files (PDF, TXT, etc.), paste text, or add a URL."}
             </p>
-            {showAddButton && (
-              <KnowledgeSheet />
-            )}
+            <KnowledgeSheet />
           </CardContent>
         </Card>
       ) : (
@@ -197,6 +208,12 @@ export function KnowledgeSourceList({
                   <Badge variant="outline">
                     {source.source_type || "file"}
                   </Badge>
+                  {source.is_shared && (
+                    <Badge variant="secondary">
+                      <Users className="h-3.5 w-3.5 mr-1" />
+                      Shared
+                    </Badge>
+                  )}
                   <Badge
                     variant={
                       selectedSourceIds.includes(source.id)
@@ -219,29 +236,76 @@ export function KnowledgeSourceList({
                       : "Select"}
                   </Badge>
                 </div>
-
-                <CardDescription className="mt-2">
-                  {source.description ||
-                    (mode === "all"
-                      ? `Added ${formatDistanceToNow(new Date(source.created_at), { addSuffix: true })}`
-                      : `${source.source_type || "file"} knowledge source`)}
+          {filteredSources.length === 0 ? (
+            <Card className="w-full">
+              <CardHeader>
+                <CardTitle>No Knowledge Sources</CardTitle>
+                <CardDescription>
+                  {mode === "conversation"
+                    ? "This conversation doesn't have any knowledge sources attached."
+                    : "You haven't added any knowledge sources yet."}
                 </CardDescription>
               </CardHeader>
               <CardFooter className="flex justify-between flex-wrap gap-2">
-                {mode === "all" && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteKnowledgeSource(source.id);
-                    }}
-                    disabled={isDeleting}
-                  >
-                    <Trash className="mr-2 h-4 w-4" />
-                    Delete
-                  </Button>
-                )}
+                <div className="flex gap-2 flex-wrap">
+                  {mode === "all" && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteKnowledgeSource(source.id);
+                      }}
+                      disabled={isDeleting}
+                    >
+                      <Trash className="mr-2 h-4 w-4" />
+                      Delete
+                    </Button>
+                  )}
+
+                  {mode === "all" && source.source_type === "text" && (
+                    <Dialog open={editingSource?.id === source.id} onOpenChange={(open) => !open && setEditingSource(null)}>
+                      <DialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingSource(source);
+                          }}
+                        >
+                          <Edit className="mr-2 h-4 w-4" />
+                          Edit
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-[600px]">
+                        <DialogHeader>
+                          <DialogTitle>Edit Knowledge Source</DialogTitle>
+                        </DialogHeader>
+                        <KnowledgeSourceEdit
+                          source={source}
+                          onSuccess={() => setEditingSource(null)}
+                        />
+                      </DialogContent>
+                    </Dialog>
+                  )}
+
+                  {/* Only show share button for sources owned by current user */}
+                  {mode === "all" && user && source.user_id === user.id && (
+                    <Button
+                      variant={source.is_shared ? "default" : "outline"}
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleKnowledgeSourceSharing(source.id);
+                      }}
+                      disabled={isTogglingSharing}
+                    >
+                      <Share2 className="mr-2 h-4 w-4" />
+                      {source.is_shared ? "Unshare" : "Share"}
+                    </Button>
+                  )}
+                </div>
 
                 {/* Universal Attach/Detach button for all modes */}
                 {showAttachButton && (
@@ -279,18 +343,60 @@ export function KnowledgeSourceList({
                     ) : (
                       <>
                         <Link className="mr-2 h-4 w-4" />
-                        {selectedSourceIds.includes(source.id)
-                          ? "Detach"
-                          : "Attach"}
+                        {conversationId ? "Attach" : "Select"}
                       </>
                     )}
-                  </Button>
-                )}
-              </CardFooter>
-            </Card>
-          ))}
+
+                    {/* Universal Attach/Detach button for all modes */}
+                    {showAttachButton && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (mode === "conversation" && conversationId) {
+                            // Detach in conversation mode
+                            removeKnowledgeFromConversation({
+                              conversationId,
+                              knowledgeSourceId: source.id,
+                            });
+                          } else if (conversationId) {
+                            // Attach in all mode with existing conversation
+                            addKnowledgeToConversation({
+                              conversationId,
+                              knowledgeSourceId: source.id,
+                            });
+                          } else if (onSelectKnowledgeSource) {
+                            // Select for new conversation
+                            onSelectKnowledgeSource(source);
+                          }
+                        }}
+                        disabled={
+                          mode === "conversation" ? isDetaching : isAttaching
+                        }
+                      >
+                        {mode === "conversation" ? (
+                          <>
+                            <Unlink className="mr-2 h-4 w-4" />
+                            Detach
+                          </>
+                        ) : (
+                          <>
+                            <Link className="mr-2 h-4 w-4" />
+                            {selectedSourceIds.includes(source.id)
+                              ? "Detach"
+                              : "Attach"}
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </CardFooter>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </ScrollArea>
     </div>
   );
 }

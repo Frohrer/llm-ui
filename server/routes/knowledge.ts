@@ -9,7 +9,9 @@ import {
   deleteKnowledgeSource,
   addKnowledgeToConversation,
   removeKnowledgeFromConversation,
-  getConversationKnowledge
+  getConversationKnowledge,
+  updateKnowledgeSourceText,
+  toggleKnowledgeSourceSharing
 } from '../knowledge-service';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db/index';
@@ -79,6 +81,7 @@ router.post('/file', upload.single('file'), async (req: Request, res: Response) 
     
     const { name, description } = req.body;
     const useRag = req.body.useRag === 'true' || req.body.useRag === true;
+    const isShared = req.body.isShared === 'true' || req.body.isShared === true;
     
     if (!name) {
       return res.status(400).json({ error: 'Name is required' });
@@ -89,7 +92,8 @@ router.post('/file', upload.single('file'), async (req: Request, res: Response) 
       name,
       description,
       file: req.file,
-      useRag
+      useRag,
+      isShared
     });
     
     res.status(201).json(knowledgeSource);
@@ -108,6 +112,7 @@ router.post('/text', async (req: Request, res: Response) => {
     
     const { name, description, text } = req.body;
     const useRag = req.body.useRag === 'true' || req.body.useRag === true;
+    const isShared = req.body.isShared === 'true' || req.body.isShared === true;
     
     if (!name) {
       return res.status(400).json({ error: 'Name is required' });
@@ -122,7 +127,8 @@ router.post('/text', async (req: Request, res: Response) => {
       name,
       description,
       text,
-      useRag
+      useRag,
+      isShared
     });
     
     res.status(201).json(knowledgeSource);
@@ -141,6 +147,7 @@ router.post('/url', async (req: Request, res: Response) => {
     
     const { name, description, url } = req.body;
     const useRag = req.body.useRag === 'true' || req.body.useRag === true;
+    const isShared = req.body.isShared === 'true' || req.body.isShared === true;
     
     if (!name) {
       return res.status(400).json({ error: 'Name is required' });
@@ -155,7 +162,8 @@ router.post('/url', async (req: Request, res: Response) => {
       name,
       description,
       url,
-      useRag
+      useRag,
+      isShared
     });
     
     res.status(201).json(knowledgeSource);
@@ -307,6 +315,57 @@ router.get('/conversation/:conversationId', async (req: Request, res: Response) 
   } catch (error: any) {
     console.error('Error getting conversation knowledge sources:', error);
     res.status(500).json({ error: error.message || 'Failed to get conversation knowledge sources' });
+  }
+});
+
+// Update a text knowledge source
+router.put('/text/:id', async (req: Request, res: Response) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+    
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid knowledge source ID' });
+    }
+    
+    const { name, description, text, useRag } = req.body;
+    
+    const knowledgeSource = await updateKnowledgeSourceText({
+      userId: req.user.id,
+      id,
+      name,
+      description,
+      text,
+      useRag: useRag === 'true' || useRag === true
+    });
+    
+    res.json(knowledgeSource);
+  } catch (error: any) {
+    console.error('Error updating knowledge source:', error);
+    res.status(500).json({ error: error.message || 'Failed to update knowledge source' });
+  }
+});
+
+// Toggle sharing status of a knowledge source
+router.put('/:id/share', async (req: Request, res: Response) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+    
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid knowledge source ID' });
+    }
+    
+    const knowledgeSource = await toggleKnowledgeSourceSharing(req.user.id, id);
+    
+    res.json(knowledgeSource);
+  } catch (error: any) {
+    console.error('Error toggling knowledge source sharing:', error);
+    res.status(500).json({ error: error.message || 'Failed to toggle knowledge source sharing' });
   }
 });
 
