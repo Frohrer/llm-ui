@@ -24,8 +24,9 @@ export const messages = pgTable("messages", {
   conversation_id: integer("conversation_id")
     .references(() => conversations.id)
     .notNull(),
-  role: text("role", { enum: ["user", "assistant"] }).notNull(),
+  role: text("role", { enum: ["user", "assistant", "tool"] }).notNull(),
   content: text("content").notNull(),
+  metadata: json("metadata"), // For storing tool call metadata and other internal data
   created_at: timestamp("created_at").defaultNow().notNull(),
 });
 
