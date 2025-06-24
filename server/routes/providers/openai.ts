@@ -391,7 +391,9 @@ router.post("/", async (req: Request, res: Response) => {
             if (toolDefinitions.length > 0) {
               streamOptions.tools = toolDefinitions;
               streamOptions.tool_choice = "auto";
-              console.log(`Added ${toolDefinitions.length} tools to request`);
+              console.log(`Added ${toolDefinitions.length} tools to OpenAI request: ${toolDefinitions.map(t => t.function.name).join(', ')}`);
+            } else {
+              console.warn("Tools requested but no tools available");
             }
           } catch (toolError) {
             console.error("Error loading tools:", toolError);
@@ -457,6 +459,7 @@ router.post("/", async (req: Request, res: Response) => {
                   arguments: ''
                 }
               };
+              console.log(`Initialized tool call ${index}: ${id}, name: ${funcDelta?.name}`);
             }
             
             // Append function arguments if present
@@ -480,20 +483,46 @@ router.post("/", async (req: Request, res: Response) => {
       // Execute any tool calls if present and tool usage is enabled
       if (useTools && toolCallsInProgress.length > 0) {
         try {
-          console.log('Executing tool calls:', JSON.stringify(toolCallsInProgress));
+          console.log('Executing tool calls:', JSON.stringify(toolCallsInProgress, null, 2));
+          
+          // Validate tool calls before execution
+          const validToolCalls = toolCallsInProgress.filter(toolCall => {
+            if (!toolCall.id || !toolCall.function?.name) {
+              console.error('Invalid tool call structure:', toolCall);
+              return false;
+            }
+            
+            // Try to parse arguments to ensure they're valid JSON
+            try {
+              if (toolCall.function.arguments) {
+                JSON.parse(toolCall.function.arguments);
+              }
+              return true;
+            } catch (parseError) {
+              console.error(`Invalid JSON arguments for tool ${toolCall.function.name}:`, toolCall.function.arguments);
+              return false;
+            }
+          });
+          
+          if (validToolCalls.length === 0) {
+            console.error('No valid tool calls found');
+            throw new Error('No valid tool calls found');
+          }
+          
+          console.log(`Validated ${validToolCalls.length} of ${toolCallsInProgress.length} tool calls`);
           
           // Store tool calls as internal messages
           const timestamp = new Date();
           await db.insert(messages).values({
             conversation_id: dbConversation.id,
             role: "tool",
-            content: JSON.stringify(toolCallsInProgress),
+            content: JSON.stringify(validToolCalls),
             metadata: { type: 'tool_calls' },
             created_at: timestamp,
           });
           
           // Execute all tool calls
-          const toolResults = await handleToolCalls(toolCallsInProgress);
+          const toolResults = await handleToolCalls(validToolCalls);
           
           // Store tool results as internal messages
           await db.insert(messages).values({
@@ -507,8 +536,14 @@ router.post("/", async (req: Request, res: Response) => {
           // Get an additional LLM response with the tool results
           const toolResponseMessages = [
             ...apiMessages,
-            { role: 'assistant', content: null, tool_calls: toolCallsInProgress },
-            { role: 'tool', content: JSON.stringify(toolResults), tool_call_id: toolCallsInProgress[0].id }
+            { role: 'assistant', content: null, tool_calls: validToolCalls },
+            ...toolResults.map(result => ({
+              role: 'tool',
+              tool_call_id: result.toolCallId,
+              content: result.error ? 
+                `Error: ${result.error}` : 
+                JSON.stringify(result.result, null, 2)
+            }))
           ];
           
           // Get final response with tool results
@@ -542,6 +577,15 @@ router.post("/", async (req: Request, res: Response) => {
             metadata: { type: 'tool_error' },
             created_at: new Date(),
           });
+          
+          // Send error message to user
+          const errorMessage = `Tool execution failed: ${toolError instanceof Error ? toolError.message : 'Unknown error'}`;
+          res.write(`data: ${JSON.stringify({ 
+            type: "chunk", 
+            content: '\n\n' + errorMessage 
+          })}\n\n`);
+          
+          streamedResponse += '\n\n' + errorMessage;
         }
       }
 
