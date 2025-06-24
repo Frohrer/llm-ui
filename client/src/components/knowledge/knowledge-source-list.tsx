@@ -236,16 +236,19 @@ export function KnowledgeSourceList({
                       : "Select"}
                   </Badge>
                 </div>
-          {filteredSources.length === 0 ? (
-            <Card className="w-full">
-              <CardHeader>
-                <CardTitle>No Knowledge Sources</CardTitle>
-                <CardDescription>
-                  {mode === "conversation"
-                    ? "This conversation doesn't have any knowledge sources attached."
-                    : "You haven't added any knowledge sources yet."}
-                </CardDescription>
               </CardHeader>
+
+              <CardContent>
+                {source.description && (
+                  <p className="text-sm text-muted-foreground mb-2">
+                    {source.description}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Created {formatDistanceToNow(new Date(source.created_at))} ago
+                </p>
+              </CardContent>
+
               <CardFooter className="flex justify-between flex-wrap gap-2">
                 <div className="flex gap-2 flex-wrap">
                   {mode === "all" && (
@@ -346,57 +349,13 @@ export function KnowledgeSourceList({
                         {conversationId ? "Attach" : "Select"}
                       </>
                     )}
-
-                    {/* Universal Attach/Detach button for all modes */}
-                    {showAttachButton && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (mode === "conversation" && conversationId) {
-                            // Detach in conversation mode
-                            removeKnowledgeFromConversation({
-                              conversationId,
-                              knowledgeSourceId: source.id,
-                            });
-                          } else if (conversationId) {
-                            // Attach in all mode with existing conversation
-                            addKnowledgeToConversation({
-                              conversationId,
-                              knowledgeSourceId: source.id,
-                            });
-                          } else if (onSelectKnowledgeSource) {
-                            // Select for new conversation
-                            onSelectKnowledgeSource(source);
-                          }
-                        }}
-                        disabled={
-                          mode === "conversation" ? isDetaching : isAttaching
-                        }
-                      >
-                        {mode === "conversation" ? (
-                          <>
-                            <Unlink className="mr-2 h-4 w-4" />
-                            Detach
-                          </>
-                        ) : (
-                          <>
-                            <Link className="mr-2 h-4 w-4" />
-                            {selectedSourceIds.includes(source.id)
-                              ? "Detach"
-                              : "Attach"}
-                          </>
-                        )}
-                      </Button>
-                    )}
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
-          )}
+                  </Button>
+                )}
+              </CardFooter>
+            </Card>
+          ))}
         </div>
-      </ScrollArea>
+      )}
     </div>
   );
 }
