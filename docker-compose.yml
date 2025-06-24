@@ -31,6 +31,9 @@ services:
       - GHOST_API_KEY=${GHOST_API_KEY}
       - GHOST_API_URL=${GHOST_API_URL}
       - SCREENSHOTONE_KEY=${SCREENSHOTONE_KEY}
+      - SUPAKILN_API_URL=${SUPAKILN_API_URL}
+      - CF_ACCESS_CLIENT_ID=${CF_ACCESS_CLIENT_ID}
+      - CF_ACCESS_CLIENT_SECRET=${CF_ACCESS_CLIENT_SECRET}
     depends_on:
       - db
     restart: unless-stopped

@@ -36,8 +36,6 @@ async function processAttachments(allAttachments: any[]) {
   for (const att of allAttachments) {
     if (att.type === 'image') {
       try {
-        console.log("Processing image attachment for Anthropic:", att.url);
-        
         const fileName = att.url.split('/').pop();
         if (!fileName) {
           throw new Error('Invalid image URL');
@@ -61,14 +59,11 @@ async function processAttachments(allAttachments: any[]) {
             data: base64Image
           }
         });
-        
-        console.log("Image successfully processed for Anthropic");
       } catch (imageError) {
         console.error("Error processing image for Anthropic:", imageError);
         documentTexts.push(`[Image processing failed: ${imageError instanceof Error ? imageError.message : 'Unknown error'}]`);
       }
     } else if (att.type === 'document' && att.text) {
-      console.log(`Processing document attachment for Anthropic: ${att.name}`);
       documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
     }
   }
@@ -106,8 +101,6 @@ async function executeToolsAndGetResponse(
   model: string,
   conversationId: number
 ): Promise<string> {
-  console.log('Executing tool calls:', JSON.stringify(toolCalls, null, 2));
-  
   // Store tool calls as internal messages
   await db.insert(messages).values({
     conversation_id: conversationId,
@@ -119,7 +112,6 @@ async function executeToolsAndGetResponse(
   
   // Execute all tool calls
   const toolResults = await handleToolCalls(toolCalls);
-  console.log("Tool execution results:", JSON.stringify(toolResults, null, 2));
   
   // Store tool results as internal messages
   await db.insert(messages).values({
@@ -203,7 +195,7 @@ router.post("/", async (req: Request, res: Response) => {
       return res.status(503).json({ error: "Anthropic service not initialized" });
     }
     
-    console.log(`Processing message with ${allAttachments.length} attachments for Anthropic`);
+
 
     // Set up SSE headers
     res.setHeader("Content-Type", "text/event-stream");
@@ -242,8 +234,6 @@ router.post("/", async (req: Request, res: Response) => {
 
       // Add pending knowledge sources
       if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
-        console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
-        
         for (const knowledgeSourceId of pendingKnowledgeSources) {
           try {
             await addKnowledgeToConversation(newConversation.id, knowledgeSourceId);
@@ -301,9 +291,6 @@ router.post("/", async (req: Request, res: Response) => {
     if (useKnowledge && dbConversation) {
       try {
         knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
-        if (knowledgeContent) {
-          console.log("Retrieved knowledge content for conversation");
-        }
       } catch (knowledgeError) {
         console.error("Error retrieving knowledge content:", knowledgeError);
       }
@@ -318,10 +305,11 @@ router.post("/", async (req: Request, res: Response) => {
       stream: true,
     };
 
+
+
     // Add tools if enabled
     if (useTools) {
       try {
-        console.log("Loading tools for Anthropic...");
         const toolDefinitions = await getToolDefinitions();
         
         if (toolDefinitions.length > 0) {
@@ -332,9 +320,6 @@ router.post("/", async (req: Request, res: Response) => {
           }));
           
           requestOptions.tools = anthropicTools;
-          console.log(`Added ${anthropicTools.length} tools to Anthropic request: ${anthropicTools.map(t => t.name).join(', ')}`);
-        } else {
-          console.warn("No tools available for use");
         }
       } catch (toolError) {
         console.error("Error loading tools:", toolError);
@@ -346,14 +331,7 @@ router.post("/", async (req: Request, res: Response) => {
     apiMessages.push({ role: "user", content: userMessageContent });
     requestOptions.messages = apiMessages;
 
-    console.log("Final Anthropic request:", {
-      model: requestOptions.model,
-      messageCount: requestOptions.messages.length,
-      toolCount: requestOptions.tools?.length || 0,
-      hasImages: imageAttachments.length > 0,
-      hasDocuments: documentTexts.length > 0,
-      hasKnowledge: !!knowledgeContent
-    });
+
 
     // Send initial conversation data
     res.write(`data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`);
@@ -364,12 +342,11 @@ router.post("/", async (req: Request, res: Response) => {
     }, 15000);
 
     let streamedResponse = "";
-    let toolCallsInProgress: any[] = [];
+    let toolCallsInProgress: { [index: number]: any } = {};
 
-    try {
+        try {
       // Create stream
       const stream = await client.messages.create(requestOptions);
-      console.log("Anthropic stream created successfully");
 
       // Process stream
       for await (const chunk of stream as any) {
@@ -381,12 +358,15 @@ router.post("/", async (req: Request, res: Response) => {
             streamedResponse += content;
             res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
           } else if (contentBlock?.type === 'tool_use') {
-            console.log("Tool use detected:", JSON.stringify(contentBlock));
-            toolCallsInProgress.push({
+            // Initialize tool call - input will come in delta events
+            const toolIndex = chunk.index;
+            toolCallsInProgress[toolIndex] = {
               id: contentBlock.id,
               name: contentBlock.name,
-              arguments: contentBlock.input || {}
-            });
+              arguments: contentBlock.input || {},
+              partialJsonString: '',
+              index: toolIndex
+            };
           }
         } else if (chunk.type === 'content_block_delta') {
           const delta = chunk.delta;
@@ -395,26 +375,55 @@ router.post("/", async (req: Request, res: Response) => {
             const content = delta.text;
             streamedResponse += content;
             res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
+          } else if (delta?.type === 'input_json_delta' && delta?.partial_json) {
+            // Accumulate tool input JSON chunks
+            const index = chunk.index;
+            if (index !== undefined && toolCallsInProgress[index]) {
+              toolCallsInProgress[index].partialJsonString += delta.partial_json;
+            }
+          }
+        } else if (chunk.type === 'content_block_stop') {
+          // Finalize tool arguments when content block stops
+          const index = chunk.index;
+          if (index !== undefined && toolCallsInProgress[index] && toolCallsInProgress[index].partialJsonString) {
+            try {
+              const completeJson = JSON.parse(toolCallsInProgress[index].partialJsonString);
+              toolCallsInProgress[index].arguments = completeJson;
+            } catch (parseError) {
+              console.error(`Failed to parse tool arguments for tool ${index}:`, parseError);
+            }
+            delete toolCallsInProgress[index].partialJsonString;
           }
         }
       }
 
-      console.log(`Stream completed. Response length: ${streamedResponse.length}, Tool calls: ${toolCallsInProgress.length}`);
+      const toolCallsArray = Object.values(toolCallsInProgress);
 
       // Handle tool calls if present
-      if (useTools && toolCallsInProgress.length > 0) {
-        console.log("Processing tool calls...");
-        console.log('Tool calls received:', JSON.stringify(toolCallsInProgress, null, 2));
+      if (useTools && toolCallsArray.length > 0) {
+        // Clean up tool calls (remove temporary fields) and validate
+        const cleanedToolCalls = toolCallsArray.map((toolCall: any) => ({
+          id: toolCall.id,
+          name: toolCall.name,
+          arguments: toolCall.arguments
+        }));
         
         // Validate tool calls
-        const validToolCalls = toolCallsInProgress.filter(toolCall => {
+        const validToolCalls = cleanedToolCalls.filter((toolCall: any) => {
           if (!toolCall.id || !toolCall.name) {
-            console.error('Invalid tool call structure:', toolCall);
             return false;
           }
           
-          if (!toolCall.arguments || typeof toolCall.arguments !== 'object') {
-            console.error(`Invalid arguments for tool ${toolCall.name}:`, toolCall.arguments);
+          if (toolCall.arguments === null || toolCall.arguments === undefined) {
+            return false;
+          }
+          
+          if (typeof toolCall.arguments !== 'object') {
+            return false;
+          }
+          
+          const argKeys = Object.keys(toolCall.arguments);
+          if (argKeys.length === 0) {
             return false;
           }
           
@@ -422,44 +431,53 @@ router.post("/", async (req: Request, res: Response) => {
         });
         
         if (validToolCalls.length === 0) {
-          console.error('No valid tool calls found');
-          throw new Error('No valid tool calls found');
-        }
-        
-        console.log(`Validated ${validToolCalls.length} of ${toolCallsInProgress.length} tool calls`);
-        
-        // Save initial response if it exists
-        if (streamedResponse.trim()) {
+          const errorMessage = "\n\nI attempted to use a tool but there was an issue with the tool call. Please try rephrasing your request.";
+          
+          res.write(`data: ${JSON.stringify({ type: "chunk", content: errorMessage })}\n\n`);
+          
           await db.insert(messages).values({
             conversation_id: dbConversation.id,
             role: "assistant",
-            content: streamedResponse,
+            content: streamedResponse + errorMessage,
             created_at: new Date(),
           });
+          
+          streamedResponse += errorMessage;
+        } else {
+          
+          // Save initial response if it exists
+          if (streamedResponse.trim()) {
+            await db.insert(messages).values({
+              conversation_id: dbConversation.id,
+              role: "assistant",
+              content: streamedResponse,
+              created_at: new Date(),
+            });
+          }
+          
+          // Execute tools and get final response
+          const toolResponse = await executeToolsAndGetResponse(
+            client,
+            validToolCalls,
+            apiMessages,
+            model,
+            dbConversation.id
+          );
+          
+          // Stream the tool response
+          res.write(`data: ${JSON.stringify({ type: "chunk", content: toolResponse })}\n\n`);
+          
+          // Save the tool response
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "assistant",
+            content: toolResponse,
+            metadata: { type: 'tool_result_response' },
+            created_at: new Date(),
+          });
+          
+          streamedResponse += toolResponse;
         }
-        
-        // Execute tools and get final response
-        const toolResponse = await executeToolsAndGetResponse(
-          client,
-          validToolCalls,
-          apiMessages,
-          model,
-          dbConversation.id
-        );
-        
-        // Stream the tool response
-        res.write(`data: ${JSON.stringify({ type: "chunk", content: toolResponse })}\n\n`);
-        
-        // Save the tool response
-        await db.insert(messages).values({
-          conversation_id: dbConversation.id,
-          role: "assistant",
-          content: toolResponse,
-          metadata: { type: 'tool_result_response' },
-          created_at: new Date(),
-        });
-        
-        streamedResponse += toolResponse;
       } else {
         // No tool calls - save the response normally
         if (streamedResponse.trim()) {
