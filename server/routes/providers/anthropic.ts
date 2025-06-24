@@ -323,7 +323,6 @@ router.post("/", async (req: Request, res: Response) => {
       try {
         console.log("Loading tools for Anthropic...");
         const toolDefinitions = await getToolDefinitions();
-        console.log(`Loaded ${toolDefinitions.length} tools:`, toolDefinitions.map(t => t.function.name).join(', '));
         
         if (toolDefinitions.length > 0) {
           const anthropicTools = toolDefinitions.map(tool => ({
@@ -333,7 +332,7 @@ router.post("/", async (req: Request, res: Response) => {
           }));
           
           requestOptions.tools = anthropicTools;
-          console.log(`Added ${anthropicTools.length} tools to Anthropic request`);
+          console.log(`Added ${anthropicTools.length} tools to Anthropic request: ${anthropicTools.map(t => t.name).join(', ')}`);
         } else {
           console.warn("No tools available for use");
         }
@@ -379,10 +378,8 @@ router.post("/", async (req: Request, res: Response) => {
           
           if (contentBlock?.type === 'text' && contentBlock.text) {
             const content = contentBlock.text;
-            if (content.trim()) {
-              streamedResponse += content;
-              res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
-            }
+            streamedResponse += content;
+            res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
           } else if (contentBlock?.type === 'tool_use') {
             console.log("Tool use detected:", JSON.stringify(contentBlock));
             toolCallsInProgress.push({
@@ -396,17 +393,8 @@ router.post("/", async (req: Request, res: Response) => {
           
           if (delta?.text) {
             const content = delta.text;
-            if (content.trim()) {
-              streamedResponse += content;
-              res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
-            }
-          } else if (delta?.partial_json) {
-            // Handle partial tool arguments
-            if (toolCallsInProgress.length > 0) {
-              const currentTool = toolCallsInProgress[toolCallsInProgress.length - 1];
-              if (!currentTool.partialJson) currentTool.partialJson = '';
-              currentTool.partialJson += delta.partial_json;
-            }
+            streamedResponse += content;
+            res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
           }
         }
       }
@@ -416,17 +404,29 @@ router.post("/", async (req: Request, res: Response) => {
       // Handle tool calls if present
       if (useTools && toolCallsInProgress.length > 0) {
         console.log("Processing tool calls...");
+        console.log('Tool calls received:', JSON.stringify(toolCallsInProgress, null, 2));
         
-        // Parse any partial JSON arguments
-        for (const toolCall of toolCallsInProgress) {
-          if (toolCall.partialJson) {
-            try {
-              toolCall.arguments = JSON.parse(toolCall.partialJson);
-            } catch (parseError) {
-              console.error("Failed to parse tool arguments:", parseError);
-            }
+        // Validate tool calls
+        const validToolCalls = toolCallsInProgress.filter(toolCall => {
+          if (!toolCall.id || !toolCall.name) {
+            console.error('Invalid tool call structure:', toolCall);
+            return false;
           }
+          
+          if (!toolCall.arguments || typeof toolCall.arguments !== 'object') {
+            console.error(`Invalid arguments for tool ${toolCall.name}:`, toolCall.arguments);
+            return false;
+          }
+          
+          return true;
+        });
+        
+        if (validToolCalls.length === 0) {
+          console.error('No valid tool calls found');
+          throw new Error('No valid tool calls found');
         }
+        
+        console.log(`Validated ${validToolCalls.length} of ${toolCallsInProgress.length} tool calls`);
         
         // Save initial response if it exists
         if (streamedResponse.trim()) {
@@ -441,7 +441,7 @@ router.post("/", async (req: Request, res: Response) => {
         // Execute tools and get final response
         const toolResponse = await executeToolsAndGetResponse(
           client,
-          toolCallsInProgress,
+          validToolCalls,
           apiMessages,
           model,
           dbConversation.id
