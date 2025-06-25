@@ -422,11 +422,7 @@ router.post("/", async (req: Request, res: Response) => {
             return false;
           }
           
-          const argKeys = Object.keys(toolCall.arguments);
-          if (argKeys.length === 0) {
-            return false;
-          }
-          
+          // Empty arguments object is valid for tools with all optional parameters
           return true;
         });
         
