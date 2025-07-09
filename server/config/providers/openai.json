@@ -4,12 +4,6 @@
   "icon": "SiOpenai",
   "models": [
     {
-      "id": "gpt-4.5-preview-2025-02-27",
-      "name": "GPT-4.5 (Preview)",
-      "contextLength": 128000,
-      "defaultModel": false
-    },
-    {
       "id": "gpt-4o",
       "name": "GPT-4 Omni",
       "contextLength": 128000,
