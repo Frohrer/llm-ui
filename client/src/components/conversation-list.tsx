@@ -1,9 +1,10 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import { formatDistanceToNow, isToday, isThisWeek, parseISO } from "date-fns";
-import { Trash2 } from "lucide-react";
+import { Trash2, Search, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Conversation } from "@/lib/llm/types";
 
@@ -18,6 +19,17 @@ export function ConversationList({
 }: ConversationListProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const {
     data: conversations,
@@ -25,6 +37,23 @@ export function ConversationList({
     error,
   } = useQuery<Conversation[]>({
     queryKey: ["/api/conversations"],
+  });
+
+  // Search query - only triggered when there's a search term
+  const {
+    data: searchResults,
+    isLoading: isSearching,
+    error: searchError,
+  } = useQuery<Conversation[]>({
+    queryKey: ["/api/conversations/search", debouncedSearchQuery],
+    queryFn: async () => {
+      const response = await fetch(`/api/conversations/search?q=${encodeURIComponent(debouncedSearchQuery)}`);
+      if (!response.ok) {
+        throw new Error("Failed to search conversations");
+      }
+      return response.json();
+    },
+    enabled: debouncedSearchQuery.trim().length > 0,
   });
 
   // Query for messages when a conversation is selected
@@ -86,9 +115,12 @@ export function ConversationList({
   };
 
   const categorizedConversations = useMemo(() => {
-    if (!conversations) return {};
+    // Use search results if searching, otherwise use all conversations
+    const conversationsToUse = debouncedSearchQuery.trim().length > 0 ? searchResults : conversations;
+    
+    if (!conversationsToUse) return { today: [], thisWeek: [], older: [] };
 
-    return conversations.reduce(
+    return conversationsToUse.reduce(
       (acc, conv) => {
         const lastMessageDate = parseISO(conv.lastMessageAt);
 
@@ -102,9 +134,9 @@ export function ConversationList({
 
         return acc;
       },
-      {} as Record<"today" | "thisWeek" | "older", Conversation[]>,
+      { today: [], thisWeek: [], older: [] } as Record<"today" | "thisWeek" | "older", Conversation[]>,
     );
-  }, [conversations]);
+  }, [conversations, searchResults, debouncedSearchQuery]);
 
   // Update active conversation with messages when they are loaded
   useEffect(() => {
@@ -113,18 +145,71 @@ export function ConversationList({
     }
   }, [activeConversationWithMessages, onSelectConversation]);
 
+  const clearSearch = useCallback(() => {
+    setSearchQuery("");
+    setDebouncedSearchQuery("");
+  }, []);
+
   if (isLoading) {
     return (
-      <div className="p-4 text-muted-foreground text-sm md:text-base">
-        Loading conversations...
+      <div className="flex flex-col h-full">
+        {/* Search input even during loading */}
+        <div className="p-4 pb-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+            <Input
+              placeholder="Search conversations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-10"
+            />
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                onClick={clearSearch}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="p-4 pt-2 text-muted-foreground text-sm md:text-base">
+          Loading conversations...
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-4 text-destructive text-sm md:text-base">
-        Error loading conversations. Please try again later.
+      <div className="flex flex-col h-full">
+        {/* Search input even during error */}
+        <div className="p-4 pb-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+            <Input
+              placeholder="Search conversations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-10"
+            />
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                onClick={clearSearch}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="p-4 pt-2 text-destructive text-sm md:text-base">
+          Error loading conversations. Please try again later.
+        </div>
       </div>
     );
   }
@@ -176,15 +261,70 @@ export function ConversationList({
     );
   };
 
+  // Determine if we're showing search results
+  const isShowingSearchResults = debouncedSearchQuery.trim().length > 0;
+  const currentConversations = isShowingSearchResults ? searchResults : conversations;
+  const hasNoResults = isShowingSearchResults && searchResults?.length === 0;
+  const hasNoConversations = !isShowingSearchResults && !conversations?.length;
+
   return (
     <div className="flex flex-col h-full">
+      {/* Search Input */}
+      <div className="p-4 pb-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+          <Input
+            placeholder="Search conversations..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 pr-10"
+          />
+          {searchQuery && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+              onClick={clearSearch}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Results */}
       <ScrollArea className="flex-1">
-        <div className="p-4 space-y-2">
-          {!conversations?.length ? (
+        <div className="p-4 pt-2 space-y-2">
+          {/* Loading state for search */}
+          {isSearching && isShowingSearchResults && (
+            <div className="text-center text-muted-foreground text-sm md:text-base">
+              Searching conversations...
+            </div>
+          )}
+
+          {/* Search error */}
+          {searchError && isShowingSearchResults && (
+            <div className="text-center text-destructive text-sm md:text-base">
+              Error searching conversations. Please try again.
+            </div>
+          )}
+
+          {/* No search results */}
+          {hasNoResults && !isSearching && (
+            <div className="text-center text-muted-foreground text-sm md:text-base">
+              No conversations found matching "{debouncedSearchQuery}".
+            </div>
+          )}
+
+          {/* No conversations at all */}
+          {hasNoConversations && (
             <div className="text-center text-muted-foreground text-sm md:text-base">
               No conversations yet. Start a new chat to begin.
             </div>
-          ) : (
+          )}
+
+          {/* Show categorized results */}
+          {currentConversations && currentConversations.length > 0 && !isSearching && (
             <>
               {renderCategory("Today", categorizedConversations.today)}
               {renderCategory("This Week", categorizedConversations.thisWeek)}
