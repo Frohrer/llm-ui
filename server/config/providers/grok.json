@@ -4,10 +4,16 @@
   "icon": "SiX",
   "models": [
     {
+      "id": "grok-4-latest",
+      "name": "Grok-4",
+      "contextLength": 131072,
+      "defaultModel": true
+    },
+    {
       "id": "grok-3",
       "name": "Grok-3",
       "contextLength": 131072,
-      "defaultModel": true
+      "defaultModel": false
     },
     {
       "id": "grok-3-fast",
