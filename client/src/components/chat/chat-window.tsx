@@ -404,6 +404,10 @@ export function ChatWindow({
     setIsLoading(true);
     setStreamedText("");
     streamIdRef.current = nanoid();
+    
+    // Scroll to bottom immediately after adding the user message
+    setTimeout(scrollToBottom, 0);
+    
     // Auto-scroll behavior is now handled per chunk by checking isNearBottom()
 
     // Create new AbortController for this request
