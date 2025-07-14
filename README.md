@@ -79,11 +79,17 @@ GEMINI_API_KEY=your_gemini_api_key
 # Optional - Microsoft Cognitive Services for Speech Features
 SPEECH_KEY=your_azure_speech_key
 SPEECH_REGION=your_azure_speech_region
+
+# Optional - Code Execution with Supakiln
+SUPAKILN_API_URL=https://your-supakiln-instance.com
+CF_ACCESS_CLIENT_ID=your_cf_access_client_id
+CF_ACCESS_CLIENT_SECRET=your_cf_access_client_secret
 ```
 
 Notes:
 - The application will only display and enable LLM providers for which valid API keys are provided. Missing API keys will cause the corresponding provider to be hidden from the UI automatically.
 - Speech-to-text and text-to-speech features require valid Microsoft Cognitive Services credentials, but these features are optional and the application will work without them.
+- Supakiln code execution requires a running supakiln instance. If your supakiln instance is protected by Cloudflare Access, you'll also need to provide CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET for service-to-service authentication.
 
 ## Local Development
 
@@ -162,6 +168,17 @@ Note: If the API key for a provider is not available in the environment variable
 3. Type your message and press Enter or click the send button
 4. View your conversation history in the sidebar
 5. Toggle between light and dark modes using the theme toggle button
+
+### Python Code Execution with Supakiln
+If configured with a supakiln instance, the LLM can execute Python code in secure sandboxed containers:
+
+1. **Basic Python execution**: The LLM can run Python code with automatic package installation
+2. **Container management**: Create persistent containers with pre-installed packages for complex workflows
+3. **Advanced workflows**: Use existing containers for stateful computations across multiple code executions
+
+Available tools:
+- `run_python`: Execute Python code with optional package installation
+- `manage_containers`: Create, list, inspect, and delete containers for persistent environments
 
 ### Knowledge Management
 1. Access the Knowledge Management by clicking the "Knowledge" button in the sidebar

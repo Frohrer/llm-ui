@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { db } from "@db";
 import { conversations, messages, conversationKnowledge } from "@db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, or, ilike, and } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { cleanupDocumentFile, cleanupImageFile } from "../file-handler";
 
@@ -23,6 +23,69 @@ router.get("/", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Database error:", error);
     res.status(500).json({ error: "Failed to fetch conversations" });
+  }
+});
+
+// Search conversations by title and message content
+router.get("/search", async (req: Request, res: Response) => {
+  try {
+    const { q } = req.query;
+    
+    if (!q || typeof q !== 'string' || q.trim().length === 0) {
+      return res.json([]);
+    }
+
+    const searchTerm = `%${q.trim()}%`;
+    
+    // Search in conversation titles
+    const titleMatches = await db.query.conversations.findMany({
+      where: and(
+        eq(conversations.user_id, req.user!.id),
+        ilike(conversations.title, searchTerm)
+      ),
+      orderBy: [desc(conversations.last_message_at)],
+    });
+
+    // Search in message content
+    const messageMatches = await db
+      .selectDistinct({
+        id: conversations.id,
+        title: conversations.title,
+        user_id: conversations.user_id,
+        provider: conversations.provider,
+        model: conversations.model,
+        created_at: conversations.created_at,
+        last_message_at: conversations.last_message_at,
+      })
+      .from(conversations)
+      .innerJoin(messages, eq(messages.conversation_id, conversations.id))
+      .where(
+        and(
+          eq(conversations.user_id, req.user!.id),
+          ilike(messages.content, searchTerm)
+        )
+      )
+      .orderBy(desc(conversations.last_message_at));
+
+    // Combine and deduplicate results
+    const allMatches = [...titleMatches, ...messageMatches];
+    const uniqueMatches = allMatches.filter((conv, index, self) => 
+      index === self.findIndex(c => c.id === conv.id)
+    );
+
+    // Sort by last_message_at
+    uniqueMatches.sort((a, b) => 
+      new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
+    );
+
+    const transformedConversations = uniqueMatches.map(
+      transformDatabaseConversation,
+    );
+
+    res.json(transformedConversations);
+  } catch (error) {
+    console.error("Search error:", error);
+    res.status(500).json({ error: "Failed to search conversations" });
   }
 });
 
