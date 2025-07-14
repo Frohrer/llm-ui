@@ -183,7 +183,7 @@ export function Message({ message }: MessageProps) {
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           className={cn(
-            "prose max-w-none",
+            "prose max-w-none break-words",
             "prose-neutral dark:prose-invert",
             "prose-a:text-blue-600 dark:prose-a:text-blue-400",
             "prose-table:table-auto prose-table:w-full",
@@ -474,13 +474,13 @@ export function Message({ message }: MessageProps) {
     <div className="mb-6">
       <Card
         className={cn(
-          "p-4 relative",
+          "p-4 relative overflow-hidden",
           message.role === "assistant"
             ? "bg-secondary"
             : "bg-primary/10 dark:bg-primary/20",
         )}
       >
-        <div className="group">
+        <div className="group w-full overflow-hidden">
           {messageContent}
           {renderAttachments()}
         </div>
