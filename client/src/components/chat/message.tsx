@@ -192,32 +192,37 @@ export function Message({ message }: MessageProps) {
             "prose-th:p-2 prose-th:text-left",
             "prose-td:p-2",
             "prose-img:max-w-full prose-img:h-auto prose-img:mx-auto",
+            "prose-pre:max-w-full prose-pre:overflow-x-auto",
+            "prose-code:max-w-full",
           )}
-          transformImageUri={(uri: string) => uri}
           components={{
-            code({ node, inline, className, children, ...props }) {
+            code({ node, inline, className, children, ...props }: any) {
               const match = /language-(\w+)/.exec(className || "");
-              const code = String(children).replace(/\n$/, "");
+              // Preserve original code with proper line breaks for copying
+              const originalCode = String(children);
+              // Remove only the trailing newline for display (if it exists)
+              const displayCode = originalCode.replace(/\n$/, "");
 
               return !inline && match ? (
-                <div className="relative group">
+                <div className="relative group max-w-full overflow-hidden">
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => handleCopyCode(code)}
+                    className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    onClick={() => handleCopyCode(originalCode)}
                   >
                     <Copy className="h-4 w-4" />
                   </Button>
-                  <SyntaxHighlighter
-                    {...props}
-                    style={vscDarkPlus}
-                    language={match[1]}
-                    PreTag="div"
-                    className="!mt-0"
-                  >
-                    {code}
-                  </SyntaxHighlighter>
+                  <div className="max-w-full overflow-x-auto">
+                    <SyntaxHighlighter
+                      style={vscDarkPlus}
+                      language={match[1]}
+                      PreTag="div"
+                      className="!mt-0 !max-w-full"
+                    >
+                      {displayCode}
+                    </SyntaxHighlighter>
+                  </div>
                 </div>
               ) : (
                 <code {...props} className={className}>
