@@ -5,6 +5,7 @@ import { loadProviderConfigs } from "./config/loader";
 import { cloudflareAuthMiddleware } from "./middleware/auth";
 import knowledgeRoutes from "./routes/knowledge";
 import conversationsRoutes from "./routes/conversations";
+import toolsRoutes from "./routes/tools";
 import {
   openaiRouter,
   anthropicRouter,
@@ -133,6 +134,9 @@ export function registerRoutes(app: Express): Server {
 
   // Register knowledge routes
   app.use('/api/knowledge', knowledgeRoutes);
+
+  // Register tools routes
+  app.use('/api/tools', toolsRoutes);
 
   // File upload route for chat attachments
   app.post('/api/upload', uploadSingleMiddleware, async (req: Request, res: Response) => {

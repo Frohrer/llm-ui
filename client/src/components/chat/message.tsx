@@ -7,10 +7,12 @@ import { cn } from "@/lib/utils";
 import type { Message as MessageType } from "@/lib/llm/types";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Check, Volume2, VolumeX, FileText, ExternalLink, Wrench } from "lucide-react";
+import { Copy, Check, Volume2, VolumeX, FileText, ExternalLink, Wrench, Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useSpeech } from "@/hooks/use-speech";
 import { Badge } from "@/components/ui/badge";
+import { useCodeExecution } from "@/hooks/use-code-execution";
+import { TerminalOutput } from "@/components/ui/terminal-output";
 
 interface MessageProps {
   message: MessageType;
@@ -21,6 +23,8 @@ export function Message({ message }: MessageProps) {
   const { speak, isSpeaking } = useSpeech();
   const [localIsSpeaking, setLocalIsSpeaking] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const { executeCode, isExecuting, result, error, clearResults } = useCodeExecution();
+  const [executingCode, setExecutingCode] = useState<string | null>(null);
 
   const handleSpeakMessage = async () => {
     try {
@@ -80,6 +84,26 @@ export function Message({ message }: MessageProps) {
         description: "Failed to copy code",
         duration: 2000,
       });
+    }
+  };
+
+  const handleRunCode = async (code: string, language: string) => {
+    if (language !== 'python') {
+      toast({
+        variant: "destructive",
+        description: "Only Python code execution is supported",
+        duration: 2000,
+      });
+      return;
+    }
+
+    setExecutingCode(code);
+    clearResults();
+    
+    try {
+      await executeCode(code);
+    } catch (error) {
+      // Error handling is done in the hook
     }
   };
 
@@ -202,17 +226,33 @@ export function Message({ message }: MessageProps) {
               const originalCode = String(children);
               // Remove only the trailing newline for display (if it exists)
               const displayCode = originalCode.replace(/\n$/, "");
+              const language = match ? match[1] : '';
 
               return !inline && match ? (
                 <div className="relative group max-w-full overflow-hidden">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                    onClick={() => handleCopyCode(originalCode)}
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
+                  <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-1">
+                    {language === 'python' && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={() => handleRunCode(originalCode, language)}
+                        disabled={isExecuting}
+                        title="Run Python code"
+                      >
+                        <Play className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => handleCopyCode(originalCode)}
+                      title="Copy code"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
                   <div className="max-w-full overflow-x-auto">
                     <SyntaxHighlighter
                       style={vscDarkPlus}
@@ -223,6 +263,14 @@ export function Message({ message }: MessageProps) {
                       {displayCode}
                     </SyntaxHighlighter>
                   </div>
+                  {executingCode === originalCode && (
+                    <TerminalOutput
+                      output={result?.output}
+                      error={result?.error || error}
+                      isExecuting={isExecuting}
+                      executionTime={result?.execution_time}
+                    />
+                  )}
                 </div>
               ) : (
                 <code {...props} className={className}>
