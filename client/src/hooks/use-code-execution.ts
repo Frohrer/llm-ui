@@ -76,12 +76,29 @@ export function useCodeExecution() {
       const results = await response.json();
       const result = results[0]; // Get the first (and only) result
       
+      // For error cases, prioritize the message field over the generic error field
+      let errorToDisplay = result.error;
+      if (result.result && !result.result.success && result.result.message) {
+        errorToDisplay = result.result.message;
+      } else if (result.result && !result.result.success && result.result.error) {
+        errorToDisplay = result.result.error;
+      }
+      
       setState(prev => ({ 
         ...prev,
         isExecuting: false, 
         result: result.result, 
-        error: result.error 
+        error: errorToDisplay 
       }));
+
+      // Show toast for tool execution errors
+      if (result.result && !result.result.success && errorToDisplay) {
+        toast({
+          variant: 'destructive',
+          title: 'Code Execution Failed',
+          description: errorToDisplay,
+        });
+      }
 
       return result.result;
     } catch (error) {
