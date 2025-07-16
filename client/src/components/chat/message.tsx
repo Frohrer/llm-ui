@@ -269,7 +269,7 @@ export function Message({ message }: MessageProps) {
                   {executingCode === originalCode && (
                     <TerminalOutput
                       output={result?.output}
-                      error={result?.error}
+                      error={error || undefined}
                       isExecuting={isExecuting}
                     />
                   )}
