@@ -12,3 +12,59 @@
     touch-action: pan-x pan-y;
   }
 }
+
+/* Force word breaking for chat messages to prevent overflow */
+@layer utilities {
+  .chat-message-content {
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  
+  .chat-message-content *:not(strong):not(em):not(code):not(a) {
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+  
+  /* Apply more gentle word breaking to inline elements */
+  .chat-message-content strong,
+  .chat-message-content em,
+  .chat-message-content code,
+  .chat-message-content a {
+    overflow-wrap: break-word !important;
+    word-wrap: break-word !important;
+    /* Remove the aggressive word-break: break-word for inline elements */
+    max-width: 100% !important;
+  }
+  
+  .chat-message-content pre,
+  .chat-message-content code {
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+  }
+  
+  .chat-message-content table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+    overflow-x: auto !important;
+  }
+  
+  .chat-message-content td,
+  .chat-message-content th {
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+    max-width: 0 !important;
+  }
+}
