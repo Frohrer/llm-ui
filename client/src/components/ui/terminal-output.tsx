@@ -13,7 +13,10 @@ export function TerminalOutput({
   executionTime,
   className,
 }: TerminalOutputProps) {
-  if (!output && !error && !isExecuting) {
+  // Show terminal if: executing, has error, has output (including empty string), or has execution time
+  const shouldShow = isExecuting || error || output !== undefined || executionTime;
+  
+  if (!shouldShow) {
     return null;
   }
 
@@ -56,11 +59,11 @@ export function TerminalOutput({
           </div>
         ) : (
           <div>
-            {output && (
+            {(output !== undefined && output !== null) && (
               <div className="space-y-1">
                 <div className="text-gray-400">$ python</div>
                 <pre className="whitespace-pre-wrap text-green-400">
-                  {output}
+                  {output || '(no output)'}
                 </pre>
               </div>
             )}
