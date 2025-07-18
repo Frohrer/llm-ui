@@ -33,6 +33,7 @@ import { formatDistanceToNow } from "date-fns";
 import { KnowledgeSourceEdit } from "@/components/knowledge/knowledge-source-edit";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KnowledgeSheet } from "./knowledge-sheet";
+import { KnowledgeSourceUpload } from "./knowledge-source-upload";
 import { useUser } from "@/hooks/use-user";
 
 export type KnowledgeSourceListMode = "all" | "conversation";
@@ -64,6 +65,7 @@ export function KnowledgeSourceList({
   gridLayout = false,
 }: KnowledgeSourceListProps) {
   const [editingSource, setEditingSource] = useState<KnowledgeSource | null>(null);
+  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const { user } = useUser();
   const {
     knowledgeSources,
@@ -168,7 +170,26 @@ export function KnowledgeSourceList({
                 ? "Knowledge sources provide context to the AI, allowing it to reference specific information in its responses."
                 : "Knowledge sources allow you to reference external information in your AI conversations. You can upload files (PDF, TXT, etc.), paste text, or add a URL."}
             </p>
-            <KnowledgeSheet />
+            {mode === "conversation" ? (
+              <KnowledgeSheet />
+            ) : (
+              <>
+                <Button onClick={() => setIsUploadDialogOpen(true)}>
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Add Knowledge Source
+                </Button>
+                <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+                  <DialogContent className="sm:max-w-[600px]">
+                    <DialogHeader>
+                      <DialogTitle>Add Knowledge Source</DialogTitle>
+                    </DialogHeader>
+                    <KnowledgeSourceUpload
+                      onSuccess={() => setIsUploadDialogOpen(false)}
+                    />
+                  </DialogContent>
+                </Dialog>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (

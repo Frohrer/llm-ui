@@ -9,7 +9,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc",
     "db:push": "drizzle-kit push",
-    "db:migrate": "drizzle-kit migrate", 
+    "db:migrate": "drizzle-kit migrate",
     "db:generate": "drizzle-kit generate",
     "test:ai-models": "node tests/ai-model-tests.js"
   },
@@ -19,6 +19,7 @@
     "@google/generative-ai": "^0.24.0",
     "@hookform/resolvers": "^3.9.1",
     "@jridgewell/trace-mapping": "^0.3.25",
+    "@playwright/test": "^1.54.1",
     "@radix-ui/react-accordion": "^1.2.1",
     "@radix-ui/react-alert-dialog": "^1.1.2",
     "@radix-ui/react-aspect-ratio": "^1.1.0",
@@ -73,6 +74,7 @@
     "multer": "^1.4.5-lts.1",
     "nanoid": "^5.0.9",
     "node-fetch": "^3.3.2",
+    "nodemailer": "^7.0.3",
     "officegen": "^0.6.5",
     "openai": "^4.79.1",
     "passport": "^0.7.0",
@@ -82,6 +84,7 @@
     "pdfkit": "^0.16.0",
     "pg": "^8.13.1",
     "pptx-parser": "^1.1.7-beta.9",
+    "puppeteer": "^24.9.0",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
@@ -101,9 +104,7 @@
     "ws": "^8.18.0",
     "xlsx": "^0.18.5",
     "xmldom": "^0.6.0",
-    "zod": "^3.23.8",
-    "nodemailer":"^7.0.3",
-    "puppeteer":"^24.9.0"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",
