@@ -7,10 +7,12 @@ import { cn } from "@/lib/utils";
 import type { Message as MessageType } from "@/lib/llm/types";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Check, Volume2, VolumeX, FileText, ExternalLink, Wrench } from "lucide-react";
+import { Copy, Check, Volume2, VolumeX, FileText, ExternalLink, Wrench, Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useSpeech } from "@/hooks/use-speech";
 import { Badge } from "@/components/ui/badge";
+import { useCodeExecution } from "@/hooks/use-code-execution";
+import { TerminalOutput } from "@/components/ui/terminal-output";
 
 interface MessageProps {
   message: MessageType;
@@ -21,6 +23,8 @@ export function Message({ message }: MessageProps) {
   const { speak, isSpeaking } = useSpeech();
   const [localIsSpeaking, setLocalIsSpeaking] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const { executeCode, isExecuting, result, error, clearResults } = useCodeExecution();
+  const [executingCode, setExecutingCode] = useState<string | null>(null);
 
   const handleSpeakMessage = async () => {
     try {
@@ -83,6 +87,26 @@ export function Message({ message }: MessageProps) {
     }
   };
 
+  const handleRunCode = async (code: string, language: string) => {
+    if (language !== 'python') {
+      toast({
+        variant: "destructive",
+        description: "Code execution is only supported for Python",
+        duration: 2000,
+      });
+      return;
+    }
+
+    setExecutingCode(code);
+    clearResults();
+    
+    try {
+      await executeCode(code);
+    } catch (error) {
+      // Error handling is done in the hook
+    }
+  };
+
   // Helper function to format tool calls in code blocks
   const formatToolCalls = (content: string) => {
     // Check if the content includes tool call markers
@@ -113,9 +137,9 @@ export function Message({ message }: MessageProps) {
                   <Wrench className="h-4 w-4" />
                   <span>Tool Interaction</span>
                 </div>
-                <div className="ml-2 pl-2 border-l-2 border-primary/30 text-sm">
+                <div className="ml-2 pl-2 border-l-2 border-primary/30 text-sm break-words">
                   {toolCallBuffer.map((l, i) => (
-                    <div key={i}>{l}</div>
+                    <div key={i} className="break-words">{l}</div>
                   ))}
                 </div>
               </div>
@@ -144,9 +168,9 @@ export function Message({ message }: MessageProps) {
               <Wrench className="h-4 w-4" />
               <span>Tool Interaction</span>
             </div>
-            <div className="ml-2 pl-2 border-l-2 border-primary/30 text-sm">
+            <div className="ml-2 pl-2 border-l-2 border-primary/30 text-sm break-words">
               {toolCallBuffer.map((l, i) => (
-                <div key={i}>{l}</div>
+                <div key={i} className="break-words">{l}</div>
               ))}
             </div>
           </div>
@@ -176,16 +200,16 @@ export function Message({ message }: MessageProps) {
       (message.content.includes("Calling tool:") || 
        message.content.includes("Tool Call:") || 
        message.content.includes("Tool:") && message.content.includes("Result:")) ? (
-        <div className="prose dark:prose-invert max-w-none">
+        <div className="prose dark:prose-invert max-w-none break-words [&_*]:break-words chat-message-content">
           {formatToolCalls(message.content)}
         </div>
       ) : (
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           className={cn(
-            "prose max-w-none break-words",
+            "prose max-w-none break-words chat-message-content",
             "prose-neutral dark:prose-invert",
-            "prose-a:text-blue-600 dark:prose-a:text-blue-400",
+            "prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:break-all",
             "prose-table:table-auto prose-table:w-full",
             "prose-thead:bg-muted prose-thead:dark:bg-muted/50",
             "prose-tr:border-b prose-tr:border-border",
@@ -193,7 +217,9 @@ export function Message({ message }: MessageProps) {
             "prose-td:p-2",
             "prose-img:max-w-full prose-img:h-auto prose-img:mx-auto",
             "prose-pre:max-w-full prose-pre:overflow-x-auto",
-            "prose-code:max-w-full",
+            "prose-code:max-w-full prose-code:break-all",
+            "prose-p:break-words",
+            "[&_*]:max-w-full [&_*]:break-words",
           )}
           components={{
             code({ node, inline, className, children, ...props }: any) {
@@ -202,30 +228,54 @@ export function Message({ message }: MessageProps) {
               const originalCode = String(children);
               // Remove only the trailing newline for display (if it exists)
               const displayCode = originalCode.replace(/\n$/, "");
+              const language = match ? match[1] : '';
 
               return !inline && match ? (
-                <div className="relative group max-w-full overflow-hidden">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                    onClick={() => handleCopyCode(originalCode)}
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                  <div className="max-w-full overflow-x-auto">
+                <div className="relative group w-full max-w-full overflow-hidden">
+                  <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-1">
+                    {language === 'python' && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={() => handleRunCode(originalCode, language)}
+                        disabled={isExecuting}
+                        title="Run Python code"
+                      >
+                        <Play className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => handleCopyCode(originalCode)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="w-full max-w-full overflow-x-auto">
                     <SyntaxHighlighter
                       style={vscDarkPlus}
                       language={match[1]}
                       PreTag="div"
-                      className="!mt-0 !max-w-full"
+                      className="!mt-0 !w-full !max-w-full"
+                      wrapLines={true}
+                      wrapLongLines={true}
                     >
                       {displayCode}
                     </SyntaxHighlighter>
                   </div>
+                  {executingCode === originalCode && (
+                    <TerminalOutput
+                      output={result?.output}
+                      error={error || undefined}
+                      isExecuting={isExecuting}
+                    />
+                  )}
                 </div>
               ) : (
-                <code {...props} className={className}>
+                <code {...props} className={cn(className, "break-all max-w-full inline align-baseline")}>
                   {children}
                 </code>
               );
@@ -296,8 +346,8 @@ export function Message({ message }: MessageProps) {
               </a>
             ),
             table: ({ children }) => (
-              <div className="overflow-x-auto my-4">
-                <table className="w-full border-collapse">{children}</table>
+              <div className="overflow-x-auto my-4 max-w-full">
+                <table className="w-full border-collapse min-w-0">{children}</table>
               </div>
             ),
             thead: ({ children }) => (
@@ -317,7 +367,7 @@ export function Message({ message }: MessageProps) {
         </ReactMarkdown>
       )
     ) : (
-      <div className="text-base whitespace-pre-wrap">{message.content}</div>
+                  <div className="text-base whitespace-pre-wrap break-words chat-message-content">{message.content}</div>
     );
 
   // Render attachments if present
@@ -430,7 +480,7 @@ export function Message({ message }: MessageProps) {
           {attachment.text && (
             <div className="mt-2 text-sm text-muted-foreground max-h-32 overflow-y-auto border border-border rounded p-2 bg-muted/10">
               <div className="font-medium mb-1">Document content:</div>
-              <div className="whitespace-pre-wrap line-clamp-4">
+              <div className="whitespace-pre-wrap line-clamp-4 break-words">
                 {attachment.text.length > 300
                   ? attachment.text.substring(0, 300) + "..."
                   : attachment.text}
@@ -471,17 +521,19 @@ export function Message({ message }: MessageProps) {
   };
 
   return (
-    <div className="mb-6">
+    <div className="mb-6 w-full max-w-full min-w-0">
       <Card
         className={cn(
-          "p-4 relative overflow-hidden",
+          "p-4 relative w-full max-w-full min-w-0 overflow-hidden",
           message.role === "assistant"
             ? "bg-secondary"
             : "bg-primary/10 dark:bg-primary/20",
         )}
       >
-        <div className="group w-full overflow-hidden">
-          {messageContent}
+        <div className="group w-full max-w-full min-w-0 break-words">
+          <div className="w-full max-w-full min-w-0 overflow-hidden">
+            {messageContent}
+          </div>
           {renderAttachments()}
         </div>
       </Card>

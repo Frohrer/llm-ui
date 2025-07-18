@@ -739,7 +739,7 @@ export function ChatWindow({
             <div className="relative h-full">
               <ScrollArea className="h-full w-full">
                 <div
-                  className="p-4 space-y-4 max-w-full overflow-x-hidden"
+                  className="p-4 space-y-4 max-w-full overflow-x-hidden break-words"
                   ref={containerRef}
                 >
                   {messages.map((message) => (
