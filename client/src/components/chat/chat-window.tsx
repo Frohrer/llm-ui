@@ -18,6 +18,7 @@ import {
   X,
   Database,
   Wrench,
+  Grid3x3,
 } from "lucide-react";
 import { speechService } from "@/lib/speech-service";
 import {
@@ -45,12 +46,16 @@ interface ChatWindowProps {
   conversation?: Conversation;
   onConversationUpdate?: (conversation: Conversation) => void;
   mobileMenuTrigger?: React.ReactNode;
+  isMultiModelMode?: boolean;
+  onToggleMode?: () => void;
 }
 
 export function ChatWindow({
   conversation,
   onConversationUpdate,
   mobileMenuTrigger,
+  isMultiModelMode = false,
+  onToggleMode,
 }: ChatWindowProps) {
   const transformMessages = (conv?: Conversation): MessageType[] => {
     if (!conv) return [];
@@ -404,7 +409,11 @@ export function ChatWindow({
     setIsLoading(true);
     setStreamedText("");
     streamIdRef.current = nanoid();
-    setShouldAutoScroll(isNearBottom());
+    
+    // Scroll to bottom immediately after adding the user message
+    setTimeout(scrollToBottom, 0);
+    
+    // Auto-scroll behavior is now handled per chunk by checking isNearBottom()
 
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController();
@@ -499,8 +508,8 @@ export function ChatWindow({
                     if (typeof data.content === "string") {
                       setStreamedText((prev) => {
                         const newText = prev + data.content;
-                        // Force scroll to bottom on new content
-                        if (shouldAutoScroll) {
+                        // Only scroll if user is still near the bottom
+                        if (isNearBottom()) {
                           setTimeout(scrollToBottom, 0);
                         }
                         return newText;
@@ -516,7 +525,7 @@ export function ChatWindow({
                       
                       setStreamedText((prev) => {
                         const newText = prev + toolCallContent;
-                        if (shouldAutoScroll) {
+                        if (isNearBottom()) {
                           setTimeout(scrollToBottom, 0);
                         }
                         return newText;
@@ -524,7 +533,13 @@ export function ChatWindow({
                     }
                     break;
                   case "tool_execution_start":
-                    setStreamedText((prev) => prev + "\n\nExecuting tools...");
+                    setStreamedText((prev) => {
+                      const newText = prev + "\n\nExecuting tools...";
+                      if (isNearBottom()) {
+                        setTimeout(scrollToBottom, 0);
+                      }
+                      return newText;
+                    });
                     break;
                   case "tool_execution_complete":
                     if (data.results) {
@@ -534,7 +549,7 @@ export function ChatWindow({
                       
                       setStreamedText((prev) => {
                         const newText = prev + resultContent;
-                        if (shouldAutoScroll) {
+                        if (isNearBottom()) {
                           setTimeout(scrollToBottom, 0);
                         }
                         return newText;
@@ -543,7 +558,13 @@ export function ChatWindow({
                     break;
                   case "tool_execution_error":
                     if (data.error) {
-                      setStreamedText((prev) => prev + `\n\nTool Execution Error: ${data.error}`);
+                      setStreamedText((prev) => {
+                        const newText = prev + `\n\nTool Execution Error: ${data.error}`;
+                        if (isNearBottom()) {
+                          setTimeout(scrollToBottom, 0);
+                        }
+                        return newText;
+                      });
                     }
                     break;
                   case "end":
@@ -586,7 +607,13 @@ export function ChatWindow({
               const jsonStr = trimmedLine.slice(5).trim();
               const data = JSON.parse(jsonStr);
               if (data.type === "chunk" && typeof data.content === "string") {
-                setStreamedText((prev) => prev + data.content);
+                setStreamedText((prev) => {
+                  const newText = prev + data.content;
+                  if (isNearBottom()) {
+                    setTimeout(scrollToBottom, 0);
+                  }
+                  return newText;
+                });
               }
             }
           } catch (error) {
@@ -662,6 +689,26 @@ export function ChatWindow({
           />
           {/* Add Tools Button */}
           <TooltipProvider>
+            {/* Multi-model mode toggle */}
+            {onToggleMode && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={onToggleMode}
+                    aria-label="Switch to multi-model mode"
+                  >
+                    <Grid3x3 className="h-[1.2rem] w-[1.2rem]" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Switch to multi-model mode
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {/* Tools toggle */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -715,11 +762,10 @@ export function ChatWindow({
           {/* Messages area */}
           <ResizablePanel defaultSize={75} minSize={30}>
             <div className="relative h-full">
-              <ScrollArea className="h-full">
+              <ScrollArea className="h-full w-full">
                 <div
-                  className="p-4 space-y-4"
+                  className="p-4 space-y-4 max-w-full overflow-x-hidden"
                   ref={containerRef}
-                  style={{ overflow: "auto" }}
                 >
                   {messages.map((message) => (
                     <Message key={message.id} message={message} />

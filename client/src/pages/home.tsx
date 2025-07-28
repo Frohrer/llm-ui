@@ -1,15 +1,23 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu } from 'lucide-react';
+import { Menu, Grid3x3, Minus } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { ChatWindow } from '@/components/chat/chat-window';
+import { MultiChatWindow } from '@/components/chat/multi-chat-window';
 import { MainSidebar } from '@/components/main-sidebar';
 import type { Conversation } from '@/lib/llm/types';
 import { nanoid } from 'nanoid';
+import { 
+  Tooltip, 
+  TooltipContent, 
+  TooltipTrigger,
+  TooltipProvider
+} from '@/components/ui/tooltip';
 
 export default function Home() {
   const [activeConversation, setActiveConversation] = useState<Conversation | undefined>();
+  const [isMultiModelMode, setIsMultiModelMode] = useState<boolean>(false);
 
   const handleCreateNewConversation = () => {
     // Here we would normally create a new conversation in the database
@@ -26,7 +34,7 @@ export default function Home() {
     setActiveConversation(newConversation);
   };
 
-  const SidebarSheet = () => (
+  const MobileMenuTrigger = () => (
     <Sheet>
       <SheetTrigger asChild>
         <Button variant="ghost" size="icon" className="md:hidden">
@@ -41,6 +49,7 @@ export default function Home() {
           activeConversation={activeConversation}
           onSelectConversation={(conv) => {
             setActiveConversation(conv);
+            setIsMultiModelMode(false); // Switch to single mode when selecting a conversation
             const closestSheet = document.querySelector('[data-state="open"]');
             if (closestSheet instanceof HTMLElement) {
               const closeButton = closestSheet.querySelector('[data-state]');
@@ -72,18 +81,42 @@ export default function Home() {
         <ResizablePanel defaultSize={25} minSize={20} className="hidden md:block">
           <MainSidebar
             activeConversation={activeConversation}
-            onSelectConversation={setActiveConversation}
+            onSelectConversation={(conv) => {
+              setActiveConversation(conv);
+              setIsMultiModelMode(false); // Switch to single mode when selecting a conversation
+            }}
             onNewConversation={handleCreateNewConversation}
           />
         </ResizablePanel>
         <ResizableHandle className="hidden md:block" />
         {/* Main chat area */}
         <ResizablePanel defaultSize={75}>
-          <ChatWindow
-            conversation={activeConversation}
-            onConversationUpdate={setActiveConversation}
-            mobileMenuTrigger={<SidebarSheet />}
-          />
+          {isMultiModelMode ? (
+            <MultiChatWindow
+              mobileMenuTrigger={<MobileMenuTrigger />}
+              onSwitchToSingle={() => setIsMultiModelMode(false)}
+              isMultiModelMode={isMultiModelMode}
+              onToggleMode={() => {
+                setIsMultiModelMode(!isMultiModelMode);
+                if (!isMultiModelMode) {
+                  setActiveConversation(undefined);
+                }
+              }}
+            />
+          ) : (
+            <ChatWindow
+              conversation={activeConversation}
+              onConversationUpdate={setActiveConversation}
+              mobileMenuTrigger={<MobileMenuTrigger />}
+              isMultiModelMode={isMultiModelMode}
+              onToggleMode={() => {
+                setIsMultiModelMode(!isMultiModelMode);
+                if (!isMultiModelMode) {
+                  setActiveConversation(undefined);
+                }
+              }}
+            />
+          )}
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
