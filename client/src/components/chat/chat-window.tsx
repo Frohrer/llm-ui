@@ -18,6 +18,7 @@ import {
   X,
   Database,
   Wrench,
+  Grid3x3,
 } from "lucide-react";
 import { speechService } from "@/lib/speech-service";
 import {
@@ -45,12 +46,16 @@ interface ChatWindowProps {
   conversation?: Conversation;
   onConversationUpdate?: (conversation: Conversation) => void;
   mobileMenuTrigger?: React.ReactNode;
+  isMultiModelMode?: boolean;
+  onToggleMode?: () => void;
 }
 
 export function ChatWindow({
   conversation,
   onConversationUpdate,
   mobileMenuTrigger,
+  isMultiModelMode = false,
+  onToggleMode,
 }: ChatWindowProps) {
   const transformMessages = (conv?: Conversation): MessageType[] => {
     if (!conv) return [];
@@ -684,6 +689,26 @@ export function ChatWindow({
           />
           {/* Add Tools Button */}
           <TooltipProvider>
+            {/* Multi-model mode toggle */}
+            {onToggleMode && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={onToggleMode}
+                    aria-label="Switch to multi-model mode"
+                  >
+                    <Grid3x3 className="h-[1.2rem] w-[1.2rem]" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Switch to multi-model mode
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {/* Tools toggle */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
