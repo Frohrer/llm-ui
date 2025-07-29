@@ -13,12 +13,15 @@ import {
   geminiRouter,
   falRouter,
   grokRouter,
+  superModelRouter,
   initializeOpenAI,
   initializeAnthropic,
   initializeDeepSeek,
   initializeGemini,
   initializeFal,
   initializeGrok,
+  initializeSuperModel,
+  getSuperModelStatus,
 } from "./routes/providers";
 import { uploadSingleMiddleware, extractTextFromFile, transformUrlToProxy } from "./file-handler";
 
@@ -40,7 +43,8 @@ const clientsInitialized: Record<string, boolean> = {
   deepseek: false,
   gemini: false,
   fal: false,
-  grok: false
+  grok: false,
+  superModel: false
 };
 
 // Initialize clients from environment variables
@@ -67,6 +71,9 @@ if (process.env.FAL_KEY) {
 if (process.env.XAI_KEY) {
   clientsInitialized.grok = initializeGrok();
 }
+
+// Initialize super model if all required providers are available
+clientsInitialized.superModel = initializeSuperModel();
 
 export function registerRoutes(app: Express): Server {
   // Speech credentials route
@@ -107,6 +114,8 @@ export function registerRoutes(app: Express): Server {
             return clientsInitialized.fal;
           case "grok":
             return clientsInitialized.grok;
+          case "super-model":
+            return clientsInitialized.superModel;
           default:
             return false;
         }
@@ -128,6 +137,7 @@ export function registerRoutes(app: Express): Server {
   app.use('/api/chat/gemini', geminiRouter);
   app.use('/api/chat/falai', falRouter);
   app.use('/api/chat/grok', grokRouter);
+  app.use('/api/chat/super-model', superModelRouter);
 
   // Register conversation routes
   app.use('/api/conversations', conversationsRoutes);
