@@ -4,6 +4,7 @@ import deepseekRouter, { initializeDeepSeek, getDeepSeekClient } from './deepsee
 import geminiRouter, { initializeGemini, getGeminiClient } from './gemini';
 import { falRouter, initializeFal } from './fal';
 import grokRouter, { initializeGrok, getGrokClient } from './grok';
+import superModelRouter, { initializeSuperModel, getSuperModelStatus } from './super-model';
 
 export {
   openaiRouter,
@@ -12,15 +13,18 @@ export {
   geminiRouter,
   falRouter,
   grokRouter,
+  superModelRouter,
   initializeOpenAI,
   initializeAnthropic,
   initializeDeepSeek,
   initializeGemini,
   initializeFal,
   initializeGrok,
+  initializeSuperModel,
   getOpenAIClient,
   getAnthropicClient,
   getDeepSeekClient,
   getGeminiClient,
-  getGrokClient
+  getGrokClient,
+  getSuperModelStatus
 };

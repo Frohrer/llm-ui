@@ -653,6 +653,18 @@ export function ChatWindow({
     }
   };
 
+  const getRandomThinkingMessage = () => {
+    const messages = [
+      "Getting the ducks in a row",
+      "Thinking about it", 
+      "Being lazy",
+      "Hopefully we don't hit rate limits",
+      "You should be working/sleeping/going outside",
+      "Sponsored by Sam Altman"
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+  };
+
   return (
     <div className="flex flex-col h-screen bg-background">
       <div className="p-4 border-b flex items-center justify-between">
@@ -784,7 +796,7 @@ export function ChatWindow({
                     />
                   )}
                   {isLoading && !streamedText && (
-                    <div className="animate-pulse">Thinking...</div>
+                    <div className="animate-pulse">{getRandomThinkingMessage()}</div>
                   )}
 
                   {/* Hidden anchor for scroll functionality */}
