@@ -580,6 +580,10 @@ export function ChatWindow({
                     queryClient.invalidateQueries({
                       queryKey: ["/api/conversations"],
                     });
+                    // Scroll to bottom to show the complete final message
+                    if (isNearBottom()) {
+                      setTimeout(scrollToBottom, 0);
+                    }
                     break;
                   case "error":
                     throw new Error(data.error);
