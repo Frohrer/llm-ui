@@ -642,4 +642,345 @@ router.post("/", async (req: Request, res: Response) => {
   }
 });
 
+// GPT-5 Responses API endpoint
+router.post("/responses", async (req: Request, res: Response) => {
+  try {
+    const {
+      input,
+      model = "gpt-5",
+      conversationId,
+      context = [],
+      attachment = null,
+      allAttachments = [],
+      useKnowledge = false,
+      pendingKnowledgeSources = [],
+      useTools = false,
+      // New GPT-5 Responses API parameters
+      reasoning = { effort: "medium" },
+      text = { verbosity: "medium" },
+      tools = [],
+      tool_choice = null,
+      previous_response_id = null,
+      store = true,
+      include = []
+    } = req.body;
+    
+    if (!input || typeof input !== "string") {
+      return res.status(400).json({ error: "Invalid input" });
+    }
+    
+    if (!client) {
+      return res.status(503).json({ error: "OpenAI service not initialized" });
+    }
+
+    // Validate model supports Responses API
+    const isGPT5Model = model.startsWith('gpt-5');
+    if (!isGPT5Model) {
+      return res.status(400).json({ 
+        error: "Model does not support Responses API. Use GPT-5, GPT-5 Mini, or GPT-5 Nano." 
+      });
+    }
+    
+    console.log(`Processing Responses API request with model: ${model}`);
+
+    // Set up SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    let conversationTitle = input.slice(0, 100);
+    let dbConversation;
+    let streamedResponse = "";
+
+    // Create or update conversation first
+    if (!conversationId) {
+      const timestamp = new Date();
+      const [newConversation] = await db
+        .insert(conversations)
+        .values({
+          title: conversationTitle,
+          provider: "openai",
+          model,
+          user_id: req.user!.id,
+          created_at: timestamp,
+          last_message_at: timestamp,
+        })
+        .returning();
+
+      if (!newConversation) {
+        throw new Error("Failed to create conversation");
+      }
+
+      await db.insert(messages).values({
+        conversation_id: newConversation.id,
+        role: "user",
+        content: input,
+        created_at: timestamp,
+      });
+
+      // Add any pending knowledge sources to the new conversation
+      if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+        console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
+        
+        for (const knowledgeSourceId of pendingKnowledgeSources) {
+          try {
+            await addKnowledgeToConversation(newConversation.id, knowledgeSourceId);
+          } catch (error) {
+            console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+          }
+        }
+      }
+
+      dbConversation = newConversation;
+    } else {
+      const [conversation] = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, parseInt(conversationId)))
+        .limit(1);
+
+      if (!conversation) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      if (conversation.user_id !== req.user!.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const timestamp = new Date();
+      await db.insert(messages).values({
+        conversation_id: conversation.id,
+        role: "user",
+        content: input,
+        created_at: timestamp,
+      });
+
+      await db
+        .update(conversations)
+        .set({ last_message_at: timestamp })
+        .where(eq(conversations.id, conversation.id));
+
+      dbConversation = conversation;
+    }
+
+    // Prepare knowledge content if enabled
+    let knowledgeContent = "";
+    if (useKnowledge) {
+      try {
+        knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, input);
+        console.log(`Knowledge content prepared, length: ${knowledgeContent.length}`);
+      } catch (error) {
+        console.error("Error preparing knowledge content:", error);
+      }
+    }
+
+    // Build the request payload for Responses API
+    const responsesPayload: any = {
+      model,
+      input: knowledgeContent ? `${knowledgeContent}\n\nUser query: ${input}` : input,
+      reasoning,
+      text,
+      store,
+      include
+    };
+
+    // Add previous response ID if provided
+    if (previous_response_id) {
+      responsesPayload.previous_response_id = previous_response_id;
+    }
+
+    // Add tools if enabled
+    if (useTools && tools.length > 0) {
+      responsesPayload.tools = tools;
+      if (tool_choice) {
+        responsesPayload.tool_choice = tool_choice;
+      }
+    } else if (useTools) {
+      // Get default tool definitions
+      const toolDefinitions = getToolDefinitions();
+      responsesPayload.tools = toolDefinitions;
+    }
+
+    console.log("Responses API payload:", JSON.stringify(responsesPayload, null, 2));
+
+    // Make the Responses API call
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(responsesPayload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      console.error('Responses API error:', response.status, errorData);
+      throw new Error(`Responses API error: ${response.status} ${errorData?.error?.message || 'Unknown error'}`);
+    }
+
+    const responseData = await response.json();
+    console.log("Responses API response:", JSON.stringify(responseData, null, 2));
+
+    // Send initial conversation data
+    res.write(
+      `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
+    );
+
+    // Extract content and stream it
+    const content = responseData.text?.content || responseData.content || "";
+    streamedResponse = content;
+
+    if (content) {
+      // Stream the content in chunks for better UX
+      const chunkSize = 50;
+      for (let i = 0; i < content.length; i += chunkSize) {
+        const chunk = content.slice(i, i + chunkSize);
+        res.write(
+          `data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`,
+        );
+        // Small delay to simulate streaming
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+
+    // Handle tool calls if present
+    if (responseData.tool_calls && responseData.tool_calls.length > 0 && useTools) {
+      try {
+        console.log('Executing tool calls from Responses API:', JSON.stringify(responseData.tool_calls, null, 2));
+        
+        // Store tool calls as internal messages
+        const timestamp = new Date();
+        await db.insert(messages).values({
+          conversation_id: dbConversation.id,
+          role: "tool",
+          content: JSON.stringify(responseData.tool_calls),
+          metadata: { type: 'tool_calls', response_id: responseData.id },
+          created_at: timestamp,
+        });
+        
+        // Execute all tool calls
+        const toolResults = await handleToolCalls(responseData.tool_calls);
+        
+        // Store tool results as internal messages
+        await db.insert(messages).values({
+          conversation_id: dbConversation.id,
+          role: "tool",
+          content: JSON.stringify(toolResults),
+          metadata: { type: 'tool_results', response_id: responseData.id },
+          created_at: new Date(),
+        });
+        
+        // Send tool results back to get additional response
+        const followUpPayload = {
+          model,
+          input: `Tool results: ${JSON.stringify(toolResults, null, 2)}`,
+          previous_response_id: responseData.id,
+          reasoning,
+          text,
+          store,
+          include
+        };
+
+        const followUpResponse = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(followUpPayload),
+        });
+
+        if (followUpResponse.ok) {
+          const followUpData = await followUpResponse.json();
+          const followUpContent = followUpData.text?.content || followUpData.content || "";
+          
+          if (followUpContent) {
+            res.write(`data: ${JSON.stringify({ 
+              type: "chunk", 
+              content: '\n\n' + followUpContent 
+            })}\n\n`);
+            
+            streamedResponse += '\n\n' + followUpContent;
+          }
+        }
+        
+      } catch (toolError) {
+        console.error('Error executing tools from Responses API:', toolError);
+        // Store tool error as internal message
+        await db.insert(messages).values({
+          conversation_id: dbConversation.id,
+          role: "tool",
+          content: JSON.stringify({ error: toolError instanceof Error ? toolError.message : 'Unknown tool execution error' }),
+          metadata: { type: 'tool_error', response_id: responseData.id },
+          created_at: new Date(),
+        });
+        
+        // Send error message to user
+        const errorMessage = `Tool execution failed: ${toolError instanceof Error ? toolError.message : 'Unknown error'}`;
+        res.write(`data: ${JSON.stringify({ 
+          type: "chunk", 
+          content: '\n\n' + errorMessage 
+        })}\n\n`);
+        
+        streamedResponse += '\n\n' + errorMessage;
+      }
+    }
+
+    // Save the complete response
+    const timestamp = new Date();
+    await db.insert(messages).values({
+      conversation_id: dbConversation.id,
+      role: "assistant",
+      content: streamedResponse,
+      metadata: { 
+        response_id: responseData.id,
+        reasoning_tokens: responseData.usage?.reasoning_tokens,
+        total_tokens: responseData.usage?.total_tokens
+      },
+      created_at: timestamp,
+    });
+
+    // Send completion event
+    const updatedConversation = await db.query.conversations.findFirst({
+      where: eq(conversations.id, dbConversation.id),
+      with: {
+        messages: {
+          orderBy: (messages, { asc }) => [asc(messages.created_at)],
+        },
+      },
+    });
+
+    if (!updatedConversation) {
+      throw new Error("Failed to retrieve conversation");
+    }
+
+    res.write(
+      `data: ${JSON.stringify({
+        type: "end",
+        conversation: transformDatabaseConversation(updatedConversation),
+        response_metadata: {
+          response_id: responseData.id,
+          reasoning_tokens: responseData.usage?.reasoning_tokens,
+          total_tokens: responseData.usage?.total_tokens,
+          reasoning_effort: reasoning.effort,
+          verbosity: text.verbosity
+        }
+      })}\n\n`,
+    );
+
+  } catch (error) {
+    console.error("Responses API error:", error);
+    res.write(
+      `data: ${JSON.stringify({
+        type: "error",
+        error: error instanceof Error ? error.message : "Unknown error",
+      })}\n\n`,
+    );
+  } finally {
+    res.end();
+  }
+});
+
 export default router;
