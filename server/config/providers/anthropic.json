@@ -16,6 +16,12 @@
       "defaultModel": false
     },
     {
+      "id": "claude-opus-4-1",
+      "name": "Claude 4.1 Opus",
+      "contextLength": 200000,
+      "defaultModel": false
+    },
+    {
       "id": "claude-3-7-sonnet-latest",
       "name": "Claude 3.7 Sonnet",
       "contextLength": 200000,

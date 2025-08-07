@@ -4,10 +4,16 @@
   "icon": "SiOpenai",
   "models": [
     {
+      "id": "gpt-5",
+      "name": "GPT-5",
+      "contextLength": 400000,
+      "defaultModel": true
+    },
+    {
       "id": "gpt-4o",
       "name": "GPT-4 Omni",
       "contextLength": 128000,
-      "defaultModel": true
+      "defaultModel": false
     },
     {
       "id": "gpt-4o-mini",
