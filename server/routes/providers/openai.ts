@@ -12,6 +12,40 @@ import { getToolDefinitions, handleToolCalls } from "../../tools";
 const router = express.Router();
 let client: OpenAI | null = null;
 
+// Extract plain assistant text from various OpenAI response shapes
+function extractResponseText(responseData: any): string {
+  // 1) GPT-5 Responses API preferred shape: output[].content where type === 'message'
+  const output = responseData?.output;
+  if (Array.isArray(output)) {
+    const message = output.find((item: any) => item?.type === "message");
+    const parts = message?.content;
+    if (Array.isArray(parts)) {
+      return parts.map((p: any) => p?.text ?? p?.content ?? "").join("");
+    }
+    if (typeof message?.content === "string") {
+      return message.content;
+    }
+  }
+
+  // 2) Chat Completions / other fallbacks
+  const choicesContent = responseData?.choices?.[0]?.message?.content;
+  if (typeof choicesContent === "string") return choicesContent;
+  if (Array.isArray(choicesContent)) {
+    return choicesContent.map((p: any) => p?.text ?? p?.content ?? "").join("");
+  }
+
+  const textContent = responseData?.text?.content;
+  if (typeof textContent === "string") return textContent;
+
+  const directContent = responseData?.content;
+  if (typeof directContent === "string") return directContent;
+  if (Array.isArray(directContent)) {
+    return directContent.map((p: any) => p?.text ?? p?.content ?? "").join("");
+  }
+
+  return "";
+}
+
 // Initialize the OpenAI client
 export function initializeOpenAI(apiKey?: string) {
   if (apiKey || process.env.OPENAI_API_KEY) {
@@ -42,6 +76,31 @@ router.post("/", async (req: Request, res: Response) => {
       pendingKnowledgeSources = [],
       useTools = false,
     } = req.body;
+
+    // Check if this is a GPT-5 model and use Responses API
+    if (model && model.startsWith('gpt-5')) {
+      console.log(`Using Responses API for GPT-5 model: ${model}`);
+      
+      // Transform request body to match Responses API format
+      req.body = {
+        input: message,
+        model,
+        conversationId,
+        context,
+        attachment,
+        allAttachments,
+        useKnowledge,
+        pendingKnowledgeSources,
+        useTools,
+        reasoning: { effort: "medium" },
+        text: { verbosity: "medium" },
+        store: true,
+        include: []
+      };
+      
+      // Call the responses handler directly
+      return handleResponsesAPI(req, res);
+    }
     
     if (!message || typeof message !== "string") {
       return res.status(400).json({ error: "Invalid message" });
@@ -642,8 +701,8 @@ router.post("/", async (req: Request, res: Response) => {
   }
 });
 
-// GPT-5 Responses API endpoint
-router.post("/responses", async (req: Request, res: Response) => {
+// GPT-5 Responses API handler function
+async function handleResponsesAPI(req: Request, res: Response) {
   try {
     const {
       input,
@@ -776,6 +835,8 @@ router.post("/responses", async (req: Request, res: Response) => {
     }
 
     // Build the request payload for Responses API
+    // Note: GPT-5 Responses API does not support temperature parameter
+    // Temperature control is replaced by reasoning effort and verbosity settings
     const responsesPayload: any = {
       model,
       input: knowledgeContent ? `${knowledgeContent}\n\nUser query: ${input}` : input,
@@ -805,44 +866,149 @@ router.post("/responses", async (req: Request, res: Response) => {
     console.log("Responses API payload:", JSON.stringify(responsesPayload, null, 2));
 
     // Make the Responses API call
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(responsesPayload),
-    });
+    let response;
+    try {
+      response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(responsesPayload),
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => null);
-      console.error('Responses API error:', response.status, errorData);
-      throw new Error(`Responses API error: ${response.status} ${errorData?.error?.message || 'Unknown error'}`);
+      console.log('Responses API HTTP status:', response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        console.error('Responses API error details:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData
+        });
+        
+        // If Responses API is not available, fall back to Chat Completions
+        if (response.status === 404) {
+          console.log('Responses API not available, falling back to Chat Completions API');
+          throw new Error('Responses API not available - endpoint may not exist yet');
+        }
+        
+        throw new Error(`Responses API error: ${response.status} ${errorData?.error?.message || response.statusText}`);
+      }
+
+      // Don't read the response body here, do it after the try-catch
+      console.log("Responses API call successful, will parse response data");
+      
+    } catch (fetchError) {
+      console.error('Failed to call Responses API:', fetchError);
+      
+      // Fall back to Chat Completions API for GPT-5
+      console.log('Falling back to Chat Completions API for GPT-5');
+      
+      // Send error message to user explaining the fallback
+      res.write(
+        `data: ${JSON.stringify({ 
+          type: "chunk", 
+          content: "⚠️ GPT-5 Responses API not available. Using Chat Completions API instead.\n\n" 
+        })}\n\n`,
+      );
+      
+      // Use a compatible model for Chat Completions (gpt-4o instead of gpt-5)
+      const fallbackModel = model.replace('gpt-5', 'gpt-4o');
+      console.log(`Using fallback model: ${fallbackModel}`);
+      
+      // Create chatMessages array from input for Chat Completions
+      const chatMessages = [
+        { role: 'user', content: knowledgeContent ? `${knowledgeContent}\n\nUser query: ${input}` : input }
+      ];
+      
+      // Call Chat Completions API instead
+      const stream = await client.chat.completions.create({
+        model: fallbackModel,
+        messages: chatMessages as any,
+        stream: true,
+        temperature: 0.7
+      });
+      
+      // Process the stream like normal Chat Completions
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || "";
+        if (content) {
+          streamedResponse += content;
+          res.write(
+            `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
+          );
+        }
+      }
+      
+      // Save the response and end
+      const timestamp = new Date();
+      await db.insert(messages).values({
+        conversation_id: dbConversation.id,
+        role: "assistant",
+        content: streamedResponse,
+        created_at: timestamp,
+      });
+
+      const updatedConversation = await db.query.conversations.findFirst({
+        where: eq(conversations.id, dbConversation.id),
+        with: {
+          messages: {
+            orderBy: (messages, { asc }) => [asc(messages.created_at)],
+          },
+        },
+      });
+
+      if (!updatedConversation) {
+        throw new Error("Failed to retrieve conversation after fallback");
+      }
+
+      res.write(
+        `data: ${JSON.stringify({
+          type: "end",
+          conversation: transformDatabaseConversation(updatedConversation),
+        })}\n\n`,
+      );
+      
+      return;
     }
 
     const responseData = await response.json();
-    console.log("Responses API response:", JSON.stringify(responseData, null, 2));
+    
+    console.log("=== FULL RESPONSES API RESPONSE ===");
+    console.log(JSON.stringify(responseData, null, 2));
+    console.log("=== END RESPONSE ===");
 
     // Send initial conversation data
     res.write(
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
     );
 
-    // Extract content and stream it
-    const content = responseData.text?.content || responseData.content || "";
-    streamedResponse = content;
+    // Extract content and stream it (robust extractor)
+    const extracted = extractResponseText(responseData);
+    console.log('Extracted content:', { 
+      contentLength: extracted.length, 
+      sample: extracted.substring(0, 100) + (extracted.length > 100 ? '...' : '') 
+    });
+    streamedResponse = extracted;
 
-    if (content) {
-      // Stream the content in chunks for better UX
+    if (extracted) {
+      // Send the content as chunks to match the frontend streaming expectation
       const chunkSize = 50;
-      for (let i = 0; i < content.length; i += chunkSize) {
-        const chunk = content.slice(i, i + chunkSize);
+      for (let i = 0; i < extracted.length; i += chunkSize) {
+        const chunk = extracted.slice(i, i + chunkSize);
         res.write(
           `data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`,
         );
-        // Small delay to simulate streaming
-        await new Promise(resolve => setTimeout(resolve, 10));
+        // Small delay to simulate streaming for better UX
+        await new Promise(resolve => setTimeout(resolve, 20));
       }
+    } else {
+      console.log("No content found in response payload");
+      // Send a message if no content was returned
+      res.write(
+        `data: ${JSON.stringify({ type: "chunk", content: "No response content received from GPT-5." })}\n\n`,
+      );
     }
 
     // Handle tool calls if present
@@ -981,6 +1147,9 @@ router.post("/responses", async (req: Request, res: Response) => {
   } finally {
     res.end();
   }
-});
+}
+
+// GPT-5 Responses API endpoint
+router.post("/responses", handleResponsesAPI);
 
 export default router;

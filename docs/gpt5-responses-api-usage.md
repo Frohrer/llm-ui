@@ -11,6 +11,15 @@ The GPT-5 Responses API introduces several new features:
 - **Allowed tools**: Restrict which tools can be used
 - **Chain of thought persistence**: Pass reasoning between turns
 
+### Key Differences from Chat Completions API
+
+⚠️ **Important**: The Responses API has different parameters:
+- ❌ **No `temperature` parameter** - Use `reasoning.effort` and `text.verbosity` instead
+- ❌ **No `max_tokens` parameter** - Use `text.verbosity` to control length
+- ✅ **Single `input` string** instead of `messages` array
+- ✅ **Enhanced tool capabilities** with custom tools and allowed tools
+- ✅ **Chain of thought persistence** with `previous_response_id`
+
 ## Supported Models
 
 - `gpt-5` - The main GPT-5 model with broad world knowledge
@@ -212,9 +221,26 @@ To migrate existing Chat Completions usage to the Responses API:
 
 1. Change the endpoint from `/api/chat/openai` to `/api/chat/openai/responses`
 2. Replace `message` parameter with `input`
-3. Add reasoning and text configuration
-4. Update tool definitions to use the new format
-5. Handle the new response structure with reasoning tokens
+3. **Remove `temperature` parameter** - Not supported in Responses API
+4. Add reasoning and text configuration instead of temperature for control
+5. Update tool definitions to use the new format
+6. Handle the new response structure with reasoning tokens
+
+### Parameter Mapping
+
+| Chat Completions | Responses API | Notes |
+|------------------|---------------|-------|
+| `temperature` | `reasoning.effort` + `text.verbosity` | Temperature is replaced by these parameters |
+| `max_tokens` | `text.verbosity` | Verbosity controls output length |
+| `messages` | `input` | Single input string instead of message array |
+| `tools` | `tools` | Same structure but supports custom tools |
+| `tool_choice` | `tool_choice` | Enhanced with allowed_tools option |
+
+### Temperature Replacement Guide
+
+- **High temperature (creative)** → `reasoning: { effort: "low" }, text: { verbosity: "high" }`
+- **Medium temperature (balanced)** → `reasoning: { effort: "medium" }, text: { verbosity: "medium" }`
+- **Low temperature (focused)** → `reasoning: { effort: "high" }, text: { verbosity: "low" }`
 
 ## Zero Data Retention (ZDR) Mode
 
