@@ -743,14 +743,17 @@ async function handleResponsesAPI(req: Request, res: Response) {
     console.log(`Processing Responses API request with model: ${model}`);
 
     // Set up SSE headers
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Transfer-Encoding", "chunked");
+    ;(res as any).flushHeaders?.();
 
     let conversationTitle = input.slice(0, 100);
     let dbConversation;
     let streamedResponse = "";
+    let keepAliveInterval: NodeJS.Timeout | null = null;
 
     // Create or update conversation first
     if (!conversationId) {
@@ -822,6 +825,16 @@ async function handleResponsesAPI(req: Request, res: Response) {
 
       dbConversation = conversation;
     }
+
+    // As soon as we have a conversation id, open the stream and notify client
+    res.write(`data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`);
+    ;(res as any).flush?.();
+    // Start keep-alive pings; store handle on res to clear later
+    keepAliveInterval = setInterval(() => {
+      res.write(": keep-alive\n\n");
+      ;(res as any).flush?.();
+    }, 15000);
+    ;(res as any)._keepAliveInterval = keepAliveInterval;
 
     // Prepare knowledge content if enabled
     let knowledgeContent = "";
@@ -979,10 +992,11 @@ async function handleResponsesAPI(req: Request, res: Response) {
     console.log(JSON.stringify(responseData, null, 2));
     console.log("=== END RESPONSE ===");
 
-    // Send initial conversation data
+    // Send initial conversation data and start keep-alive pings
     res.write(
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
     );
+    // keep-alive managed earlier
 
     // Extract content and stream it (robust extractor)
     const extracted = extractResponseText(responseData);
@@ -1145,6 +1159,13 @@ async function handleResponsesAPI(req: Request, res: Response) {
       })}\n\n`,
     );
   } finally {
+    try {
+      // keepAliveInterval is scoped within handler; guard at runtime
+      const anyRes: any = res;
+      if (typeof anyRes._keepAliveInterval !== 'undefined' && anyRes._keepAliveInterval) {
+        clearInterval(anyRes._keepAliveInterval);
+      }
+    } catch {}
     res.end();
   }
 }
