@@ -3,7 +3,7 @@ import { useUser } from "@/hooks/use-user";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "./theme-toggle";
-import { MessageCircle, LogOut, BookOpen, Plus } from "lucide-react";
+import { MessageCircle, LogOut, BookOpen, Plus, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect } from "react";
 import { ConversationList } from "./conversation-list";
@@ -73,6 +73,16 @@ export function MainSidebar({
                 >
                   <MessageCircle className="mr-2 h-4 w-4" />
                   Conversations
+                </a>
+              </Link>
+              <Link href="/stats">
+                <a
+                  className={`mt-1 flex items-center py-2 px-3 rounded-md text-sm font-medium ${
+                    isActive("/stats") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  }`}
+                >
+                  <BarChart3 className="mr-2 h-4 w-4" />
+                  Statistics
                 </a>
               </Link>
               <KnowledgeSheet 

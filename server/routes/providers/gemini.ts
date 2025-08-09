@@ -291,6 +291,8 @@ router.post("/", async (req: Request, res: Response) => {
         }
       }
 
+      const requestStart = Date.now();
+      let ttftMs: number | null = null;
       let lastChunkTime = Date.now();
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
 
@@ -316,6 +318,9 @@ router.post("/", async (req: Request, res: Response) => {
             if (content && content.trim()) {
               streamedResponse += content;
               lastChunkTime = Date.now();
+              if (ttftMs === null) {
+                ttftMs = lastChunkTime - requestStart;
+              }
               
               // Send formatted chunk to client
               res.write(
@@ -336,10 +341,44 @@ router.post("/", async (req: Request, res: Response) => {
 
       // Save the complete response only after successful streaming
       const timestamp = new Date();
+      // Try to extract Gemini usage if available on the result
+      let exactInputTokens: number | undefined;
+      let exactOutputTokens: number | undefined;
+      let exactTotalTokens: number | undefined;
+      try {
+        const usage = (result as any)?.usage || (result as any)?.responseMetadata?.tokenCount || (result as any)?.responseMetadata?.usage;
+        if (usage) {
+          exactInputTokens = usage.inputTokens ?? usage.input_tokens ?? usage.input ?? usage.promptTokens;
+          exactOutputTokens = usage.outputTokens ?? usage.output_tokens ?? usage.output ?? usage.candidatesTokens;
+          const total = usage.totalTokens ?? usage.total_tokens ?? usage.total;
+          if (typeof total === 'number') exactTotalTokens = total;
+        }
+      } catch {}
+      // Approximate input tokens from apiMessages
+      let approxInputTokens = 0;
+      try {
+        const texts: string[] = [];
+        for (const m of apiMessages as any[]) {
+          if (typeof m?.content === 'string') texts.push(m.content);
+        }
+        const EULER = 2.7182818284590;
+        const combined = texts.join('\n');
+        if (combined) {
+          const len = combined.length;
+          approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
+        }
+      } catch {}
       await db.insert(messages).values({
         conversation_id: dbConversation.id,
         role: "assistant",
         content: streamedResponse,
+        metadata: {
+          ttft_ms: ttftMs ?? undefined,
+          total_tokens: exactTotalTokens ?? (result as any)?.usage?.total_tokens,
+          input_tokens: exactInputTokens,
+          output_tokens: exactOutputTokens,
+          approx_input_tokens: approxInputTokens,
+        },
         created_at: timestamp,
       });
 

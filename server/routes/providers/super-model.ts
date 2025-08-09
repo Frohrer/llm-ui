@@ -308,6 +308,8 @@ Your synthesized response:`;
       streamedResponse = finalResponse;
       
       // Send the entire response as chunks (word by word for streaming effect)
+      const requestStart = Date.now();
+      let ttftCaptured = false;
       const words = finalResponse.split(' ');
       for (let i = 0; i < words.length; i++) {
         const chunk = words[i] + (i < words.length - 1 ? ' ' : '');
@@ -315,6 +317,9 @@ Your synthesized response:`;
         
         // Small delay to simulate streaming
         await new Promise(resolve => setTimeout(resolve, 30));
+        if (!ttftCaptured) {
+          ttftCaptured = true;
+        }
       }
 
       // Save the assistant's response to database
@@ -322,6 +327,7 @@ Your synthesized response:`;
         conversation_id: dbConversation.id,
         role: "assistant",
         content: streamedResponse,
+        metadata: { ttft_ms: 0, total_tokens: streamedResponse.length ? Math.ceil(streamedResponse.length / 2.7182818284590) + 2 : 0 },
         created_at: new Date(),
       });
 
