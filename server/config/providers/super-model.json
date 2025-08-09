@@ -1,0 +1,13 @@
+{
+  "id": "super-model",
+  "name": "Super Model (Sonnet 4 + o-3 + Gemini 2.5 Pro)",
+  "icon": "SiSparkles", 
+  "models": [
+    {
+      "id": "super-model-orchestrator",
+      "name": "Super Model Orchestrator",
+      "contextLength": 200000,
+      "defaultModel": true
+    }
+  ]
+}

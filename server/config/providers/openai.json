@@ -4,16 +4,31 @@
   "icon": "SiOpenai",
   "models": [
     {
-      "id": "gpt-4.5-preview-2025-02-27",
-      "name": "GPT-4.5 (Preview)",
-      "contextLength": 128000,
-      "defaultModel": false
+      "id": "gpt-5",
+      "name": "GPT-5",
+      "contextLength": 400000,
+      "defaultModel": true,
+      "supportsResponsesAPI": true
+    },
+    {
+      "id": "gpt-5-mini",
+      "name": "GPT-5 Mini",
+      "contextLength": 400000,
+      "defaultModel": false,
+      "supportsResponsesAPI": true
+    },
+    {
+      "id": "gpt-5-nano",
+      "name": "GPT-5 Nano",
+      "contextLength": 400000,
+      "defaultModel": false,
+      "supportsResponsesAPI": true
     },
     {
       "id": "gpt-4o",
       "name": "GPT-4 Omni",
       "contextLength": 128000,
-      "defaultModel": true
+      "defaultModel": false
     },
     {
       "id": "gpt-4o-mini",

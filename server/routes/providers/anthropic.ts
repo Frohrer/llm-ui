@@ -36,8 +36,6 @@ async function processAttachments(allAttachments: any[]) {
   for (const att of allAttachments) {
     if (att.type === 'image') {
       try {
-        console.log("Processing image attachment for Anthropic:", att.url);
-        
         const fileName = att.url.split('/').pop();
         if (!fileName) {
           throw new Error('Invalid image URL');
@@ -61,14 +59,11 @@ async function processAttachments(allAttachments: any[]) {
             data: base64Image
           }
         });
-        
-        console.log("Image successfully processed for Anthropic");
       } catch (imageError) {
         console.error("Error processing image for Anthropic:", imageError);
         documentTexts.push(`[Image processing failed: ${imageError instanceof Error ? imageError.message : 'Unknown error'}]`);
       }
     } else if (att.type === 'document' && att.text) {
-      console.log(`Processing document attachment for Anthropic: ${att.name}`);
       documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
     }
   }
@@ -106,7 +101,7 @@ async function executeToolsAndGetResponse(
   model: string,
   conversationId: number
 ): Promise<string> {
-  console.log('Executing tool calls:', JSON.stringify(toolCalls, null, 2));
+  console.log(`Executing ${toolCalls.length} tool calls:`, toolCalls.map(t => t.name));
   
   // Store tool calls as internal messages
   await db.insert(messages).values({
@@ -119,7 +114,12 @@ async function executeToolsAndGetResponse(
   
   // Execute all tool calls
   const toolResults = await handleToolCalls(toolCalls);
-  console.log("Tool execution results:", JSON.stringify(toolResults, null, 2));
+  console.log(`Tool execution completed. Results:`, toolResults.map(r => ({
+    toolCallId: r.toolCallId,
+    hasError: !!r.error,
+    resultType: typeof r.result,
+    resultLength: r.result ? JSON.stringify(r.result).length : 0
+  })));
   
   // Store tool results as internal messages
   await db.insert(messages).values({
@@ -151,33 +151,95 @@ async function executeToolsAndGetResponse(
         tool_use_id: result.toolCallId,
         content: result.error ? 
           `Error: ${result.error}` : 
-          JSON.stringify(result.result, null, 2).substring(0, 4000) // Limit size
+          (typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2))
       }))
     }
   ];
   
-  // Get final response with tool results
-  const toolCompletionResponse = await client.messages.create({
-    model: model,
-    messages: toolResponseMessages,
-    temperature: 0.7,
-    max_tokens: 4096,
-  });
+  console.log(`Making follow-up API call to Anthropic with ${toolResults.length} tool results`);
   
-  // Extract text content from response
-  let finalResponse = '';
-  if (toolCompletionResponse.content && toolCompletionResponse.content.length > 0) {
-    const textBlocks = toolCompletionResponse.content.filter(block => block.type === 'text');
-    if (textBlocks.length > 0) {
-      finalResponse = textBlocks.map(block => block.text).join('\n\n');
+  try {
+    // Get final response with tool results
+    const toolCompletionResponse = await client.messages.create({
+      model: model,
+      messages: toolResponseMessages,
+      temperature: 0.7,
+      max_tokens: 4096,
+    });
+    
+    console.log(`Anthropic API response received. Content blocks:`, toolCompletionResponse.content?.length);
+    
+    // Extract text content from response
+    let finalResponse = '';
+    if (toolCompletionResponse.content && toolCompletionResponse.content.length > 0) {
+      const textBlocks = toolCompletionResponse.content.filter(block => block.type === 'text');
+      if (textBlocks.length > 0) {
+        finalResponse = textBlocks.map(block => block.text).join('\n\n');
+      }
     }
+    
+    // If no response, create a summary of tool results
+    if (!finalResponse || finalResponse.trim() === '') {
+      console.log('No response from Anthropic API, creating summary of tool results');
+      
+      const successfulResults = toolResults.filter(r => !r.error);
+      const failedResults = toolResults.filter(r => r.error);
+      
+      let summaryParts = [];
+      
+      if (successfulResults.length > 0) {
+        summaryParts.push(`I executed ${successfulResults.length} tool(s) successfully:`);
+        successfulResults.forEach((result, index) => {
+          const toolCall = toolCalls.find(tc => tc.id === result.toolCallId);
+          const toolName = toolCall ? toolCall.name : 'Unknown tool';
+          summaryParts.push(`\n${index + 1}. ${toolName}: ${typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2)}`);
+        });
+      }
+      
+      if (failedResults.length > 0) {
+        summaryParts.push(`\n\n${failedResults.length} tool(s) failed:`);
+        failedResults.forEach((result, index) => {
+          const toolCall = toolCalls.find(tc => tc.id === result.toolCallId);
+          const toolName = toolCall ? toolCall.name : 'Unknown tool';
+          summaryParts.push(`\n${index + 1}. ${toolName}: Error - ${result.error}`);
+        });
+      }
+      
+      finalResponse = summaryParts.join('');
+    }
+    
+    console.log(`Final response length: ${finalResponse.length}`);
+    return finalResponse;
+    
+  } catch (apiError) {
+    console.error('Error in follow-up API call:', apiError);
+    
+    // If API call fails, still show the tool results
+    const successfulResults = toolResults.filter(r => !r.error);
+    const failedResults = toolResults.filter(r => r.error);
+    
+    let errorSummary = `I encountered an error while processing the tool results, but here's what I found:\n\n`;
+    
+    if (successfulResults.length > 0) {
+      errorSummary += `Tool results:\n`;
+      successfulResults.forEach((result, index) => {
+        const toolCall = toolCalls.find(tc => tc.id === result.toolCallId);
+        const toolName = toolCall ? toolCall.name : 'Unknown tool';
+        errorSummary += `${index + 1}. ${toolName}: ${typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2)}\n\n`;
+      });
+    }
+    
+    if (failedResults.length > 0) {
+      errorSummary += `Failed tools:\n`;
+      failedResults.forEach((result, index) => {
+        const toolCall = toolCalls.find(tc => tc.id === result.toolCallId);
+        const toolName = toolCall ? toolCall.name : 'Unknown tool';
+        errorSummary += `${index + 1}. ${toolName}: ${result.error}\n`;
+      });
+    }
+    
+    return errorSummary;
   }
-  
-  if (!finalResponse) {
-    finalResponse = "I've processed your request using the available tools.";
-  }
-  
-  return finalResponse;
 }
 
 // Create or continue an Anthropic chat conversation
@@ -203,7 +265,7 @@ router.post("/", async (req: Request, res: Response) => {
       return res.status(503).json({ error: "Anthropic service not initialized" });
     }
     
-    console.log(`Processing message with ${allAttachments.length} attachments for Anthropic`);
+
 
     // Set up SSE headers
     res.setHeader("Content-Type", "text/event-stream");
@@ -242,8 +304,6 @@ router.post("/", async (req: Request, res: Response) => {
 
       // Add pending knowledge sources
       if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
-        console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
-        
         for (const knowledgeSourceId of pendingKnowledgeSources) {
           try {
             await addKnowledgeToConversation(newConversation.id, knowledgeSourceId);
@@ -301,9 +361,6 @@ router.post("/", async (req: Request, res: Response) => {
     if (useKnowledge && dbConversation) {
       try {
         knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id, message);
-        if (knowledgeContent) {
-          console.log("Retrieved knowledge content for conversation");
-        }
       } catch (knowledgeError) {
         console.error("Error retrieving knowledge content:", knowledgeError);
       }
@@ -318,11 +375,13 @@ router.post("/", async (req: Request, res: Response) => {
       stream: true,
     };
 
+
+
     // Add tools if enabled
     if (useTools) {
       try {
-        console.log("Loading tools for Anthropic...");
         const toolDefinitions = await getToolDefinitions();
+        console.log(`Loaded ${toolDefinitions.length} tool definitions:`, toolDefinitions.map(t => t.function.name));
         
         if (toolDefinitions.length > 0) {
           const anthropicTools = toolDefinitions.map(tool => ({
@@ -332,13 +391,15 @@ router.post("/", async (req: Request, res: Response) => {
           }));
           
           requestOptions.tools = anthropicTools;
-          console.log(`Added ${anthropicTools.length} tools to Anthropic request: ${anthropicTools.map(t => t.name).join(', ')}`);
+          console.log('Tools added to Anthropic request options');
         } else {
-          console.warn("No tools available for use");
+          console.log('No tools available to add to request');
         }
       } catch (toolError) {
         console.error("Error loading tools:", toolError);
       }
+    } else {
+      console.log('Tools disabled for this request');
     }
 
     // Create user message content
@@ -346,14 +407,7 @@ router.post("/", async (req: Request, res: Response) => {
     apiMessages.push({ role: "user", content: userMessageContent });
     requestOptions.messages = apiMessages;
 
-    console.log("Final Anthropic request:", {
-      model: requestOptions.model,
-      messageCount: requestOptions.messages.length,
-      toolCount: requestOptions.tools?.length || 0,
-      hasImages: imageAttachments.length > 0,
-      hasDocuments: documentTexts.length > 0,
-      hasKnowledge: !!knowledgeContent
-    });
+
 
     // Send initial conversation data
     res.write(`data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`);
@@ -364,12 +418,13 @@ router.post("/", async (req: Request, res: Response) => {
     }, 15000);
 
     let streamedResponse = "";
-    let toolCallsInProgress: any[] = [];
+    const requestStart = Date.now();
+    let ttftMs: number | null = null;
+    let toolCallsInProgress: { [index: number]: any } = {};
 
-    try {
+        try {
       // Create stream
       const stream = await client.messages.create(requestOptions);
-      console.log("Anthropic stream created successfully");
 
       // Process stream
       for await (const chunk of stream as any) {
@@ -379,14 +434,20 @@ router.post("/", async (req: Request, res: Response) => {
           if (contentBlock?.type === 'text' && contentBlock.text) {
             const content = contentBlock.text;
             streamedResponse += content;
+            if (ttftMs === null) {
+              ttftMs = Date.now() - requestStart;
+            }
             res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
           } else if (contentBlock?.type === 'tool_use') {
-            console.log("Tool use detected:", JSON.stringify(contentBlock));
-            toolCallsInProgress.push({
+            // Initialize tool call - input will come in delta events
+            const toolIndex = chunk.index;
+            toolCallsInProgress[toolIndex] = {
               id: contentBlock.id,
               name: contentBlock.name,
-              arguments: contentBlock.input || {}
-            });
+              arguments: contentBlock.input || {},
+              partialJsonString: '',
+              index: toolIndex
+            };
           }
         } else if (chunk.type === 'content_block_delta') {
           const delta = chunk.delta;
@@ -394,72 +455,163 @@ router.post("/", async (req: Request, res: Response) => {
           if (delta?.text) {
             const content = delta.text;
             streamedResponse += content;
+            if (ttftMs === null) {
+              ttftMs = Date.now() - requestStart;
+            }
             res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
+          } else if (delta?.type === 'input_json_delta' && delta?.partial_json) {
+            // Accumulate tool input JSON chunks
+            const index = chunk.index;
+            if (index !== undefined && toolCallsInProgress[index]) {
+              toolCallsInProgress[index].partialJsonString += delta.partial_json;
+            }
+          }
+        } else if (chunk.type === 'content_block_stop') {
+          // Finalize tool arguments when content block stops
+          const index = chunk.index;
+          if (index !== undefined && toolCallsInProgress[index] && toolCallsInProgress[index].partialJsonString) {
+            try {
+              const completeJson = JSON.parse(toolCallsInProgress[index].partialJsonString);
+              toolCallsInProgress[index].arguments = completeJson;
+            } catch (parseError) {
+              console.error(`Failed to parse tool arguments for tool ${index}:`, parseError);
+            }
+            delete toolCallsInProgress[index].partialJsonString;
           }
         }
       }
 
-      console.log(`Stream completed. Response length: ${streamedResponse.length}, Tool calls: ${toolCallsInProgress.length}`);
+      const toolCallsArray = Object.values(toolCallsInProgress);
+      
+      console.log(`Stream completed. useTools: ${useTools}, toolCallsArray.length: ${toolCallsArray.length}`);
+      if (useTools && toolCallsArray.length === 0) {
+        console.log('Tools enabled but no tool calls received in stream');
+      }
 
       // Handle tool calls if present
-      if (useTools && toolCallsInProgress.length > 0) {
-        console.log("Processing tool calls...");
-        console.log('Tool calls received:', JSON.stringify(toolCallsInProgress, null, 2));
+      if (useTools && toolCallsArray.length > 0) {
+        console.log(`Processing ${toolCallsArray.length} tool calls from stream`);
+        
+        // Clean up tool calls (remove temporary fields) and validate
+        const cleanedToolCalls = toolCallsArray.map((toolCall: any) => ({
+          id: toolCall.id,
+          name: toolCall.name,
+          arguments: toolCall.arguments
+        }));
+        
+        console.log('Cleaned tool calls:', cleanedToolCalls.map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          hasArguments: !!tc.arguments,
+          argumentsType: typeof tc.arguments
+        })));
         
         // Validate tool calls
-        const validToolCalls = toolCallsInProgress.filter(toolCall => {
-          if (!toolCall.id || !toolCall.name) {
-            console.error('Invalid tool call structure:', toolCall);
-            return false;
-          }
+        const validationResults = cleanedToolCalls.map((toolCall: any) => {
+          const issues = [];
           
-          if (!toolCall.arguments || typeof toolCall.arguments !== 'object') {
-            console.error(`Invalid arguments for tool ${toolCall.name}:`, toolCall.arguments);
-            return false;
-          }
+          if (!toolCall.id) issues.push('missing id');
+          if (!toolCall.name) issues.push('missing name');
+          if (toolCall.arguments === null || toolCall.arguments === undefined) issues.push('missing arguments');
+          if (typeof toolCall.arguments !== 'object') issues.push('invalid arguments type');
           
-          return true;
+          return {
+            toolCall,
+            isValid: issues.length === 0,
+            issues
+          };
         });
         
-        if (validToolCalls.length === 0) {
-          console.error('No valid tool calls found');
-          throw new Error('No valid tool calls found');
+        const validToolCalls = validationResults
+          .filter(result => result.isValid)
+          .map(result => result.toolCall);
+        
+        const invalidToolCalls = validationResults.filter(result => !result.isValid);
+        
+        console.log(`Validation results: ${validToolCalls.length} valid, ${invalidToolCalls.length} invalid`);
+        
+        if (invalidToolCalls.length > 0) {
+          console.log('Invalid tool calls:', invalidToolCalls.map(result => ({
+            name: result.toolCall.name,
+            issues: result.issues
+          })));
         }
         
-        console.log(`Validated ${validToolCalls.length} of ${toolCallsInProgress.length} tool calls`);
-        
-        // Save initial response if it exists
-        if (streamedResponse.trim()) {
+        if (validToolCalls.length === 0) {
+          let errorMessage = "\n\nI attempted to use tools but encountered issues:";
+          
+          if (invalidToolCalls.length > 0) {
+            errorMessage += "\n";
+            invalidToolCalls.forEach((result, index) => {
+              errorMessage += `\n${index + 1}. Tool "${result.toolCall.name || 'Unknown'}": ${result.issues.join(', ')}`;
+            });
+            errorMessage += "\n\nPlease try rephrasing your request or providing more specific details.";
+          } else {
+            errorMessage += " No valid tool calls were found. Please try rephrasing your request.";
+          }
+          
+          res.write(`data: ${JSON.stringify({ type: "chunk", content: errorMessage })}\n\n`);
+          
           await db.insert(messages).values({
             conversation_id: dbConversation.id,
             role: "assistant",
-            content: streamedResponse,
+            content: streamedResponse + errorMessage,
+            metadata: {
+              ttft_ms: ttftMs ?? undefined,
+              total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                : undefined,
+              input_tokens: (stream as any)?.usage?.input_tokens,
+              output_tokens: (stream as any)?.usage?.output_tokens,
+            },
             created_at: new Date(),
           });
+          
+          streamedResponse += errorMessage;
+        } else {
+          console.log(`Executing ${validToolCalls.length} valid tool calls`);
+          
+          // Save initial response if it exists
+          if (streamedResponse.trim()) {
+            await db.insert(messages).values({
+              conversation_id: dbConversation.id,
+              role: "assistant",
+              content: streamedResponse,
+              metadata: {
+                ttft_ms: ttftMs ?? undefined,
+                total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                  ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                  : undefined,
+                input_tokens: (stream as any)?.usage?.input_tokens,
+                output_tokens: (stream as any)?.usage?.output_tokens,
+              },
+              created_at: new Date(),
+            });
+          }
+          
+          // Execute tools and get final response
+          const toolResponse = await executeToolsAndGetResponse(
+            client,
+            validToolCalls,
+            apiMessages,
+            model,
+            dbConversation.id
+          );
+          
+          // Stream the tool response
+          res.write(`data: ${JSON.stringify({ type: "chunk", content: "\n\n" + toolResponse })}\n\n`);
+          
+          // Save the tool response
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "assistant",
+            content: toolResponse,
+            metadata: { type: 'tool_result_response', ttft_ms: ttftMs ?? undefined },
+            created_at: new Date(),
+          });
+          
+          streamedResponse += "\n\n" + toolResponse;
         }
-        
-        // Execute tools and get final response
-        const toolResponse = await executeToolsAndGetResponse(
-          client,
-          validToolCalls,
-          apiMessages,
-          model,
-          dbConversation.id
-        );
-        
-        // Stream the tool response
-        res.write(`data: ${JSON.stringify({ type: "chunk", content: toolResponse })}\n\n`);
-        
-        // Save the tool response
-        await db.insert(messages).values({
-          conversation_id: dbConversation.id,
-          role: "assistant",
-          content: toolResponse,
-          metadata: { type: 'tool_result_response' },
-          created_at: new Date(),
-        });
-        
-        streamedResponse += toolResponse;
       } else {
         // No tool calls - save the response normally
         if (streamedResponse.trim()) {
@@ -467,6 +619,14 @@ router.post("/", async (req: Request, res: Response) => {
             conversation_id: dbConversation.id,
             role: "assistant",
             content: streamedResponse,
+            metadata: {
+              ttft_ms: ttftMs ?? undefined,
+              total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                : undefined,
+              input_tokens: (stream as any)?.usage?.input_tokens,
+              output_tokens: (stream as any)?.usage?.output_tokens,
+            },
             created_at: new Date(),
           });
         } else {
@@ -479,6 +639,14 @@ router.post("/", async (req: Request, res: Response) => {
             conversation_id: dbConversation.id,
             role: "assistant",
             content: streamedResponse,
+            metadata: {
+              ttft_ms: ttftMs ?? undefined,
+              total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                : undefined,
+              input_tokens: (stream as any)?.usage?.input_tokens,
+              output_tokens: (stream as any)?.usage?.output_tokens,
+            },
             created_at: new Date(),
           });
         }

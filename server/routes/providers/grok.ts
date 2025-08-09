@@ -322,6 +322,8 @@ router.post("/", async (req: Request, res: Response) => {
       const stream = await client.chat.completions.create(requestOptions);
 
       // Process the streaming response
+      const requestStart = Date.now();
+      let ttftMs: number | null = null;
       let lastChunkTime = Date.now();
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
       let toolCallsInProgress: any[] = [];
@@ -338,6 +340,9 @@ router.post("/", async (req: Request, res: Response) => {
         // Handle content chunks - only send to client if not part of a tool call
         if (contentDelta && !toolCallsDelta) {
           streamedResponse += contentDelta;
+          if (ttftMs === null) {
+            ttftMs = Date.now() - requestStart;
+          }
           res.write(`data: ${JSON.stringify({ type: "chunk", content: contentDelta })}\n\n`);
         }
         
@@ -488,10 +493,36 @@ router.post("/", async (req: Request, res: Response) => {
 
       // Save the complete response
       const timestamp = new Date();
+      // Approximate input tokens from apiMessages
+      let approxInputTokens = 0;
+      try {
+        const texts: string[] = [];
+        for (const m of apiMessages as any[]) {
+          if (typeof m?.content === 'string') texts.push(m.content);
+          else if (Array.isArray(m?.content)) {
+            for (const part of m.content) {
+              if (typeof part?.text === 'string') texts.push(part.text);
+            }
+          }
+        }
+        const EULER = 2.7182818284590;
+        const combined = texts.join('\n');
+        if (combined) {
+          const len = combined.length;
+          approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
+        }
+      } catch {}
       await db.insert(messages).values({
         conversation_id: dbConversation.id,
         role: "assistant",
         content: streamedResponse,
+        metadata: {
+          ttft_ms: ttftMs ?? undefined,
+          total_tokens: (stream as any)?.response?.usage?.total_tokens,
+          input_tokens: (stream as any)?.response?.usage?.prompt_tokens ?? (stream as any)?.response?.usage?.input_tokens,
+          output_tokens: (stream as any)?.response?.usage?.completion_tokens ?? (stream as any)?.response?.usage?.output_tokens,
+          approx_input_tokens: approxInputTokens,
+        },
         created_at: timestamp,
       });
 

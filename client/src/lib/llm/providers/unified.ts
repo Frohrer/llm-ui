@@ -1,4 +1,4 @@
-import type { LLMProvider, Message, Attachment, ProviderConfig } from '../types';
+import type { LLMProvider, Message, Attachment, ProviderConfig, ResponsesAPIRequest, ResponsesAPIResponse } from '../types';
 
 export class UnifiedProvider implements LLMProvider {
   id: string;
@@ -97,5 +97,49 @@ export class UnifiedProvider implements LLMProvider {
     }
 
     return response.body!;
+  }
+
+  async sendResponsesAPIMessage(request: ResponsesAPIRequest): Promise<ResponsesAPIResponse> {
+    // Only available for OpenAI provider with GPT-5 models
+    if (this.id !== 'openai') {
+      throw new Error('Responses API is only available for OpenAI GPT-5 models');
+    }
+
+    // Validate model supports Responses API
+    const model = this.models.find(m => m.id === request.model);
+    if (!model?.supportsResponsesAPI) {
+      throw new Error(`Model ${request.model} does not support Responses API`);
+    }
+
+    const response = await fetch(`/api/chat/openai/responses`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(`Responses API error: ${response.status} ${errorData?.error || 'Unknown error'}`);
+    }
+
+    return await response.json();
+  }
+
+  // Helper method to check if model supports Responses API
+  supportsResponsesAPI(modelId: string): boolean {
+    const model = this.models.find(m => m.id === modelId);
+    return model?.supportsResponsesAPI === true;
+  }
+
+  // Helper method to get available reasoning efforts for GPT-5
+  getAvailableReasoningEfforts(): Array<"minimal" | "low" | "medium" | "high"> {
+    return ["minimal", "low", "medium", "high"];
+  }
+
+  // Helper method to get available verbosity levels for GPT-5
+  getAvailableVerbosityLevels(): Array<"low" | "medium" | "high"> {
+    return ["low", "medium", "high"];
   }
 } 
