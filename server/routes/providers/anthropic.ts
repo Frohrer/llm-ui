@@ -418,6 +418,8 @@ router.post("/", async (req: Request, res: Response) => {
     }, 15000);
 
     let streamedResponse = "";
+    const requestStart = Date.now();
+    let ttftMs: number | null = null;
     let toolCallsInProgress: { [index: number]: any } = {};
 
         try {
@@ -432,6 +434,9 @@ router.post("/", async (req: Request, res: Response) => {
           if (contentBlock?.type === 'text' && contentBlock.text) {
             const content = contentBlock.text;
             streamedResponse += content;
+            if (ttftMs === null) {
+              ttftMs = Date.now() - requestStart;
+            }
             res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
           } else if (contentBlock?.type === 'tool_use') {
             // Initialize tool call - input will come in delta events
@@ -450,6 +455,9 @@ router.post("/", async (req: Request, res: Response) => {
           if (delta?.text) {
             const content = delta.text;
             streamedResponse += content;
+            if (ttftMs === null) {
+              ttftMs = Date.now() - requestStart;
+            }
             res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
           } else if (delta?.type === 'input_json_delta' && delta?.partial_json) {
             // Accumulate tool input JSON chunks
@@ -548,6 +556,14 @@ router.post("/", async (req: Request, res: Response) => {
             conversation_id: dbConversation.id,
             role: "assistant",
             content: streamedResponse + errorMessage,
+            metadata: {
+              ttft_ms: ttftMs ?? undefined,
+              total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                : undefined,
+              input_tokens: (stream as any)?.usage?.input_tokens,
+              output_tokens: (stream as any)?.usage?.output_tokens,
+            },
             created_at: new Date(),
           });
           
@@ -561,6 +577,14 @@ router.post("/", async (req: Request, res: Response) => {
               conversation_id: dbConversation.id,
               role: "assistant",
               content: streamedResponse,
+              metadata: {
+                ttft_ms: ttftMs ?? undefined,
+                total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                  ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                  : undefined,
+                input_tokens: (stream as any)?.usage?.input_tokens,
+                output_tokens: (stream as any)?.usage?.output_tokens,
+              },
               created_at: new Date(),
             });
           }
@@ -582,7 +606,7 @@ router.post("/", async (req: Request, res: Response) => {
             conversation_id: dbConversation.id,
             role: "assistant",
             content: toolResponse,
-            metadata: { type: 'tool_result_response' },
+            metadata: { type: 'tool_result_response', ttft_ms: ttftMs ?? undefined },
             created_at: new Date(),
           });
           
@@ -595,6 +619,14 @@ router.post("/", async (req: Request, res: Response) => {
             conversation_id: dbConversation.id,
             role: "assistant",
             content: streamedResponse,
+            metadata: {
+              ttft_ms: ttftMs ?? undefined,
+              total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                : undefined,
+              input_tokens: (stream as any)?.usage?.input_tokens,
+              output_tokens: (stream as any)?.usage?.output_tokens,
+            },
             created_at: new Date(),
           });
         } else {
@@ -607,6 +639,14 @@ router.post("/", async (req: Request, res: Response) => {
             conversation_id: dbConversation.id,
             role: "assistant",
             content: streamedResponse,
+            metadata: {
+              ttft_ms: ttftMs ?? undefined,
+              total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                : undefined,
+              input_tokens: (stream as any)?.usage?.input_tokens,
+              output_tokens: (stream as any)?.usage?.output_tokens,
+            },
             created_at: new Date(),
           });
         }
