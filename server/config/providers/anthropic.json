@@ -1,7 +1,7 @@
 {
   "id": "anthropic",
   "name": "Anthropic Claude",
-  "icon": "SiAntdesign",
+  "icon": "SiAnthropic",
   "models": [
     {
       "id": "claude-sonnet-4-0",

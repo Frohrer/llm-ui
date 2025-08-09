@@ -1,7 +1,7 @@
 {
   "id": "deepseek",
   "name": "DeepSeek AI",
-  "icon": "SiOpenai",
+  "icon": "SiDeepl",
   "models": [
     {
       "id": "deepseek-chat",

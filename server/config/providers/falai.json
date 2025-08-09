@@ -1,7 +1,7 @@
 {
     "id": "falai",
     "name": "Fal.AI",
-    "icon": "SiFal",
+    "icon": "SiFathom",
     "models": [
       {
         "id": "fal-ai/hidream-i1-full",

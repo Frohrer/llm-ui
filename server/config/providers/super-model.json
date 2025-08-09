@@ -1,7 +1,7 @@
 {
   "id": "super-model",
-  "name": "Super Model (Sonnet 4 + o-3 + Gemini 2.5 Pro)",
-  "icon": "SiSparkles", 
+  "name": "Custom",
+  "icon": "SiIcloud", 
   "models": [
     {
       "id": "super-model-orchestrator",
