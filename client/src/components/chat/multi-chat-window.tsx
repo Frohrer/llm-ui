@@ -163,12 +163,24 @@ export function MultiChatWindow({
 
   const scrollToBottom = (modelId: string) => {
     const container = containerRefs.current[modelId];
-    if (container) {
-      const viewport = container.closest('.relative.h-full')?.querySelector('[data-radix-scroll-area-viewport]');
-      if (viewport) {
+    if (!container) return;
+
+    const viewport = container
+      .closest('.relative.h-full')
+      ?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+
+    // Anchor: last rendered element acts as bottom. If absent, fallback to viewport.
+    const bottomAnchor = container.lastElementChild as HTMLElement | null;
+
+    const doScroll = () => {
+      if (bottomAnchor) {
+        bottomAnchor.scrollIntoView({ block: 'end', behavior: 'auto' });
+      } else if (viewport) {
         viewport.scrollTop = viewport.scrollHeight;
       }
-    }
+    };
+
+    requestAnimationFrame(() => requestAnimationFrame(doScroll));
   };
 
   const handleSendMessage = async (
@@ -447,6 +459,22 @@ export function MultiChatWindow({
     ? Math.min(...selectedModels.map(getModelContextLength))
     : 128000;
 
+  // Choose a representative conversation context for token counting in the shared input.
+  // Strategy: use the conversation with the highest total content length to best approximate
+  // the longest context that will be sent to any model.
+  const getLongestConversationMessages = (): MessageType[] => {
+    let best: MessageType[] = [];
+    let bestLen = 0;
+    for (const conv of Object.values(conversations)) {
+      const len = conv.messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+      if (len > bestLen) {
+        best = conv.messages;
+        bestLen = len;
+      }
+    }
+    return best;
+  };
+
   const getRandomThinkingMessage = () => {
     const messages = [
       "Getting the ducks in a row",
@@ -571,6 +599,7 @@ export function MultiChatWindow({
                   onSendMessage={handleSendMessage}
                   isLoading={anyModelLoading}
                   modelContextLength={minContextLength}
+                  contextMessages={getLongestConversationMessages()}
                 />
               </div>
             </ResizablePanel>

@@ -882,17 +882,77 @@ async function handleResponsesAPI(req: Request, res: Response) {
       }
     }
 
+    // Process attachments (images, documents) for Responses API
+    const allAttachmentsToProcess = (allAttachments && allAttachments.length > 0)
+      ? allAttachments
+      : (attachment ? [attachment] : []);
+
+    const imageDataUris: string[] = [];
+    const documentTexts: string[] = [];
+
+    for (const att of allAttachmentsToProcess) {
+      if (!att || !att.type) continue;
+      if (att.type === 'image' && att.url) {
+        try {
+          const fileName = String(att.url).split('/').pop();
+          if (!fileName) throw new Error('Invalid image URL');
+          const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
+          if (!fs.existsSync(imagePath)) throw new Error('Image file not found on server');
+          const imageBuffer = fs.readFileSync(imagePath);
+          const base64Image = imageBuffer.toString('base64');
+          const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
+          const dataUri = `data:${mimeType};base64,${base64Image}`;
+          imageDataUris.push(dataUri);
+        } catch (imageError) {
+          console.error('Error processing image for GPT-5 Responses API:', imageError);
+          documentTexts.push(`[Image processing failed: ${imageError instanceof Error ? imageError.message : 'Unknown error'}]`);
+        }
+      } else if (att.type === 'document' && att.text) {
+        // Preserve any extracted text from uploaded documents
+        documentTexts.push(`--- Document: ${att.name || 'Attachment'} ---\n${att.text}`);
+      }
+    }
+
     // Build the request payload for Responses API
     // Note: GPT-5 Responses API does not support temperature parameter
     // Temperature control is replaced by reasoning effort and verbosity settings
     const responsesPayload: any = {
       model,
-      input: knowledgeContent ? `${knowledgeContent}\n\nUser query: ${input}` : input,
+      // input will be assigned below depending on attachment presence
       reasoning,
       text,
       store,
       include
     };
+
+    // Build structured input when we have images/documents/knowledge
+    const hasRichInput = imageDataUris.length > 0 || documentTexts.length > 0 || !!knowledgeContent;
+    if (hasRichInput) {
+      let textContent = input;
+      if (documentTexts.length > 0) {
+        textContent += `\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
+      }
+      if (knowledgeContent) {
+        // Prepend knowledge in a labeled section for clarity
+        textContent = `Knowledge Sources:\n${knowledgeContent}\n\nUser query: ${textContent}`;
+      }
+
+      const contentParts: any[] = [
+        { type: 'input_text', text: textContent }
+      ];
+      for (const uri of imageDataUris) {
+        contentParts.push({ type: 'input_image', image_url: uri });
+      }
+      responsesPayload.input = [
+        {
+          role: 'user',
+          content: contentParts
+        }
+      ];
+    } else {
+      // Simple text input
+      responsesPayload.input = input;
+    }
 
     // Add previous response ID if provided
     if (previous_response_id) {
@@ -965,10 +1025,24 @@ async function handleResponsesAPI(req: Request, res: Response) {
       const fallbackModel = model.replace('gpt-5', 'gpt-4o');
       console.log(`Using fallback model: ${fallbackModel}`);
       
-      // Create chatMessages array from input for Chat Completions
-      const chatMessages = [
-        { role: 'user', content: knowledgeContent ? `${knowledgeContent}\n\nUser query: ${input}` : input }
-      ];
+      // Create chatMessages array from input for Chat Completions, including images if present
+      const chatMessages: any[] = [];
+      if (imageDataUris.length > 0 || documentTexts.length > 0 || knowledgeContent) {
+        let textContent = input;
+        if (documentTexts.length > 0) {
+          textContent += `\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
+        }
+        if (knowledgeContent) {
+          textContent = `Knowledge Sources:\n${knowledgeContent}\n\nUser query: ${textContent}`;
+        }
+        const contentArray: any[] = [{ type: 'text', text: textContent }];
+        for (const uri of imageDataUris) {
+          contentArray.push({ type: 'image_url', image_url: { url: uri } });
+        }
+        chatMessages.push({ role: 'user', content: contentArray });
+      } else {
+        chatMessages.push({ role: 'user', content: input });
+      }
       
       // Call Chat Completions API instead
       const stream = await client.chat.completions.create({

@@ -243,14 +243,27 @@ export function ChatWindow({
 
   const scrollToBottom = () => {
     const chatContainer = containerRef.current?.closest('.relative.h-full');
-    const viewport = chatContainer?.querySelector('[data-radix-scroll-area-viewport]');
-    
-    if (viewport) {
-      viewport.scrollTop = viewport.scrollHeight;
-    }
+    const viewport = chatContainer?.querySelector(
+      '[data-radix-scroll-area-viewport]'
+    ) as HTMLElement | null;
+    const bottomAnchor = containerRef.current?.querySelector(
+      '#bottom-anchor'
+    ) as HTMLElement | null;
 
-    setShouldAutoScroll(true);
-    setShowScrollButton(false);
+    // Use rAF to ensure DOM/layout has settled after new message render
+    const doScroll = () => {
+      if (bottomAnchor) {
+        bottomAnchor.scrollIntoView({ block: 'end', behavior: 'auto' });
+      } else if (viewport) {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
+
+      setShouldAutoScroll(true);
+      setShowScrollButton(false);
+    };
+
+    // Double rAF guards against async size changes (e.g., code blocks/images)
+    requestAnimationFrame(() => requestAnimationFrame(doScroll));
   };
 
   useEffect(() => {
@@ -834,6 +847,7 @@ export function ChatWindow({
                 onSendMessage={handleSendMessage}
                 isLoading={isLoading}
                 modelContextLength={getModelContextLength(selectedModel)}
+                contextMessages={messages}
               />
             </div>
           </ResizablePanel>
