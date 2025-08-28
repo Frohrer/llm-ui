@@ -6,6 +6,7 @@ import { cloudflareAuthMiddleware } from "./middleware/auth";
 import knowledgeRoutes from "./routes/knowledge";
 import conversationsRoutes from "./routes/conversations";
 import toolsRoutes from "./routes/tools";
+import mcpRoutes from "./routes/mcp";
 import {
   openaiRouter,
   anthropicRouter,
@@ -75,7 +76,7 @@ if (process.env.XAI_KEY) {
 // Initialize super model if all required providers are available
 clientsInitialized.superModel = initializeSuperModel();
 
-export function registerRoutes(app: Express): Server {
+export async function registerRoutes(app: Express): Promise<Server> {
   // Speech credentials route
   app.get('/api/speech-credentials', (req, res) => {
     res.json({
@@ -147,6 +148,13 @@ export function registerRoutes(app: Express): Server {
 
   // Register tools routes
   app.use('/api/tools', toolsRoutes);
+
+  // Register MCP routes
+  app.use('/api/mcp', mcpRoutes);
+
+  // Register OAuth routes
+  const oauthRouter = (await import('./routes/oauth.js')).default;
+  app.use('/api/oauth', oauthRouter);
 
   // Statistics endpoint: latency per model and token counts
   app.get('/api/stats', async (req: Request, res: Response) => {

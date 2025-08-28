@@ -3,12 +3,13 @@ import { useUser } from "@/hooks/use-user";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "./theme-toggle";
-import { MessageCircle, LogOut, BookOpen, Plus, BarChart3 } from "lucide-react";
+import { MessageCircle, LogOut, BookOpen, Plus, BarChart3, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect } from "react";
 import { ConversationList } from "./conversation-list";
 import { Conversation } from "@/lib/llm/types";
 import { KnowledgeSheet } from "@/components/knowledge";
+import { McpConfigDialog, McpStatusBadge } from "@/components/mcp";
 
 interface MainSidebarProps {
   activeConversation?: Conversation;
@@ -93,6 +94,20 @@ export function MainSidebar({
                   >
                     <BookOpen className="mr-2 h-4 w-4" />
                     Knowledge
+                  </Button>
+                } 
+              />
+              <McpConfigDialog 
+                trigger={
+                  <Button 
+                    variant="ghost" 
+                    className="w-full justify-start flex items-center py-2 px-3 rounded-md text-sm font-medium hover:bg-accent/50"
+                  >
+                    <Settings className="mr-2 h-4 w-4" />
+                    MCP Settings
+                    <div className="ml-auto">
+                      <McpStatusBadge />
+                    </div>
                   </Button>
                 } 
               />

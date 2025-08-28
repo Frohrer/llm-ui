@@ -77,6 +77,20 @@ export const conversationKnowledge = pgTable("conversation_knowledge", {
   created_at: timestamp("created_at").defaultNow().notNull(),
 });
 
+// OAuth tokens table for MCP server authentication
+export const oauthTokens = pgTable("oauth_tokens", {
+  id: serial("id").primaryKey(),
+  user_id: integer("user_id").references(() => users.id).notNull(),
+  service_name: text("service_name").notNull(), // e.g., 'github', 'notion', 'linear'
+  access_token: text("access_token").notNull(),
+  refresh_token: text("refresh_token"),
+  token_type: text("token_type").default("Bearer"),
+  expires_at: timestamp("expires_at"),
+  scope: text("scope"),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Relations setup
 export const conversationsRelations = relations(conversations, ({ one, many }) => ({
   user: one(users, {
@@ -121,6 +135,13 @@ export const conversationKnowledgeRelations = relations(conversationKnowledge, (
   }),
 }));
 
+export const oauthTokensRelations = relations(oauthTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [oauthTokens.user_id],
+    references: [users.id],
+  }),
+}));
+
 // Schemas for form validation
 export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
@@ -134,6 +155,8 @@ export const insertKnowledgeContentSchema = createInsertSchema(knowledgeContent)
 export const selectKnowledgeContentSchema = createSelectSchema(knowledgeContent);
 export const insertConversationKnowledgeSchema = createInsertSchema(conversationKnowledge);
 export const selectConversationKnowledgeSchema = createSelectSchema(conversationKnowledge);
+export const insertOauthTokenSchema = createInsertSchema(oauthTokens);
+export const selectOauthTokenSchema = createSelectSchema(oauthTokens);
 
 // Type definitions for use in the app
 export type InsertUser = typeof users.$inferInsert;
@@ -148,3 +171,5 @@ export type InsertKnowledgeContent = typeof knowledgeContent.$inferInsert;
 export type SelectKnowledgeContent = typeof knowledgeContent.$inferSelect;
 export type InsertConversationKnowledge = typeof conversationKnowledge.$inferInsert;
 export type SelectConversationKnowledge = typeof conversationKnowledge.$inferSelect;
+export type InsertOauthToken = typeof oauthTokens.$inferInsert;
+export type SelectOauthToken = typeof oauthTokens.$inferSelect;

@@ -4,15 +4,39 @@
   "icon": "SiGoogle",
   "models": [
     {
-      "id": "gemini-1.5-pro",
-      "name": "Gemini 1.5 Pro",
-      "contextLength": 1000000,
+      "id": "gemini-2.5-pro",
+      "name": "Gemini 2.5 Pro",
+      "contextLength": 2000000,
+      "defaultModel": false
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "name": "Gemini 2.5 Flash",
+      "contextLength": 2000000,
       "defaultModel": true
     },
     {
-      "id": "gemini-1.5-flash",
-      "name": "Gemini 1.5 Flash",
-      "contextLength": 1000000,
+      "id": "gemini-2.5-flash-lite",
+      "name": "Gemini 2.5 Flash-Lite",
+      "contextLength": 2000000,
+      "defaultModel": false
+    },
+    {
+      "id": "gemini-2.5-flash-live",
+      "name": "Gemini 2.5 Flash Live",
+      "contextLength": 2000000,
+      "defaultModel": false
+    },
+    {
+      "id": "gemini-2.5-flash-preview-native-audio-dialog",
+      "name": "Gemini 2.5 Flash Native Audio",
+      "contextLength": 2000000,
+      "defaultModel": false
+    },
+    {
+      "id": "gemini-2.5-flash-preview-tts",
+      "name": "Gemini 2.5 Flash Preview TTS",
+      "contextLength": 2000000,
       "defaultModel": false
     },
     {
@@ -22,14 +46,14 @@
       "defaultModel": false
     },
     {
-      "id": "gemini-2.0-flash-thinking-exp",
-      "name": "Gemini 2.0 Flash Thinking (Experimental)",
+      "id": "gemini-2.0-flash-lite",
+      "name": "Gemini 2.0 Flash-Lite",
       "contextLength": 2000000,
       "defaultModel": false
     },
     {
-      "id": "gemini-2.5-pro",
-      "name": "Gemini 2.5 Pro",
+      "id": "gemini-2.0-flash-live-001",
+      "name": "Gemini 2.0 Flash Live",
       "contextLength": 2000000,
       "defaultModel": false
     }

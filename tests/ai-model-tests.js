@@ -145,7 +145,7 @@ async function run() {
     // Anthropic
     { provider: 'anthropic', model: 'claude-3-5-sonnet-latest' },
     // Gemini
-    { provider: 'gemini', model: 'gemini-1.5-pro' },
+    { provider: 'gemini', model: 'gemini-2.5-flash' },
     // Grok (vision-capable model)
     { provider: 'grok', model: 'grok-2-vision' },
     // DeepSeek (treated as text, but should not error with image present)

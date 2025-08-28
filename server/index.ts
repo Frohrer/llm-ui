@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import path from "path";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { initializeMcp, shutdownMcp } from "./mcp/index.js";
 
 const app = express();
 
@@ -54,7 +55,11 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = registerRoutes(app);
+  // Initialize MCP system before starting the server
+  log("Initializing MCP (Model Context Protocol) system...");
+  await initializeMcp();
+
+  const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -80,4 +85,27 @@ app.use((req, res, next) => {
     log(`serving on port ${PORT}`);
     log(`Version 3`);
   });
+
+  // Graceful shutdown handling
+  const gracefulShutdown = async (signal: string) => {
+    log(`Received ${signal}, shutting down gracefully...`);
+    
+    // Shutdown MCP system
+    await shutdownMcp();
+    
+    // Close HTTP server
+    server.close(() => {
+      log("HTTP server closed.");
+      process.exit(0);
+    });
+    
+    // Force exit after 10 seconds
+    setTimeout(() => {
+      log("Forcing exit...");
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 })();
