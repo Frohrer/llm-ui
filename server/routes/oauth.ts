@@ -115,7 +115,7 @@ router.get('/authorize/:service', async (req: Request, res: Response) => {
         return res.json({ authUrl: devAuthUrl });
       }
       
-      // In production, provide helpful error message about missing environment variables
+      // In production, return error instead of attempting OAuth flow
       const envVarName = `${service.toUpperCase()}_CLIENT_ID`;
       return res.status(400).json({ 
         error: `OAuth not configured for ${service}`,
