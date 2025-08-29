@@ -1,19 +1,5 @@
 {
-  "mcpServers": {
-    "linear": {
-      "command": "https://mcp.linear.app/sse",
-      "args": [
-        "https://mcp.linear.app/sse"
-      ],
-      "disabled": true,
-      "transport": "sse",
-      "timeout": 30000,
-      "retryAttempts": 3,
-      "description": "Linear project management (OAuth required)",
-      "requiresOAuth": true,
-      "oauthService": "linear"
-    }
-  },
+  "mcpServers": {},
   "globalSettings": {
     "timeout": 30000,
     "retryAttempts": 3,

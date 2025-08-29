@@ -11,8 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertTriangle, Plus, Settings, Trash2, RotateCcw, Download, Upload, Edit, Save, X } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertTriangle, AlertCircle, Plus, Settings, Trash2, RotateCcw, Download, Upload, Edit, Save, X } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 
 interface McpServerConfig {
@@ -26,6 +26,7 @@ interface McpServerConfig {
   timeout?: number;
   retryAttempts?: number;
   description?: string;
+  requiresOAuth?: boolean;
 }
 
 interface McpConfig {
@@ -63,6 +64,7 @@ export function McpConfigDialog({ trigger }: McpConfigDialogProps) {
   const [jsonConfig, setJsonConfig] = useState('');
   const [editingServer, setEditingServer] = useState<string | null>(null);
   const [oauthTokens, setOauthTokens] = useState<Array<{service_name: string; expires_at: string | null; scope: string | null; created_at: string; updated_at: string}>>([]);
+  const [pendingOAuthUrls, setPendingOAuthUrls] = useState<Array<{serverName: string; authUrl: string; timestamp: number}>>([]);
   const { toast } = useToast();
 
   // New server form state
@@ -76,7 +78,6 @@ export function McpConfigDialog({ trigger }: McpConfigDialogProps) {
     env: '',
     autoApprove: '',
     requiresOAuth: false,
-    oauthService: '',
   });
 
   // Load server statuses only
@@ -105,6 +106,19 @@ export function McpConfigDialog({ trigger }: McpConfigDialogProps) {
     }
   };
 
+  // Load pending OAuth URLs
+  const loadPendingOAuthUrls = async () => {
+    try {
+      const response = await fetch('/api/mcp/pending-oauth');
+      if (response.ok) {
+        const data = await response.json();
+        setPendingOAuthUrls(data.pendingOAuthUrls);
+      }
+    } catch (error) {
+      console.error('Error loading pending OAuth URLs:', error);
+    }
+  };
+
   // Load MCP config and statuses
   const loadData = async () => {
     setLoading(true);
@@ -113,6 +127,7 @@ export function McpConfigDialog({ trigger }: McpConfigDialogProps) {
         fetch('/api/mcp/config'),
         fetch('/api/mcp/servers/status'),
         loadOauthTokens(),
+        loadPendingOAuthUrls(),
       ]);
 
       if (configRes.ok) {
@@ -276,111 +291,14 @@ export function McpConfigDialog({ trigger }: McpConfigDialogProps) {
     }
 
     try {
-      // Check if OAuth is required and if we have a token
-      if (newServer.requiresOAuth && newServer.oauthService) {
-        const hasToken = hasOAuthToken(newServer.oauthService);
-        if (!hasToken) {
-          // Show OAuth requirement dialog and initiate OAuth flow
-          const confirmed = window.confirm(
-            `This server requires OAuth authentication with ${newServer.oauthService}. Would you like to connect now?`
-          );
-          
-          if (confirmed) {
-            try {
-              // Get the OAuth URL first
-              const response = await fetch(`/api/oauth/authorize/${newServer.oauthService}`);
-              if (response.ok) {
-                const data = await response.json();
-                
-                // Try popup first
-                const popup = window.open(
-                  data.authUrl,
-                  'oauth',
-                  'width=600,height=700,scrollbars=yes,resizable=yes'
-                );
-
-                // Check if popup was blocked (Firefox detection)
-                let popupBlocked = false;
-                try {
-                  if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-                    popupBlocked = true;
-                  } else {
-                    popup.focus();
-                  }
-                } catch (e) {
-                  popupBlocked = true;
-                }
-
-                if (popupBlocked) {
-                  // Popup was blocked, offer new tab with better messaging
-                  const useNewTab = window.confirm(
-                    `Your browser blocked the OAuth popup. This is common in Firefox and other secure browsers.
-
-Would you like to open OAuth authentication in a new tab instead? After completing authentication there, come back and try adding the ${newServer.oauthService} server again.`
-                  );
-                  
-                  if (useNewTab) {
-                    window.open(data.authUrl, '_blank');
-                    toast({
-                      title: 'OAuth Opened in New Tab',
-                      description: `Complete authentication with ${newServer.oauthService} in the new tab, then return here and try adding the server again.`,
-                      duration: 10000,
-                    });
-                  }
-                  return;
-                }
-
-                toast({
-                  title: 'OAuth Required',
-                  description: `Please complete authentication with ${newServer.oauthService} in the popup window.`,
-                });
-
-                // Set up message listener for this specific flow
-                const messageHandler = (event: MessageEvent) => {
-                  if (event.data.type === 'oauth_success' && event.data.service === newServer.oauthService) {
-                    window.removeEventListener('message', messageHandler);
-                    clearInterval(checkClosed);
-                    loadOauthTokens(); // Reload tokens
-                    toast({
-                      title: 'OAuth Success',
-                      description: `Successfully authenticated with ${newServer.oauthService}! You can now add the server.`,
-                    });
-                  }
-                };
-
-                window.addEventListener('message', messageHandler);
-
-                // Check if popup was closed manually
-                const checkClosed = setInterval(() => {
-                  if (popup?.closed) {
-                    clearInterval(checkClosed);
-                    window.removeEventListener('message', messageHandler);
-                    toast({
-                      title: 'Authentication Required',
-                      description: `Please complete OAuth authentication with ${newServer.oauthService} before adding this server.`,
-                    });
-                  }
-                }, 1000);
-
-                return;
-              }
-            } catch (error) {
-              console.error('Error initiating OAuth:', error);
-              toast({
-                title: 'Error',
-                description: `Failed to initiate OAuth with ${newServer.oauthService}`,
-                variant: 'destructive',
-              });
-              return;
-            }
-          } else {
-            toast({
-              title: 'Authentication Required',
-              description: `OAuth authentication with ${newServer.oauthService} is required to add this server.`,
-              variant: 'destructive',
-            });
-            return;
-          }
+      // If OAuth is required, show informational message
+      if (newServer.requiresOAuth) {
+        const confirmed = window.confirm(
+          `This server requires OAuth authentication. After adding the server, you may need to authorize it through a popup or new tab when it first connects. Would you like to continue?`
+        );
+        
+        if (!confirmed) {
+          return;
         }
       }
 
@@ -395,7 +313,6 @@ Would you like to open OAuth authentication in a new tab instead? After completi
           transport: isSSE ? 'sse' : 'streamableHttp',
           description: newServer.description || `Remote MCP server at ${newServer.url}`,
           requiresOAuth: newServer.requiresOAuth,
-          oauthService: newServer.oauthService || undefined,
         };
       } else {
         // Command-based server
@@ -414,7 +331,6 @@ Would you like to open OAuth authentication in a new tab instead? After completi
           transport: newServer.transport,
           description: newServer.description || `MCP server: ${newServer.command}`,
           requiresOAuth: newServer.requiresOAuth,
-          oauthService: newServer.oauthService || undefined,
         };
       }
 
@@ -463,7 +379,6 @@ Would you like to open OAuth authentication in a new tab instead? After completi
           env: '',
           autoApprove: '',
           requiresOAuth: false,
-          oauthService: '',
         });
         toast({
           title: 'Success',
@@ -744,6 +659,108 @@ After completing authentication, come back to this page and the connection will 
     return navigator.userAgent.toLowerCase().includes('firefox');
   };
 
+  // Handle pending OAuth URL
+  const handlePendingOAuth = async (serverName: string) => {
+    try {
+      // Start the OAuth flow through our generic system
+      const response = await fetch('/api/mcp/start-oauth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverName }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to start OAuth flow');
+      }
+      
+      const oauthData = await response.json();
+      
+      // Try to open OAuth popup first
+      const popup = window.open(
+        oauthData.authUrl,
+        'oauth',
+        'width=600,height=700,scrollbars=yes,resizable=yes'
+      );
+
+      // Check if popup was blocked
+      let popupBlocked = false;
+      try {
+        if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+          popupBlocked = true;
+        } else {
+          popup.focus();
+        }
+      } catch (e) {
+        popupBlocked = true;
+      }
+
+      if (popupBlocked) {
+        // Popup was blocked, offer new tab
+        const useNewTab = window.confirm(
+          `OAuth popup was blocked by your browser. Would you like to open the authorization page in a new tab?`
+        );
+        
+        if (useNewTab) {
+          window.open(oauthData.authUrl, '_blank');
+          toast({
+            title: 'OAuth Authorization',
+            description: `Complete authorization for ${serverName} in the new tab. The server will detect the authorization automatically.`,
+            duration: 8000,
+          });
+        }
+        return;
+      }
+
+      toast({
+        title: 'OAuth Authorization',
+        description: `Please complete authorization for ${serverName} in the popup window.`,
+      });
+
+      // Listen for OAuth completion
+      const messageHandler = (event: MessageEvent) => {
+        if (event.data.type === 'oauth_success' && event.data.serverName === serverName) {
+          window.removeEventListener('message', messageHandler);
+          clearInterval(checkClosed);
+          
+          // Reload server statuses to show the now-connected server
+          loadServerStatuses();
+          loadPendingOAuthUrls();
+          
+          toast({
+            title: 'OAuth Success',
+            description: `Successfully authorized ${serverName}! The server should now be connected.`,
+          });
+        } else if (event.data.type === 'oauth_error') {
+          window.removeEventListener('message', messageHandler);
+          clearInterval(checkClosed);
+          toast({
+            title: 'OAuth Error',
+            description: `Authorization failed for ${serverName}. Please try again.`,
+            variant: 'destructive',
+          });
+        }
+      };
+
+      window.addEventListener('message', messageHandler);
+
+      // Check if popup was closed manually
+      const checkClosed = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(checkClosed);
+          window.removeEventListener('message', messageHandler);
+        }
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Error handling pending OAuth:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to start OAuth authorization',
+        variant: 'destructive',
+      });
+    }
+  };
+
   if (!config) {
     return (
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -795,6 +812,36 @@ After completing authentication, come back to this page and the connection will 
                 </div>
               </div>
 
+              {/* Pending OAuth URLs Section */}
+              {pendingOAuthUrls.length > 0 && (
+                <Alert variant="destructive" className="flex-shrink-0">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>OAuth Authorization Required</AlertTitle>
+                  <AlertDescription className="mt-2">
+                    <div className="space-y-2">
+                      <p>Some MCP servers require OAuth authorization to connect:</p>
+                      {pendingOAuthUrls.map((pending, index) => (
+                        <div key={index} className="flex items-center justify-between p-2 bg-background rounded border">
+                          <div>
+                            <span className="font-medium">{pending.serverName}</span>
+                            <p className="text-sm text-muted-foreground">
+                              Authorization required to connect
+                            </p>
+                          </div>
+                          <Button 
+                            onClick={() => handlePendingOAuth(pending.serverName)}
+                            size="sm"
+                            variant="outline"
+                          >
+                            Authorize
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <ScrollArea className="flex-1 pr-4">
                 <div className="space-y-4">
                 {Object.entries(config.mcpServers).map(([serverName, serverConfig]) => {
@@ -811,23 +858,13 @@ After completing authentication, come back to this page and the connection will 
                             {serverConfig.disabled && (
                               <Badge variant="outline">Disabled</Badge>
                             )}
-                            {serverConfig.requiresOAuth && serverConfig.oauthService && (
-                              <Badge variant={hasOAuthToken(serverConfig.oauthService) ? 'default' : 'destructive'}>
-                                {hasOAuthToken(serverConfig.oauthService) ? 'OAuth Connected' : 'OAuth Required'}
+                            {serverConfig.requiresOAuth && (
+                              <Badge variant="secondary">
+                                OAuth Required
                               </Badge>
                             )}
                           </div>
                           <div className="flex items-center gap-2">
-                            {serverConfig.requiresOAuth && serverConfig.oauthService && !hasOAuthToken(serverConfig.oauthService) && (
-                              <Button
-                                onClick={() => initiateOAuth(serverConfig.oauthService!)}
-                                variant="outline"
-                                size="sm"
-                                className="text-blue-600 hover:text-blue-700"
-                              >
-                                Connect OAuth
-                              </Button>
-                            )}
                             <Switch
                               checked={!serverConfig.disabled}
                               onCheckedChange={(enabled) => toggleServer(serverName, enabled)}
@@ -998,6 +1035,18 @@ After completing authentication, come back to this page and the connection will 
                   </p>
                 </div>
 
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="requiresOAuth"
+                    checked={newServer.requiresOAuth}
+                    onCheckedChange={(checked) => setNewServer({ ...newServer, requiresOAuth: checked })}
+                  />
+                  <Label htmlFor="requiresOAuth">Requires OAuth authentication</Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Enable this if the MCP server requires OAuth authentication. The server will handle the OAuth flow internally.
+                </p>
+
                 <div className="flex justify-end gap-2">
                   <Button
                     onClick={() => {
@@ -1011,7 +1060,6 @@ After completing authentication, come back to this page and the connection will 
                         env: '',
                         autoApprove: '',
                         requiresOAuth: false,
-                        oauthService: '',
                       });
                     }}
                     variant="outline"
@@ -1047,7 +1095,6 @@ After completing authentication, come back to this page and the connection will 
                         env: '',
                         autoApprove: '',
                         requiresOAuth: true,
-                        oauthService: 'github',
                       })
                     }
                   >
@@ -1067,7 +1114,6 @@ After completing authentication, come back to this page and the connection will 
                         env: '',
                         autoApprove: '',
                         requiresOAuth: true,
-                        oauthService: 'notion',
                       })
                     }
                   >
@@ -1079,15 +1125,14 @@ After completing authentication, come back to this page and the connection will 
                     onClick={() =>
                       setNewServer({
                         name: 'linear',
-                        command: '',
-                        args: '',
-                        url: 'https://mcp.linear.app/sse',
-                        transport: 'sse',
-                        description: 'Linear project management (OAuth required)',
+                        command: 'npx',
+                        args: '-y,mcp-remote,https://mcp.linear.app/sse',
+                        url: '',
+                        transport: 'stdio',
+                        description: 'Linear project management (OAuth handled internally)',
                         env: '',
                         autoApprove: '',
                         requiresOAuth: true,
-                        oauthService: 'linear',
                       })
                     }
                   >
@@ -1107,7 +1152,6 @@ After completing authentication, come back to this page and the connection will 
                         env: '',
                         autoApprove: '',
                         requiresOAuth: true,
-                        oauthService: 'sentry',
                       })
                     }
                   >
@@ -1127,7 +1171,6 @@ After completing authentication, come back to this page and the connection will 
                         env: '',
                         autoApprove: '',
                         requiresOAuth: true,
-                        oauthService: 'neon',
                       })
                     }
                   >
@@ -1147,7 +1190,6 @@ After completing authentication, come back to this page and the connection will 
                         env: '',
                         autoApprove: '',
                         requiresOAuth: true,
-                        oauthService: 'intercom',
                       })
                     }
                   >
@@ -1167,7 +1209,6 @@ After completing authentication, come back to this page and the connection will 
                         env: '',
                         autoApprove: '',
                         requiresOAuth: true,
-                        oauthService: 'asana',
                       })
                     }
                   >
@@ -1187,7 +1228,6 @@ After completing authentication, come back to this page and the connection will 
                         env: '',
                         autoApprove: '',
                         requiresOAuth: true,
-                        oauthService: 'webflow',
                       })
                     }
                   >
@@ -1207,7 +1247,6 @@ After completing authentication, come back to this page and the connection will 
                         env: '',
                         autoApprove: '',
                         requiresOAuth: true,
-                        oauthService: 'wix',
                       })
                     }
                   >

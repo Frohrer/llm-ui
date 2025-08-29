@@ -16,7 +16,6 @@ export const McpServerConfigSchema = z.object({
   retryAttempts: z.number().optional().default(3).describe('Number of retry attempts on connection failure'),
   description: z.string().optional().describe('Human-readable description of the server'),
   requiresOAuth: z.boolean().optional().default(false).describe('Whether this server requires OAuth authentication'),
-  oauthService: z.string().optional().describe('The OAuth service name (e.g., github, notion, linear)'),
 });
 
 export const McpConfigSchema = z.object({

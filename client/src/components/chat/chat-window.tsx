@@ -585,11 +585,12 @@ export function ChatWindow({
                     if (onConversationUpdate && data.conversation) {
                       onConversationUpdate(data.conversation);
                     }
-                    setStreamedText("");
                     const updatedMessages = transformMessages(
                       data.conversation,
                     );
                     setMessages(updatedMessages);
+                    // Clear streamed text after a brief delay to ensure final message renders first
+                    setTimeout(() => setStreamedText(""), 0);
                     queryClient.invalidateQueries({
                       queryKey: ["/api/conversations"],
                     });

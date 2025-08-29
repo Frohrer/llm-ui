@@ -465,4 +465,90 @@ router.post('/config/import', async (req, res) => {
   }
 });
 
+/**
+ * Get pending OAuth URLs from MCP servers
+ */
+router.get('/pending-oauth', async (req: Request, res: Response) => {
+  try {
+    const pendingUrls = mcpClientManager.getPendingOAuthUrls();
+    const urlsArray = Array.from(pendingUrls.entries()).map(([serverName, data]) => ({
+      serverName,
+      ...data
+    }));
+    
+    res.json({ pendingOAuthUrls: urlsArray });
+  } catch (error) {
+    console.error('Error getting pending OAuth URLs:', error);
+    res.status(500).json({ error: 'Failed to get pending OAuth URLs' });
+  }
+});
+
+/**
+ * Start OAuth flow for an MCP server
+ */
+router.post('/start-oauth', async (req: Request, res: Response) => {
+  try {
+    const { serverName } = req.body;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    if (!serverName) {
+      return res.status(400).json({ error: 'Missing serverName parameter' });
+    }
+
+    // Get the pending OAuth URL for this server
+    const pendingUrls = mcpClientManager.getPendingOAuthUrls();
+    const pendingAuth = pendingUrls.get(serverName);
+    
+    if (!pendingAuth) {
+      return res.status(404).json({ error: `No pending OAuth authorization for server: ${serverName}` });
+    }
+
+    // Start the OAuth flow using our generic OAuth service
+    const oauthStartResponse = await fetch(`${req.protocol}://${req.get('host')}/api/oauth/start-flow`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': req.get('Authorization') || '',
+        'Cookie': req.get('Cookie') || '',
+      },
+      body: JSON.stringify({
+        serverName,
+        authUrl: pendingAuth.authUrl
+      })
+    });
+
+    if (!oauthStartResponse.ok) {
+      throw new Error('Failed to start OAuth flow');
+    }
+
+    const oauthData = await oauthStartResponse.json();
+    
+    // Clear the pending OAuth URL since we're handling it
+    mcpClientManager.clearPendingOAuthUrl(serverName);
+    
+    res.json(oauthData);
+  } catch (error) {
+    console.error('Error starting OAuth flow for MCP server:', error);
+    res.status(500).json({ error: 'Failed to start OAuth flow' });
+  }
+});
+
+/**
+ * Clear pending OAuth URL for a server
+ */
+router.delete('/pending-oauth/:serverName', async (req: Request, res: Response) => {
+  try {
+    const { serverName } = req.params;
+    mcpClientManager.clearPendingOAuthUrl(serverName);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error clearing pending OAuth URL:', error);
+    res.status(500).json({ error: 'Failed to clear pending OAuth URL' });
+  }
+});
+
 export default router;

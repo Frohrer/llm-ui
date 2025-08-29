@@ -14,6 +14,7 @@ export class McpClientManager {
   private processes: Map<string, ChildProcess> = new Map();
   private serverStatuses: Map<string, McpServerStatus> = new Map();
   private reconnectTimers: Map<string, NodeJS.Timeout> = new Map();
+  private pendingOAuthUrls?: Map<string, { authUrl: string; timestamp: number; serverName: string }>;
 
   constructor() {
     // Initialize with empty state
@@ -106,17 +107,8 @@ export class McpClientManager {
       }
       console.log(`Creating SSE transport for server '${serverName}' with URL: ${url}`);
       
-      // Create headers for OAuth if required
+      // MCP servers handle OAuth internally, no need for manual headers
       const headers: Record<string, string> = {};
-      if (config.requiresOAuth && config.oauthService && userId) {
-        const { getOAuthToken } = await import('../routes/oauth.js');
-        const token = await getOAuthToken(userId, config.oauthService);
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        } else {
-          throw new Error(`OAuth token not found for service: ${config.oauthService}`);
-        }
-      }
       
       return new SSEClientTransport(new URL(url), { headers });
     } else if (config.transport === 'streamableHttp') {
@@ -128,17 +120,8 @@ export class McpClientManager {
         throw new Error(`HTTP transport requires a valid URL, got: ${url}`);
       }
       
-      // Create headers for OAuth if required
+      // MCP servers handle OAuth internally, no need for manual headers
       const headers: Record<string, string> = {};
-      if (config.requiresOAuth && config.oauthService && userId) {
-        const { getOAuthToken } = await import('../routes/oauth.js');
-        const token = await getOAuthToken(userId, config.oauthService);
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        } else {
-          throw new Error(`OAuth token not found for service: ${config.oauthService}`);
-        }
-      }
       
       return new SSEClientTransport(new URL(url), { headers });
     } else {
@@ -153,7 +136,69 @@ export class McpClientManager {
         cwd: config.workingDir,
       });
 
+      // Monitor stderr for OAuth authorization URLs if this server requires OAuth
+      if (config.requiresOAuth && transport.stderr) {
+        this.setupOAuthDetection(serverName, transport.stderr);
+      }
+
       return transport;
+    }
+  }
+
+  /**
+   * Setup OAuth URL detection from server stderr output
+   */
+  private setupOAuthDetection(serverName: string, stderr: NodeJS.ReadableStream): void {
+    stderr.on('data', (data: Buffer) => {
+      const output = data.toString();
+      
+      // Look for various OAuth authorization URL patterns that MCP servers might output
+      const oauthPatterns = [
+        /Please authorize this client by visiting:\s*(https?:\/\/[^\s]+)/i,
+        /Visit this URL to authorize:\s*(https?:\/\/[^\s]+)/i,
+        /OAuth authorization required:\s*(https?:\/\/[^\s]+)/i,
+        /To complete setup, visit:\s*(https?:\/\/[^\s]+)/i,
+        /Authorization URL:\s*(https?:\/\/[^\s]+)/i,
+      ];
+      
+      let authUrl: string | null = null;
+      for (const pattern of oauthPatterns) {
+        const match = output.match(pattern);
+        if (match) {
+          authUrl = match[1];
+          break;
+        }
+      }
+      
+      if (authUrl) {
+        console.log(`🔐 OAuth authorization required for ${serverName}: ${authUrl}`);
+        
+        // Store the OAuth URL for the frontend to handle
+        this.pendingOAuthUrls = this.pendingOAuthUrls || new Map();
+        this.pendingOAuthUrls.set(serverName, {
+          authUrl,
+          timestamp: Date.now(),
+          serverName
+        });
+        
+        console.log(`📝 Stored OAuth URL for server '${serverName}' - frontend should prompt user to authorize`);
+      }
+    });
+  }
+
+  /**
+   * Get pending OAuth authorization URLs
+   */
+  getPendingOAuthUrls(): Map<string, { authUrl: string; timestamp: number; serverName: string }> {
+    return this.pendingOAuthUrls || new Map();
+  }
+
+  /**
+   * Clear pending OAuth URL for a server
+   */
+  clearPendingOAuthUrl(serverName: string): void {
+    if (this.pendingOAuthUrls) {
+      this.pendingOAuthUrls.delete(serverName);
     }
   }
 

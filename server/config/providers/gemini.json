@@ -22,24 +22,6 @@
       "defaultModel": false
     },
     {
-      "id": "gemini-2.5-flash-live",
-      "name": "Gemini 2.5 Flash Live",
-      "contextLength": 2000000,
-      "defaultModel": false
-    },
-    {
-      "id": "gemini-2.5-flash-preview-native-audio-dialog",
-      "name": "Gemini 2.5 Flash Native Audio",
-      "contextLength": 2000000,
-      "defaultModel": false
-    },
-    {
-      "id": "gemini-2.5-flash-preview-tts",
-      "name": "Gemini 2.5 Flash Preview TTS",
-      "contextLength": 2000000,
-      "defaultModel": false
-    },
-    {
       "id": "gemini-2.0-flash",
       "name": "Gemini 2.0 Flash",
       "contextLength": 2000000,
@@ -48,12 +30,6 @@
     {
       "id": "gemini-2.0-flash-lite",
       "name": "Gemini 2.0 Flash-Lite",
-      "contextLength": 2000000,
-      "defaultModel": false
-    },
-    {
-      "id": "gemini-2.0-flash-live-001",
-      "name": "Gemini 2.0 Flash Live",
       "contextLength": 2000000,
       "defaultModel": false
     }
