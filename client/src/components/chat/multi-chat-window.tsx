@@ -180,7 +180,12 @@ export function MultiChatWindow({
       }
     };
 
-    requestAnimationFrame(() => requestAnimationFrame(doScroll));
+    // Triple rAF to ensure all DOM updates and layout changes have completed
+    requestAnimationFrame(() => 
+      requestAnimationFrame(() => 
+        requestAnimationFrame(doScroll)
+      )
+    );
   };
 
   const handleSendMessage = async (
@@ -393,8 +398,8 @@ export function MultiChatWindow({
               return prev;
             });
 
-            // Auto-scroll
-            setTimeout(() => scrollToBottom(modelId), 0);
+            // Auto-scroll with delay to ensure DOM updates
+            setTimeout(() => scrollToBottom(modelId), 50);
           } catch (error) {
             console.error("Error processing SSE data:", error);
             isStreamActive = false;

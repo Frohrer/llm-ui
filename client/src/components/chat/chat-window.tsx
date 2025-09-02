@@ -201,6 +201,14 @@ export function ChatWindow({
     }
   }, [conversation]);
 
+  // Auto-scroll when messages change (for final message updates)
+  useEffect(() => {
+    if (messages.length > 0 && isNearBottom()) {
+      // Use a small delay to ensure DOM has rendered
+      setTimeout(scrollToBottom, 50);
+    }
+  }, [messages.length]);
+
   // Set default model when providers are loaded
   useEffect(() => {
     if (!providers || selectedModel || conversation) {
@@ -253,8 +261,10 @@ export function ChatWindow({
     // Use rAF to ensure DOM/layout has settled after new message render
     const doScroll = () => {
       if (bottomAnchor) {
+        // Use scrollIntoView with block: 'end' to ensure we scroll to the very bottom
         bottomAnchor.scrollIntoView({ block: 'end', behavior: 'auto' });
       } else if (viewport) {
+        // Fallback: scroll to the very bottom of the viewport
         viewport.scrollTop = viewport.scrollHeight;
       }
 
@@ -262,8 +272,13 @@ export function ChatWindow({
       setShowScrollButton(false);
     };
 
-    // Double rAF guards against async size changes (e.g., code blocks/images)
-    requestAnimationFrame(() => requestAnimationFrame(doScroll));
+    // Triple rAF to ensure all DOM updates and layout changes have completed
+    // This is especially important when messages contain dynamic content
+    requestAnimationFrame(() => 
+      requestAnimationFrame(() => 
+        requestAnimationFrame(doScroll)
+      )
+    );
   };
 
   useEffect(() => {
@@ -595,8 +610,9 @@ export function ChatWindow({
                       queryKey: ["/api/conversations"],
                     });
                     // Scroll to bottom to show the complete final message
+                    // Use longer delay to ensure DOM has fully updated with new messages
                     if (isNearBottom()) {
-                      setTimeout(scrollToBottom, 0);
+                      setTimeout(scrollToBottom, 100);
                     }
                     break;
                   case "error":
