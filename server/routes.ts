@@ -6,7 +6,6 @@ import { cloudflareAuthMiddleware } from "./middleware/auth";
 import knowledgeRoutes from "./routes/knowledge";
 import conversationsRoutes from "./routes/conversations";
 import toolsRoutes from "./routes/tools";
-import mcpRoutes from "./routes/mcp";
 import {
   openaiRouter,
   anthropicRouter,
@@ -149,12 +148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register tools routes
   app.use('/api/tools', toolsRoutes);
 
-  // Register MCP routes
-  app.use('/api/mcp', mcpRoutes);
 
-  // Register OAuth routes
-  const oauthRouter = (await import('./routes/oauth.js')).default;
-  app.use('/api/oauth', oauthRouter);
 
   // Statistics endpoint: latency per model and token counts
   app.get('/api/stats', async (req: Request, res: Response) => {

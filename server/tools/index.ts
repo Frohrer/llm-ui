@@ -2,7 +2,6 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { manualTools } from './manual/index.js';
-import { mcpToolsBridge } from '../mcp/tools-bridge.js';
 
 
 // Define the interface for a tool
@@ -22,7 +21,7 @@ let toolsCache: Record<string, Tool> = {};
 let toolsLoaded = false;
 
 /**
- * Load all tools from the tools directory and MCP servers
+ * Load all tools from the tools directory
  */
 export async function loadTools(): Promise<Record<string, Tool>> {
   if (toolsLoaded) {
@@ -30,11 +29,8 @@ export async function loadTools(): Promise<Record<string, Tool>> {
   }
 
   try {
-    // Load local tools first
+    // Load local tools
     await loadLocalTools();
-    
-    // Load MCP tools
-    await loadMcpTools();
 
     console.log(`Loaded ${Object.keys(toolsCache).length} total tools: ${Object.keys(toolsCache).join(', ')}`);
     
@@ -74,8 +70,8 @@ async function loadLocalTools(): Promise<void> {
     const files = fs.readdirSync(toolsDir);
     
     for (const file of files) {
-      // Skip index.ts, manual directory, mcp directory, and non-ts files
-      if (file === 'index.ts' || file === 'index.js' || file === 'manual' || file === 'mcp' || (!file.endsWith('.ts') && !file.endsWith('.js'))) {
+      // Skip index.ts, manual directory, and non-ts files
+      if (file === 'index.ts' || file === 'index.js' || file === 'manual' || (!file.endsWith('.ts') && !file.endsWith('.js'))) {
         continue;
       }
 
@@ -116,23 +112,7 @@ async function loadLocalTools(): Promise<void> {
   }
 }
 
-/**
- * Load MCP tools from connected servers
- */
-async function loadMcpTools(): Promise<void> {
-  try {
-    const mcpTools = await mcpToolsBridge.getMcpTools();
-    
-    // Add MCP tools to the cache
-    for (const [toolName, tool] of Object.entries(mcpTools)) {
-      toolsCache[tool.name] = tool;
-    }
-    
-    console.log(`Loaded ${Object.keys(mcpTools).length} MCP tools`);
-  } catch (error) {
-    console.error('Error loading MCP tools:', error);
-  }
-}
+
 
 /**
  * Get all available tools
@@ -207,7 +187,7 @@ export async function handleToolCalls(toolCalls: any[]): Promise<any[]> {
 }
 
 /**
- * Refresh tools cache (useful for reloading MCP tools)
+ * Refresh tools cache
  */
 export async function refreshTools(): Promise<void> {
   toolsLoaded = false;
@@ -216,29 +196,16 @@ export async function refreshTools(): Promise<void> {
 }
 
 /**
- * Get tool statistics including MCP tools
+ * Get tool statistics
  */
 export async function getToolStatistics(): Promise<{
   totalTools: number;
   localTools: number;
-  mcpTools: number;
-  mcpStatistics?: any;
 }> {
   const tools = await getTools();
-  const localTools = tools.filter(tool => !tool.name.startsWith('mcp_')).length;
-  const mcpToolsCount = tools.filter(tool => tool.name.startsWith('mcp_')).length;
-  
-  let mcpStatistics;
-  try {
-    mcpStatistics = await mcpToolsBridge.getStatistics();
-  } catch (error) {
-    console.warn('Error getting MCP statistics:', error);
-  }
   
   return {
     totalTools: tools.length,
-    localTools,
-    mcpTools: mcpToolsCount,
-    mcpStatistics,
+    localTools: tools.length,
   };
 } 

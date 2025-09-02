@@ -99,7 +99,7 @@ export interface FunctionTool {
 export interface AllowedToolsChoice {
   type: "allowed_tools";
   mode: "auto" | "required";
-  tools: Array<{ type: "function"; name: string } | { type: "mcp"; server_label: string } | { type: "image_generation" }>;
+  tools: Array<{ type: "function"; name: string } | { type: "image_generation" }>;
 }
 
 export interface ResponsesAPIRequest {

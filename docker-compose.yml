@@ -4,8 +4,7 @@ services:
     build: .
     ports:
       - "5000:5000"
-    volumes:
-      - ./mcp-config.json:/app/mcp-config.json
+    volumes: []
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-chat_app}?sslmode=disable

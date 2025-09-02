@@ -1,9 +1,0 @@
-{
-  "mcpServers": {},
-  "globalSettings": {
-    "timeout": 30000,
-    "retryAttempts": 3,
-    "autoApproveAll": true,
-    "enableLogging": true
-  }
-}
