@@ -3,7 +3,7 @@ import { useUser } from "@/hooks/use-user";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "./theme-toggle";
-import { MessageCircle, LogOut, BookOpen, Plus, BarChart3 } from "lucide-react";
+import { MessageCircle, BookOpen, Plus, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect } from "react";
 import { ConversationList } from "./conversation-list";
@@ -117,23 +117,15 @@ export function MainSidebar({
       </ScrollArea>
 
       <div className="p-3 mt-auto border-t">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary mr-2">
-              {user?.email?.charAt(0).toUpperCase()}
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-medium truncate max-w-[140px]">
-                {user?.email}
-              </span>
-            </div>
+        <div className="flex items-center">
+          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary mr-2">
+            {user?.email?.charAt(0).toUpperCase()}
           </div>
-          <Button variant="ghost" size="icon" asChild>
-            <a href="/api/auth/logout">
-              <LogOut className="h-4 w-4" />
-              <span className="sr-only">Logout</span>
-            </a>
-          </Button>
+          <div className="flex flex-col">
+            <span className="text-sm font-medium truncate max-w-[140px]">
+              {user?.email}
+            </span>
+          </div>
         </div>
       </div>
     </div>

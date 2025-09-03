@@ -70,7 +70,7 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
   // If disabled (existing conversation), show just the model name
   if (disabled) {
     return (
-      <div className="text-sm text-muted-foreground">Using {modelName}</div>
+      <div className="text-sm text-muted-foreground truncate max-w-[280px]">Using {modelName}</div>
     );
   }
 
@@ -92,7 +92,9 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
           aria-expanded={open}
           className="w-[280px] justify-between"
         >
-          {selectedModel ? modelName : 'Select a model...'}
+          <span className="truncate">
+            {selectedModel ? modelName : 'Select a model...'}
+          </span>
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>

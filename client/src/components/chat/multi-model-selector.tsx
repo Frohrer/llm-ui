@@ -83,7 +83,7 @@ export function MultiModelSelector({
   if (disabled) {
     const selectedNames = getSelectedModelNames();
     return (
-      <div className="text-sm text-muted-foreground">
+      <div className="text-sm text-muted-foreground truncate max-w-[300px]">
         Using {selectedNames.length} models: {selectedNames.join(', ')}
       </div>
     );

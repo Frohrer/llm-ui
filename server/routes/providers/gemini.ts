@@ -310,8 +310,27 @@ router.post("/", async (req: Request, res: Response) => {
               content = chunk.text;
             } else if (chunk.candidates && chunk.candidates.length > 0 && chunk.candidates[0].content && 
                       chunk.candidates[0].content.parts && chunk.candidates[0].content.parts.length > 0) {
-              // Extract content from candidates structure
-              content = chunk.candidates[0].content.parts[0].text || '';
+              
+              // Process all parts in the response
+              const parts = chunk.candidates[0].content.parts;
+              for (const part of parts) {
+                // Handle text parts
+                if (part.text) {
+                  content += part.text;
+                }
+                // Handle image parts (inline_data)
+                else if (part.inline_data || part.inlineData) {
+                  const imageData = part.inline_data || part.inlineData;
+                  if (imageData && imageData.data) {
+                    // Handle different mime type property names
+                    const mimeType = imageData.mime_type || imageData.mimeType || 'image/png';
+                    // Convert generated image to markdown format
+                    const dataUri = `data:${mimeType};base64,${imageData.data}`;
+                    content += `\n\n![Generated Image](${dataUri})\n\n`;
+                    console.log("Generated image detected and converted to markdown");
+                  }
+                }
+              }
             }
             
             // Process non-empty content
