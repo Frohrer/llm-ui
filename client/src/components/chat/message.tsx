@@ -289,7 +289,6 @@ export function Message({ message }: MessageProps) {
                 const match = message.content.match(/!\[.*?\]\((.*?)\)/);
                 if (match && match[1]) {
                   src = match[1];
-                  console.log("Extracted image source from content:", src);
                 }
               }
 

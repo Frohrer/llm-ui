@@ -5,6 +5,8 @@ import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartToo
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 
 type LatencyEvent = { timestamp: string; model: string; provider: string; latencyMs: number };
 type AvgLatency = { model: string; provider: string; avgMs: number; count: number };
@@ -17,10 +19,17 @@ type StatsResponse = {
   tokensPerModel: TokensPerModel[];
 };
 
+type SortConfig = {
+  key: string;
+  direction: 'asc' | 'desc';
+};
+
 export default function StatsPage() {
   const [data, setData] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tokensSortConfig, setTokensSortConfig] = useState<SortConfig>({ key: 'totalTokens', direction: 'desc' });
+  const [latencySortConfig, setLatencySortConfig] = useState<SortConfig>({ key: 'avgMs', direction: 'desc' });
 
   useEffect(() => {
     let mounted = true;
@@ -82,6 +91,65 @@ export default function StatsPage() {
     return Array.from(byBucket.values()).sort((a, b) => a.time.localeCompare(b.time));
   }, [data]);
 
+  const sortedTokensData = useMemo(() => {
+    if (!data?.tokensPerModel) return [];
+    const sorted = [...data.tokensPerModel].sort((a, b) => {
+      let aValue: any, bValue: any;
+      if (tokensSortConfig.key === 'model') {
+        aValue = `${a.provider}:${a.model}`;
+        bValue = `${b.provider}:${b.model}`;
+      } else {
+        aValue = a[tokensSortConfig.key as keyof TokensPerModel];
+        bValue = b[tokensSortConfig.key as keyof TokensPerModel];
+      }
+      
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return tokensSortConfig.direction === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+      }
+      return tokensSortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue;
+    });
+    return sorted;
+  }, [data?.tokensPerModel, tokensSortConfig]);
+
+  const sortedLatencyData = useMemo(() => {
+    if (!data?.avgLatencyPerModel) return [];
+    const sorted = [...data.avgLatencyPerModel].sort((a, b) => {
+      let aValue: any, bValue: any;
+      if (latencySortConfig.key === 'model') {
+        aValue = `${a.provider}:${a.model}`;
+        bValue = `${b.provider}:${b.model}`;
+      } else {
+        aValue = a[latencySortConfig.key as keyof AvgLatency];
+        bValue = b[latencySortConfig.key as keyof AvgLatency];
+      }
+      
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return latencySortConfig.direction === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+      }
+      return latencySortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue;
+    });
+    return sorted;
+  }, [data?.avgLatencyPerModel, latencySortConfig]);
+
+  const handleTokensSort = (key: string) => {
+    setTokensSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
+  const handleLatencySort = (key: string) => {
+    setLatencySortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
+  const SortIcon = ({ sortKey, currentSort }: { sortKey: string; currentSort: SortConfig }) => {
+    if (currentSort.key !== sortKey) return null;
+    return currentSort.direction === 'asc' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />;
+  };
+
   return (
     <div className="min-h-screen p-4 md:p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -110,21 +178,41 @@ export default function StatsPage() {
               <div className="text-muted-foreground">Loading…</div>
             ) : error ? (
               <div className="text-destructive">{error}</div>
-            ) : (
-              <div className="space-y-2">
-                {data?.tokensPerModel?.length ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
-                    {data.tokensPerModel.map((t) => (
-                      <div key={`${t.provider}:${t.model}`} className="flex items-center justify-between border rounded-md px-3 py-2">
-                        <div className="text-sm font-medium">{t.provider}:{t.model}</div>
-                        <div className="font-mono">{t.totalTokens.toLocaleString()}</div>
+            ) : sortedTokensData.length ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleTokensSort('model')}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <span>Model</span>
+                        <SortIcon sortKey="model" currentSort={tokensSortConfig} />
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-muted-foreground">No data</div>
-                )}
-              </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none text-right"
+                      onClick={() => handleTokensSort('totalTokens')}
+                    >
+                      <div className="flex items-center justify-end space-x-2">
+                        <span>Total Tokens</span>
+                        <SortIcon sortKey="totalTokens" currentSort={tokensSortConfig} />
+                      </div>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedTokensData.map((t) => (
+                    <TableRow key={`${t.provider}:${t.model}`}>
+                      <TableCell className="font-medium">{t.provider}:{t.model}</TableCell>
+                      <TableCell className="text-right font-mono">{t.totalTokens.toLocaleString()}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <div className="text-muted-foreground">No data</div>
             )}
           </CardContent>
         </Card>
@@ -175,32 +263,64 @@ export default function StatsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Average Latency per Model</CardTitle>
-            <CardDescription>Aggregated over your history</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="text-muted-foreground">Loading…</div>
-            ) : error ? (
-              <div className="text-destructive">{error}</div>
-            ) : data?.avgLatencyPerModel?.length ? (
-              <div className="space-y-2">
-                {data.avgLatencyPerModel.map((r) => (
-                  <div key={`${r.provider}:${r.model}`} className="flex items-center justify-between border rounded-md px-3 py-2">
-                    <div className="text-sm font-medium">{r.provider}:{r.model}</div>
-                    <div className="font-mono">{r.avgMs.toLocaleString()} ms</div>
-                  </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Average Latency per Model</CardTitle>
+          <CardDescription>Aggregated over your history</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-muted-foreground">Loading…</div>
+          ) : error ? (
+            <div className="text-destructive">{error}</div>
+          ) : sortedLatencyData.length ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleLatencySort('model')}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <span>Model</span>
+                      <SortIcon sortKey="model" currentSort={latencySortConfig} />
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none text-right"
+                    onClick={() => handleLatencySort('avgMs')}
+                  >
+                    <div className="flex items-center justify-end space-x-2">
+                      <span>Average Latency</span>
+                      <SortIcon sortKey="avgMs" currentSort={latencySortConfig} />
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none text-right"
+                    onClick={() => handleLatencySort('count')}
+                  >
+                    <div className="flex items-center justify-end space-x-2">
+                      <span>Count</span>
+                      <SortIcon sortKey="count" currentSort={latencySortConfig} />
+                    </div>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedLatencyData.map((r) => (
+                  <TableRow key={`${r.provider}:${r.model}`}>
+                    <TableCell className="font-medium">{r.provider}:{r.model}</TableCell>
+                    <TableCell className="text-right font-mono">{Math.round(r.avgMs).toLocaleString()} ms</TableCell>
+                    <TableCell className="text-right font-mono">{r.count.toLocaleString()}</TableCell>
+                  </TableRow>
                 ))}
-              </div>
-            ) : (
-              <div className="text-muted-foreground">No data</div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="text-muted-foreground">No data</div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

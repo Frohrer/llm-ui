@@ -122,7 +122,7 @@ export function MainSidebar({
             {user?.email?.charAt(0).toUpperCase()}
           </div>
           <div className="flex flex-col">
-            <span className="text-sm font-medium truncate max-w-[140px]">
+            <span className="text-sm font-medium truncate max-w-[230px]">
               {user?.email}
             </span>
           </div>
