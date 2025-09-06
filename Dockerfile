@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 
 # Install ALL dependencies (including devDependencies)
-RUN npm ci
+RUN npm i
 
 # Copy source code
 COPY . .
@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y git postgresql-client && rm -rf /var/li
 # Copy package files and install ALL dependencies (not just production)
 # This is necessary because Vite is used in the server code
 COPY package*.json ./
-RUN npm ci
+RUN npm i
 
 # Copy everything needed for the app to run
 COPY --from=builder /app/dist ./dist
