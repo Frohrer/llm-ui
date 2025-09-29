@@ -5,7 +5,7 @@
   "models": [
     {
       "id": "claude-sonnet-4-5",
-      "name": "Claude 4 Sonnet",
+      "name": "Claude 4.5 Sonnet",
       "contextLength": 200000,
       "defaultModel": true
     },
