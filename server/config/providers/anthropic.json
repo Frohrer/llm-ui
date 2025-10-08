@@ -4,6 +4,12 @@
   "icon": "SiAnthropic",
   "models": [
     {
+      "id": "claude-sonnet-4-5",
+      "name": "Claude 4.5 Sonnet",
+      "contextLength": 200000,
+      "defaultModel": true
+    },
+    {
       "id": "claude-sonnet-4-0",
       "name": "Claude 4 Sonnet",
       "contextLength": 200000,

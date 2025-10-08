@@ -261,7 +261,7 @@ router.post("/", async (req: Request, res: Response) => {
 
       // Step 1: Call all three models in parallel
       const modelCalls = [
-        callModel('anthropic', 'claude-sonnet-4-0', apiMessages),
+        callModel('anthropic', 'claude-sonnet-4-5', apiMessages),
         callModel('openai', 'o3', apiMessages),
         callModel('gemini', 'gemini-2.5-pro', apiMessages)
       ];
