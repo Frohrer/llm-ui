@@ -81,10 +81,19 @@ router.post("/", async (req: Request, res: Response) => {
         throw new Error("Failed to create conversation");
       }
 
+      // Save attachment metadata so it's available in future context
+      const messageMetadata: any = {};
+      if (allAttachments && allAttachments.length > 0) {
+        messageMetadata.attachments = allAttachments;
+      } else if (attachment) {
+        messageMetadata.attachments = [attachment];
+      }
+
       await db.insert(messages).values({
         conversation_id: newConversation.id,
         role: "user",
         content: message,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         created_at: timestamp,
       });
 
@@ -125,26 +134,52 @@ router.post("/", async (req: Request, res: Response) => {
         .set({ last_message_at: timestamp })
         .where(eq(conversations.id, conversationIdNum));
 
+      // Save attachment metadata so it's available in future context
+      const messageMetadata: any = {};
+      if (allAttachments && allAttachments.length > 0) {
+        messageMetadata.attachments = allAttachments;
+      } else if (attachment) {
+        messageMetadata.attachments = [attachment];
+      }
+
       await db.insert(messages).values({
         conversation_id: conversationIdNum,
         role: "user",
         content: message,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         created_at: timestamp,
       });
 
       dbConversation = existingConversation;
     }
 
-    // Ensure context messages are properly ordered
+    // Ensure context messages are properly ordered and include attachment content
     const apiMessages = context
       .sort(
         (a: any, b: any) =>
           new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       )
-      .map((msg: any) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
+      .map((msg: any) => {
+        let content = msg.content;
+        
+        // Include attachment content from metadata for historical messages
+        if (msg.metadata && msg.metadata.attachments) {
+          const attachments = msg.metadata.attachments;
+          const documentTexts = attachments
+            .filter((att: any) => att.type === 'document' && att.text)
+            .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
+            .join('\n');
+          
+          if (documentTexts) {
+            content += documentTexts;
+          }
+        }
+        
+        return {
+          role: msg.role,
+          content: content,
+        };
+      });
 
     // Process attachments based on type
     let stream;
