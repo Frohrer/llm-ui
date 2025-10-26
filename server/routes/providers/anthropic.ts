@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { getToolDefinitions, handleToolCalls } from "../../tools";
+import { runAgenticLoop, AgenticProvider, ToolCall } from "../../agentic-workflow";
 
 const router = express.Router();
 let client: Anthropic | null = null;
@@ -90,6 +91,76 @@ function createUserMessageContent(message: string, imageAttachments: any[], docu
     ];
   } else {
     return textContent;
+  }
+}
+
+// Anthropic provider adapter for agentic workflow
+class AnthropicAgenticProvider implements AgenticProvider {
+  constructor(
+    private client: Anthropic,
+    private model: string
+  ) {}
+
+  async makeRequest(messages: any[], tools: any[]): Promise<{ content: string; toolCalls: ToolCall[] }> {
+    const anthropicTools = tools.map(tool => ({
+      name: tool.function.name,
+      description: tool.function.description,
+      input_schema: tool.function.parameters
+    }));
+
+    const requestOptions: any = {
+      model: this.model,
+      messages: messages,
+      max_tokens: 4096,
+      temperature: 0.7,
+    };
+
+    if (anthropicTools.length > 0) {
+      requestOptions.tools = anthropicTools;
+    }
+
+    const response = await this.client.messages.create(requestOptions);
+
+    // Extract text content
+    const textBlocks = response.content.filter((block: any) => block.type === 'text');
+    const content = textBlocks.map((block: any) => block.text).join('\n\n');
+
+    // Extract tool calls
+    const toolUseBlocks = response.content.filter((block: any) => block.type === 'tool_use');
+    const toolCalls: ToolCall[] = toolUseBlocks.map((block: any) => ({
+      id: block.id,
+      name: block.name,
+      arguments: block.input
+    }));
+
+    return { content, toolCalls };
+  }
+
+  formatToolMessages(toolCalls: ToolCall[], toolResults: any[]): any[] {
+    // First, add the assistant message with tool use
+    const assistantMessage = {
+      role: 'assistant' as const,
+      content: toolCalls.map(toolCall => ({
+        type: 'tool_use',
+        id: toolCall.id,
+        name: toolCall.name,
+        input: toolCall.arguments
+      }))
+    };
+
+    // Then, add the user message with tool results
+    const userMessage = {
+      role: 'user' as const,
+      content: toolResults.map(result => ({
+        type: 'tool_result',
+        tool_use_id: result.toolCallId,
+        content: result.error ?
+          `Error: ${result.error}` :
+          (typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2))
+      }))
+    };
+
+    return [assistantMessage, userMessage];
   }
 }
 
@@ -255,6 +326,7 @@ router.post("/", async (req: Request, res: Response) => {
       useKnowledge = false,
       pendingKnowledgeSources = [],
       useTools = false,
+      useAgenticMode = false,
     } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -455,11 +527,56 @@ router.post("/", async (req: Request, res: Response) => {
     let streamedResponse = "";
     const requestStart = Date.now();
     let ttftMs: number | null = null;
-    let toolCallsInProgress: { [index: number]: any } = {};
 
-        try {
-      // Create stream
-      const stream = await client.messages.create(requestOptions);
+    try {
+      // Check if using agentic mode
+      if (useAgenticMode && useTools) {
+        console.log('[Anthropic] Using agentic mode');
+        
+        // Create the agentic provider
+        const agenticProvider = new AnthropicAgenticProvider(client, model);
+        
+        // Run the agentic loop
+        const finalResponse = await runAgenticLoop(
+          agenticProvider,
+          apiMessages,
+          {
+            maxIterations: 10,
+            maxContextMessages: 15,
+            conversationId: dbConversation.id,
+            provider: 'anthropic'
+          }
+        );
+        
+        // Stream the final response to the user
+        if (finalResponse) {
+          const chunkSize = 50;
+          for (let i = 0; i < finalResponse.length; i += chunkSize) {
+            const chunk = finalResponse.slice(i, i + chunkSize);
+            res.write(`data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`);
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+          
+          streamedResponse = finalResponse;
+          
+          // Save the final response
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "assistant",
+            content: finalResponse,
+            metadata: {
+              agentic_mode: true,
+              ttft_ms: Date.now() - requestStart
+            },
+            created_at: new Date(),
+          });
+        }
+      } else {
+        // Original streaming logic
+        let toolCallsInProgress: { [index: number]: any } = {};
+        
+        // Create stream
+        const stream = await client.messages.create(requestOptions);
 
       // Process stream
       for await (const chunk of stream as any) {
@@ -686,8 +803,9 @@ router.post("/", async (req: Request, res: Response) => {
           });
         }
       }
-
-      // Send completion event
+      }
+      
+      // Send completion event (common for both modes)
       const updatedConversation = await db.query.conversations.findFirst({
         where: eq(conversations.id, dbConversation.id),
         with: {

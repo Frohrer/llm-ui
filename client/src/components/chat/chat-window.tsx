@@ -160,8 +160,8 @@ export function ChatWindow({
   const [selectedModel, setSelectedModel] = useState<string>("");
   // Knowledge is always enabled now, but keeping for API compatibility
   const useKnowledge = true;
-  // Add useTools state for tool calling
-  const [useTools, setUseTools] = useState<boolean>(false);
+  // Add useAgenticMode state for agentic workflow
+  const [useAgenticMode, setUseAgenticMode] = useState<boolean>(false);
   const [showMobileKnowledgePanel, setShowMobileKnowledgePanel] =
     useState<boolean>(false);
   const [showDesktopKnowledgePanel, setShowDesktopKnowledgePanel] =
@@ -468,7 +468,8 @@ export function ChatWindow({
           allAttachments: allAttachments || [], // Send all attachments to be processed together
           useKnowledge: useKnowledge,
           pendingKnowledgeSources: pendingKnowledgeSources,
-          useTools: useTools, // Send useTools state to the API
+          useTools: useAgenticMode, // Enable tools when using agentic mode
+          useAgenticMode: useAgenticMode, // Send agentic mode state to the API
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -761,18 +762,18 @@ export function ChatWindow({
                   variant="outline"
                   size="icon"
                   className="shrink-0 relative"
-                  onClick={() => setUseTools(!useTools)}
-                  aria-label="Toggle tool calling"
+                  onClick={() => setUseAgenticMode(!useAgenticMode)}
+                  aria-label="Toggle agentic mode"
                 >
                   <Wrench className="h-[1.2rem] w-[1.2rem]" />
-                  {useTools && (
+                  {useAgenticMode && (
                     <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-green-500 animate-pulse shadow-sm"></span>
                   )}
-                  <span className="sr-only">Toggle tool calling</span>
+                  <span className="sr-only">Toggle agentic mode</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {useTools ? "Tool calling enabled" : "Tool calling disabled"}
+                {useAgenticMode ? "Agentic mode enabled - AI will use tools autonomously" : "Agentic mode disabled"}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

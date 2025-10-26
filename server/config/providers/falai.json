@@ -34,6 +34,24 @@
           "sync_mode": true,
           "raw": true
         }
+      },
+      {
+        "id": "fal-ai/stable-diffusion-v35-large",
+        "name": "Stable Diffusion 3.5 Large",
+        "contextLength": 1024,
+        "defaultModel": false,
+        "parameters": {
+          "image_size": {
+            "width": 1024,
+            "height": 1024
+          },
+          "num_inference_steps": 28,
+          "guidance_scale": 3.5,
+          "num_images": 1,
+          "enable_safety_checker": false,
+          "output_format": "jpeg",
+          "sync_mode": true
+        }
       }
     ]
   }

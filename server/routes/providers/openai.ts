@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { getToolDefinitions, handleToolCalls } from "../../tools";
+import { runAgenticLoop, AgenticProvider, ToolCall } from "../../agentic-workflow";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -62,6 +63,87 @@ export function getOpenAIClient() {
   return client;
 }
 
+// OpenAI provider adapter for agentic workflow
+class OpenAIAgenticProvider implements AgenticProvider {
+  constructor(
+    private client: OpenAI,
+    private model: string
+  ) {}
+
+  async makeRequest(messages: any[], tools: any[]): Promise<{ content: string; toolCalls: ToolCall[] }> {
+    // Reasoning models (o1, o3, gpt-4o, gpt-5) require temperature 1
+    const isReasoningModel = this.model.includes('o1') || this.model.includes('o3') || this.model.includes('gpt-4o') || this.model.includes('gpt-5');
+    
+    const requestOptions: any = {
+      model: this.model,
+      messages: messages,
+      temperature: isReasoningModel ? 1 : 0.7,
+      max_completion_tokens: 4096,
+    };
+
+    if (tools.length > 0) {
+      requestOptions.tools = tools;
+      requestOptions.tool_choice = "auto";
+    }
+
+    const response = await this.client.chat.completions.create(requestOptions);
+
+    // Extract content
+    const content = response.choices[0]?.message?.content || '';
+
+    // Extract tool calls
+    const toolCalls: ToolCall[] = (response.choices[0]?.message?.tool_calls || []).map((tc: any) => ({
+      id: tc.id,
+      name: tc.function?.name,
+      arguments: typeof tc.function?.arguments === 'string' 
+        ? JSON.parse(tc.function.arguments) 
+        : tc.function?.arguments
+    }));
+
+    return { content, toolCalls };
+  }
+
+  formatToolMessages(toolCalls: ToolCall[], toolResults: any[]): any[] {
+    // Add assistant message with tool calls
+    const assistantMessage = {
+      role: 'assistant' as const,
+      content: null,
+      tool_calls: toolCalls.map(tc => ({
+        id: tc.id,
+        type: 'function' as const,
+        function: {
+          name: tc.name,
+          arguments: JSON.stringify(tc.arguments)
+        }
+      }))
+    };
+
+    // Add tool result messages with truncation to prevent context overflow
+    const toolMessages = toolResults.map(result => {
+      let content: string;
+      if (result.error) {
+        content = `Error: ${result.error}`;
+      } else {
+        const resultStr = typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
+        // Truncate to max 10,000 characters (~2,500 tokens) per tool result
+        const maxLength = 10000;
+        if (resultStr.length > maxLength) {
+          content = resultStr.substring(0, maxLength) + `\n\n... (truncated ${resultStr.length - maxLength} characters to prevent context overflow)`;
+        } else {
+          content = resultStr;
+        }
+      }
+      return {
+        role: 'tool' as const,
+        tool_call_id: result.toolCallId,
+        content
+      };
+    });
+
+    return [assistantMessage, ...toolMessages];
+  }
+}
+
 // Create or continue an OpenAI chat conversation
 router.post("/", async (req: Request, res: Response) => {
   try {
@@ -75,10 +157,13 @@ router.post("/", async (req: Request, res: Response) => {
       useKnowledge = false,
       pendingKnowledgeSources = [],
       useTools = false,
+      useAgenticMode = false,
     } = req.body;
 
-    // Check if this is a GPT-5 model and use Responses API
-    if (model && model.startsWith('gpt-5')) {
+    // Check if this is a GPT-5 model and NOT in agentic mode - use Responses API
+    // For agentic mode, use Chat Completions API (even for GPT-5) because 
+    // Responses API doesn't support the iterative loop we need
+    if (model && model.startsWith('gpt-5') && !useAgenticMode) {
       console.log(`Using Responses API for GPT-5 model: ${model}`);
       
       // Transform request body to match Responses API format
@@ -101,6 +186,9 @@ router.post("/", async (req: Request, res: Response) => {
       // Call the responses handler directly
       return handleResponsesAPI(req, res);
     }
+    
+    // Use the model as-is (including GPT-5 for agentic mode via Chat Completions API)
+    const effectiveModel = model;
     
     if (!message || typeof message !== "string") {
       return res.status(400).json({ error: "Invalid message" });
@@ -470,12 +558,15 @@ router.post("/", async (req: Request, res: Response) => {
     // Stream the completion with retries
     while (retryCount < maxRetries) {
       try {
+        // Reasoning models (o1, o3, gpt-4o, gpt-5) require temperature 1
+        const isReasoningModelStream = effectiveModel.includes('o1') || effectiveModel.includes('o3') || effectiveModel.includes('gpt-4o') || effectiveModel.includes('gpt-5');
+        
         const streamOptions: any = {
           messages: apiMessages,
-          model,
+          model: effectiveModel,
           stream: true,
           max_completion_tokens: 4096,
-          temperature: model === "o3" ? 1 : 0.7,
+          temperature: isReasoningModelStream ? 1 : 0.7,
         };
 
         // Add tools if enabled
@@ -522,14 +613,59 @@ router.post("/", async (req: Request, res: Response) => {
 
     try {
       const requestStart = Date.now();
-      let ttftMs: number | null = null;
-      let lastChunkTime = Date.now();
-      const chunkTimeout = 30000; // 30 seconds timeout between chunks
-      let toolCallsInProgress: any[] = [];
+      
+      // Check if using agentic mode
+      if (useAgenticMode && useTools) {
+        console.log('[OpenAI] Using agentic mode');
+        
+        // Create the agentic provider
+        const agenticProvider = new OpenAIAgenticProvider(client, effectiveModel);
+        
+        // Run the agentic loop
+        const finalResponse = await runAgenticLoop(
+          agenticProvider,
+          apiMessages,
+          {
+            maxIterations: 10,
+            maxContextMessages: 15,
+            conversationId: dbConversation.id,
+            provider: 'openai'
+          }
+        );
+        
+        // Stream the final response to the user
+        if (finalResponse) {
+          const chunkSize = 50;
+          for (let i = 0; i < finalResponse.length; i += chunkSize) {
+            const chunk = finalResponse.slice(i, i + chunkSize);
+            res.write(`data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`);
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+          
+          streamedResponse = finalResponse;
+          
+          // Save the final response
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "assistant",
+            content: finalResponse,
+            metadata: {
+              agentic_mode: true,
+              ttft_ms: Date.now() - requestStart
+            },
+            created_at: new Date(),
+          });
+        }
+      } else {
+        // Original streaming logic
+        let ttftMs: number | null = null;
+        let lastChunkTime = Date.now();
+        const chunkTimeout = 30000; // 30 seconds timeout between chunks
+        let toolCallsInProgress: any[] = [];
 
-      for await (const chunk of stream as unknown as AsyncIterable<any>) {
-        const content = chunk.choices[0]?.delta?.content || "";
-        const toolCallsDelta = chunk.choices[0]?.delta?.tool_calls;
+        for await (const chunk of stream as unknown as AsyncIterable<any>) {
+          const content = chunk.choices[0]?.delta?.content || "";
+          const toolCallsDelta = chunk.choices[0]?.delta?.tool_calls;
         
         // Handle content chunks - only send to client if not part of a tool call
         if (content && !toolCallsDelta) {
@@ -646,10 +782,11 @@ router.post("/", async (req: Request, res: Response) => {
           ];
           
           // Get final response with tool results
+          const isReasoningModelTool = effectiveModel.includes('o1') || effectiveModel.includes('o3') || effectiveModel.includes('gpt-4o') || effectiveModel.includes('gpt-5');
           const toolCompletionResponse = await client.chat.completions.create({
-            model: model,
+            model: effectiveModel,
             messages: toolResponseMessages,
-            temperature: 0.7,
+            temperature: isReasoningModelTool ? 1 : 0.7,
             max_tokens: 4096,
           });
           
@@ -688,46 +825,47 @@ router.post("/", async (req: Request, res: Response) => {
         }
       }
 
-      // Save the complete response only after successful streaming
-      const timestamp = new Date();
-      const usageObj = (stream as any)?.response?.usage || {};
-      const usageTotalTokens = usageObj?.total_tokens;
-      const usagePromptTokens = usageObj?.prompt_tokens ?? usageObj?.input_tokens;
-      const usageCompletionTokens = usageObj?.completion_tokens ?? usageObj?.output_tokens;
-      // Approximate input tokens from apiMessages when usage is not provided
-      let approxInputTokens = 0;
-      try {
-        const texts: string[] = [];
-        for (const m of apiMessages as any[]) {
-          if (typeof m?.content === 'string') texts.push(m.content);
-          else if (Array.isArray(m?.content)) {
-            for (const part of m.content) {
-              if (typeof part?.text === 'string') texts.push(part.text);
+        // Save the complete response only after successful streaming
+        const timestamp = new Date();
+        const usageObj = (stream as any)?.response?.usage || {};
+        const usageTotalTokens = usageObj?.total_tokens;
+        const usagePromptTokens = usageObj?.prompt_tokens ?? usageObj?.input_tokens;
+        const usageCompletionTokens = usageObj?.completion_tokens ?? usageObj?.output_tokens;
+        // Approximate input tokens from apiMessages when usage is not provided
+        let approxInputTokens = 0;
+        try {
+          const texts: string[] = [];
+          for (const m of apiMessages as any[]) {
+            if (typeof m?.content === 'string') texts.push(m.content);
+            else if (Array.isArray(m?.content)) {
+              for (const part of m.content) {
+                if (typeof part?.text === 'string') texts.push(part.text);
+              }
             }
           }
-        }
-        const EULER = 2.7182818284590;
-        const combined = texts.join('\n');
-        if (combined) {
-          const len = combined.length;
-          approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
-        }
-      } catch {}
-      await db.insert(messages).values({
-        conversation_id: dbConversation.id,
-        role: "assistant",
-        content: streamedResponse,
-        metadata: {
-          ttft_ms: ttftMs ?? undefined,
-          total_tokens: usageTotalTokens,
-          prompt_tokens: usagePromptTokens,
-          completion_tokens: usageCompletionTokens,
-          approx_input_tokens: approxInputTokens,
-        },
-        created_at: timestamp,
-      });
-
-      // Send completion event after successful save
+          const EULER = 2.7182818284590;
+          const combined = texts.join('\n');
+          if (combined) {
+            const len = combined.length;
+            approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
+          }
+        } catch {}
+        await db.insert(messages).values({
+          conversation_id: dbConversation.id,
+          role: "assistant",
+          content: streamedResponse,
+          metadata: {
+            ttft_ms: ttftMs ?? undefined,
+            total_tokens: usageTotalTokens,
+            prompt_tokens: usagePromptTokens,
+            completion_tokens: usageCompletionTokens,
+            approx_input_tokens: approxInputTokens,
+          },
+          created_at: timestamp,
+        });
+      }
+      
+      // Send completion event after successful save (common for both modes)
       const updatedConversation = await db.query.conversations.findFirst({
         where: eq(conversations.id, dbConversation.id),
         with: {
@@ -996,14 +1134,26 @@ async function handleResponsesAPI(req: Request, res: Response) {
 
     // Add tools if enabled
     if (useTools && tools.length > 0) {
-      responsesPayload.tools = tools;
+      // Transform tools to Responses API format (flatten the structure)
+      responsesPayload.tools = tools.map((tool: any) => ({
+        type: 'function',
+        name: tool.function?.name || tool.name,
+        description: tool.function?.description || tool.description,
+        parameters: tool.function?.parameters || tool.parameters
+      }));
       if (tool_choice) {
         responsesPayload.tool_choice = tool_choice;
       }
     } else if (useTools) {
-      // Get default tool definitions
-      const toolDefinitions = getToolDefinitions();
-      responsesPayload.tools = toolDefinitions;
+      // Get default tool definitions and transform to Responses API format
+      const toolDefinitions = await getToolDefinitions();
+      // Transform from Chat Completions format to Responses API format
+      responsesPayload.tools = toolDefinitions.map((tool: any) => ({
+        type: 'function',
+        name: tool.function.name,
+        description: tool.function.description,
+        parameters: tool.function.parameters
+      }));
     }
 
     console.log("Responses API payload:", JSON.stringify(responsesPayload, null, 2));
@@ -1080,11 +1230,12 @@ async function handleResponsesAPI(req: Request, res: Response) {
       }
       
       // Call Chat Completions API instead
+      const isReasoningModelFallback = fallbackModel.includes('o1') || fallbackModel.includes('o3') || fallbackModel.includes('gpt-4o') || fallbackModel.includes('gpt-5');
       const stream = await client.chat.completions.create({
         model: fallbackModel,
         messages: chatMessages as any,
         stream: true,
-        temperature: 0.7
+        temperature: isReasoningModelFallback ? 1 : 0.7
       });
       
       // Process the stream like normal Chat Completions
@@ -1135,6 +1286,12 @@ async function handleResponsesAPI(req: Request, res: Response) {
     console.log("=== FULL RESPONSES API RESPONSE ===");
     console.log(JSON.stringify(responseData, null, 2));
     console.log("=== END RESPONSE ===");
+    
+    // Debug: Check for tool calls in different possible locations
+    console.log("Checking for tool calls:");
+    console.log("responseData.tool_calls:", responseData.tool_calls);
+    console.log("responseData.output:", responseData.output);
+    console.log("responseData.choices:", responseData.choices);
 
     // Send initial conversation data and start keep-alive pings
     res.write(
@@ -1170,22 +1327,31 @@ async function handleResponsesAPI(req: Request, res: Response) {
     }
 
     // Handle tool calls if present
-    if (responseData.tool_calls && responseData.tool_calls.length > 0 && useTools) {
+    const toolCalls = responseData.output?.filter((item: any) => item.type === 'function_call') || [];
+    if (toolCalls.length > 0 && useTools) {
       try {
-        console.log('Executing tool calls from Responses API:', JSON.stringify(responseData.tool_calls, null, 2));
+        console.log('Executing tool calls from Responses API:', JSON.stringify(toolCalls, null, 2));
         
         // Store tool calls as internal messages
         const timestamp = new Date();
         await db.insert(messages).values({
           conversation_id: dbConversation.id,
           role: "tool",
-          content: JSON.stringify(responseData.tool_calls),
+          content: JSON.stringify(toolCalls),
           metadata: { type: 'tool_calls', response_id: responseData.id },
           created_at: timestamp,
         });
         
+        // Transform Responses API tool calls to the format expected by handleToolCalls
+        const transformedToolCalls = toolCalls.map((toolCall: any) => ({
+          id: toolCall.call_id,
+          name: toolCall.name,
+          arguments: toolCall.arguments
+        }));
+        
         // Execute all tool calls
-        const toolResults = await handleToolCalls(responseData.tool_calls);
+        const toolResults = await handleToolCalls(transformedToolCalls);
+        console.log('Tool execution results:', JSON.stringify(toolResults, null, 2));
         
         // Store tool results as internal messages
         await db.insert(messages).values({
@@ -1196,39 +1362,23 @@ async function handleResponsesAPI(req: Request, res: Response) {
           created_at: new Date(),
         });
         
-        // Send tool results back to get additional response
-        const followUpPayload = {
-          model,
-          input: `Tool results: ${JSON.stringify(toolResults, null, 2)}`,
-          previous_response_id: responseData.id,
-          reasoning,
-          text,
-          store,
-          include
-        };
-
-        const followUpResponse = await fetch('https://api.openai.com/v1/responses', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(followUpPayload),
-        });
-
-        if (followUpResponse.ok) {
-          const followUpData = await followUpResponse.json();
-          const followUpContent = followUpData.text?.content || followUpData.content || "";
-          
-          if (followUpContent) {
-            res.write(`data: ${JSON.stringify({ 
-              type: "chunk", 
-              content: '\n\n' + followUpContent 
-            })}\n\n`);
-            
-            streamedResponse += '\n\n' + followUpContent;
+        // Instead of making a follow-up request, send the tool results directly to the user
+        // since the Responses API doesn't seem to support follow-up requests with tool results
+        const toolResultText = toolResults.map(result => {
+          if (result.error) {
+            return `Tool ${result.toolName} failed: ${result.error}`;
+          } else {
+            return `Tool ${result.toolName} result: ${JSON.stringify(result.result, null, 2)}`;
           }
-        }
+        }).join('\n\n');
+        
+        // Send tool results to user
+        res.write(`data: ${JSON.stringify({ 
+          type: "chunk", 
+          content: '\n\n' + toolResultText 
+        })}\n\n`);
+        
+        streamedResponse += '\n\n' + toolResultText;
         
       } catch (toolError) {
         console.error('Error executing tools from Responses API:', toolError);
