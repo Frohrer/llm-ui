@@ -8,7 +8,9 @@ import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { getToolDefinitions, handleToolCalls } from "../../tools";
-import { runAgenticLoop, AgenticProvider, ToolCall } from "../../agentic-workflow";
+import { runAgenticLoop } from "../../agentic-workflow";
+import { getOpenAIModel } from "../../ai-sdk-providers";
+import { CoreMessage } from "ai";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -63,85 +65,30 @@ export function getOpenAIClient() {
   return client;
 }
 
-// OpenAI provider adapter for agentic workflow
-class OpenAIAgenticProvider implements AgenticProvider {
-  constructor(
-    private client: OpenAI,
-    private model: string
-  ) {}
-
-  async makeRequest(messages: any[], tools: any[]): Promise<{ content: string; toolCalls: ToolCall[] }> {
-    // Reasoning models (o1, o3, gpt-4o, gpt-5) require temperature 1
-    const isReasoningModel = this.model.includes('o1') || this.model.includes('o3') || this.model.includes('gpt-4o') || this.model.includes('gpt-5');
-    
-    const requestOptions: any = {
-      model: this.model,
-      messages: messages,
-      temperature: isReasoningModel ? 1 : 0.7,
-      max_completion_tokens: 4096,
-    };
-
-    if (tools.length > 0) {
-      requestOptions.tools = tools;
-      requestOptions.tool_choice = "auto";
+// Helper to convert OpenAI messages to AI SDK CoreMessage format
+function convertToCoreMessages(messages: any[]): CoreMessage[] {
+  return messages.map(msg => {
+    if (msg.role === 'system') {
+      // System messages are handled separately in AI SDK
+      return null;
     }
-
-    const response = await this.client.chat.completions.create(requestOptions);
-
-    // Extract content
-    const content = response.choices[0]?.message?.content || '';
-
-    // Extract tool calls
-    const toolCalls: ToolCall[] = (response.choices[0]?.message?.tool_calls || []).map((tc: any) => ({
-      id: tc.id,
-      name: tc.function?.name,
-      arguments: typeof tc.function?.arguments === 'string' 
-        ? JSON.parse(tc.function.arguments) 
-        : tc.function?.arguments
-    }));
-
-    return { content, toolCalls };
-  }
-
-  formatToolMessages(toolCalls: ToolCall[], toolResults: any[]): any[] {
-    // Add assistant message with tool calls
-    const assistantMessage = {
-      role: 'assistant' as const,
-      content: null,
-      tool_calls: toolCalls.map(tc => ({
-        id: tc.id,
-        type: 'function' as const,
-        function: {
-          name: tc.name,
-          arguments: JSON.stringify(tc.arguments)
-        }
-      }))
-    };
-
-    // Add tool result messages with truncation to prevent context overflow
-    const toolMessages = toolResults.map(result => {
-      let content: string;
-      if (result.error) {
-        content = `Error: ${result.error}`;
-      } else {
-        const resultStr = typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
-        // Truncate to max 10,000 characters (~2,500 tokens) per tool result
-        const maxLength = 10000;
-        if (resultStr.length > maxLength) {
-          content = resultStr.substring(0, maxLength) + `\n\n... (truncated ${resultStr.length - maxLength} characters to prevent context overflow)`;
-        } else {
-          content = resultStr;
-        }
-      }
+    
+    if (msg.role === 'user') {
       return {
-        role: 'tool' as const,
-        tool_call_id: result.toolCallId,
-        content
+        role: 'user' as const,
+        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
       };
-    });
-
-    return [assistantMessage, ...toolMessages];
-  }
+    }
+    
+    if (msg.role === 'assistant') {
+      return {
+        role: 'assistant' as const,
+        content: msg.content || ''
+      };
+    }
+    
+    return null;
+  }).filter((msg): msg is CoreMessage => msg !== null);
 }
 
 // Create or continue an OpenAI chat conversation
@@ -616,20 +563,27 @@ router.post("/", async (req: Request, res: Response) => {
       
       // Check if using agentic mode
       if (useAgenticMode && useTools) {
-        console.log('[OpenAI] Using agentic mode');
+        console.log('[OpenAI] Using agentic mode with AI SDK');
         
-        // Create the agentic provider
-        const agenticProvider = new OpenAIAgenticProvider(client, effectiveModel);
+        // Get the AI SDK model instance
+        const aiModel = getOpenAIModel(effectiveModel);
         
-        // Run the agentic loop
+        // Extract system prompt from apiMessages
+        const systemMessage = apiMessages.find((msg: any) => msg.role === 'system');
+        const systemPrompt = systemMessage?.content || undefined;
+        
+        // Convert messages to CoreMessage format (excluding system messages)
+        const coreMessages = convertToCoreMessages(apiMessages);
+        
+        // Run the agentic loop with AI SDK
         const finalResponse = await runAgenticLoop(
-          agenticProvider,
-          apiMessages,
+          coreMessages,
           {
             maxIterations: 10,
             maxContextMessages: 15,
             conversationId: dbConversation.id,
-            provider: 'openai'
+            model: aiModel,
+            systemPrompt
           }
         );
         
@@ -651,6 +605,7 @@ router.post("/", async (req: Request, res: Response) => {
             content: finalResponse,
             metadata: {
               agentic_mode: true,
+              ai_sdk: true,
               ttft_ms: Date.now() - requestStart
             },
             created_at: new Date(),

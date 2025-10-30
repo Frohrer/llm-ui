@@ -1,4 +1,5 @@
-import { getToolDefinitions, handleToolCalls } from "./tools";
+import { generateText, LanguageModel, CoreTool, CoreMessage } from "ai";
+import { getToolDefinitions, executeTool } from "./tools";
 import { db } from "@db";
 import { messages } from "@db/schema";
 
@@ -7,167 +8,206 @@ export interface AgenticConfig {
   maxIterations?: number;
   maxContextMessages?: number;
   conversationId: number;
-  provider: 'anthropic' | 'openai';
-}
-
-// Tool call format (provider-agnostic)
-export interface ToolCall {
-  id: string;
-  name: string;
-  arguments: any;
+  model: LanguageModel;
+  systemPrompt?: string;
 }
 
 // Result of a single iteration
 export interface IterationResult {
   content: string;
-  toolCalls: ToolCall[];
+  toolCalls: Array<{
+    id: string;
+    name: string;
+    arguments: any;
+  }>;
   shouldContinue: boolean;
 }
 
-// Provider interface that must be implemented
-export interface AgenticProvider {
-  // Make a single LLM request and return the response
-  makeRequest(messages: any[], tools: any[]): Promise<{
-    content: string;
-    toolCalls: ToolCall[];
-  }>;
-  
-  // Convert tool results into the provider's message format
-  formatToolMessages(toolCalls: ToolCall[], toolResults: any[]): any[];
+/**
+ * Convert our tool definitions to AI SDK format
+ */
+async function getAISDKTools(): Promise<Record<string, CoreTool>> {
+  const toolDefinitions = await getToolDefinitions();
+  const tools: Record<string, CoreTool> = {};
+
+  for (const toolDef of toolDefinitions) {
+    const func = toolDef.function;
+    tools[func.name] = {
+      description: func.description,
+      parameters: func.parameters,
+      execute: async (params: any) => {
+        try {
+          const result = await executeTool(func.name, params);
+          return result;
+        } catch (error) {
+          console.error(`Error executing tool ${func.name}:`, error);
+          return {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            success: false
+          };
+        }
+      }
+    };
+  }
+
+  return tools;
 }
 
 /**
- * Run the agentic workflow loop
- * This function is provider-agnostic and handles the core loop logic
+ * Run the agentic workflow loop using AI SDK
+ * This function works with ALL AI SDK supported providers:
+ * - OpenAI (GPT-4, GPT-4o, GPT-5, o1, o3, etc.)
+ * - Anthropic (Claude 3.5 Sonnet, Claude 3 Opus, etc.)
+ * - Google (Gemini Pro, Gemini Flash, etc.)
+ * - xAI (Grok)
+ * - DeepSeek
+ * - Groq
+ * - Mistral
+ * - Cohere
+ * - Together.ai
+ * - And many more!
  */
 export async function runAgenticLoop(
-  provider: AgenticProvider,
-  initialMessages: any[],
+  initialMessages: CoreMessage[],
   config: AgenticConfig
 ): Promise<string> {
   const {
     maxIterations = 10,
     maxContextMessages = 20,
     conversationId,
+    model,
+    systemPrompt
   } = config;
-  
+
   console.log(`[Agentic] Starting agentic loop with max ${maxIterations} iterations`);
-  
-  // Get tool definitions once
-  const toolDefinitions = await getToolDefinitions();
-  console.log(`[Agentic] Loaded ${toolDefinitions.length} tool definitions`);
-  
+
+  // Get tools in AI SDK format
+  const tools = await getAISDKTools();
+  console.log(`[Agentic] Loaded ${Object.keys(tools).length} tools:`, Object.keys(tools).join(', '));
+
   // Keep track of messages for context
   let currentMessages = [...initialMessages];
   let iteration = 0;
   let finalResponse = '';
-  
+
   // Track all intermediate steps (for logging only, not shown to user)
   const intermediateSteps: Array<{ iteration: number; action: string; details: any }> = [];
-  
+
   while (iteration < maxIterations) {
     iteration++;
     console.log(`[Agentic] Iteration ${iteration}/${maxIterations}`);
-    
+
     intermediateSteps.push({
       iteration,
       action: 'llm_request',
       details: { messageCount: currentMessages.length }
     });
-    
+
     try {
-      // Make LLM request
-      const response = await provider.makeRequest(currentMessages, toolDefinitions);
+      // Use AI SDK's generateText with automatic tool handling
+      console.log(`[Agentic] Making request to model with ${currentMessages.length} messages`);
       
-      console.log(`[Agentic] LLM responded with ${response.content.length} chars, ${response.toolCalls.length} tool calls`);
-      
+      const result = await generateText({
+        model,
+        messages: currentMessages,
+        tools,
+        maxSteps: 1, // Process one step at a time for full control
+        system: systemPrompt,
+      });
+
+      console.log(`[Agentic] LLM responded with ${result.text.length} chars, ${result.toolCalls?.length || 0} tool calls`);
+      console.log(`[Agentic] Finish reason: ${result.finishReason}`);
+
       intermediateSteps.push({
         iteration,
         action: 'llm_response',
         details: {
-          contentLength: response.content.length,
-          toolCallCount: response.toolCalls.length
+          contentLength: result.text.length,
+          toolCallCount: result.toolCalls?.length || 0,
+          finishReason: result.finishReason
         }
       });
-      
-      // If there are no tool calls, we're done
-      if (response.toolCalls.length === 0) {
+
+      // Check if there are tool calls
+      if (result.toolCalls && result.toolCalls.length > 0) {
+        console.log(`[Agentic] Executing ${result.toolCalls.length} tool calls:`,
+          result.toolCalls.map(tc => tc.toolName).join(', '));
+
+        intermediateSteps.push({
+          iteration,
+          action: 'tool_execution',
+          details: {
+            tools: result.toolCalls.map(tc => tc.toolName)
+          }
+        });
+
+        // Store tool calls as internal messages (for debugging/history)
+        await db.insert(messages).values({
+          conversation_id: conversationId,
+          role: "tool",
+          content: JSON.stringify(result.toolCalls.map(tc => ({
+            id: tc.toolCallId,
+            name: tc.toolName,
+            arguments: tc.args
+          }))),
+          metadata: {
+            type: 'agentic_tool_calls',
+            iteration,
+            timestamp: new Date().toISOString()
+          },
+          created_at: new Date(),
+        });
+
+        // Tool results are automatically collected in result.toolResults
+        const toolResults = result.toolResults || [];
+
+        console.log(`[Agentic] Tool execution completed:`,
+          toolResults.map((r, i) => ({
+            tool: result.toolCalls![i].toolName,
+            hasError: typeof r === 'object' && r !== null && 'error' in r
+          })));
+
+        intermediateSteps.push({
+          iteration,
+          action: 'tool_results',
+          details: {
+            results: toolResults.map((r, i) => ({
+              tool: result.toolCalls![i].toolName,
+              success: !(typeof r === 'object' && r !== null && 'error' in r)
+            }))
+          }
+        });
+
+        // Store tool results as internal messages
+        await db.insert(messages).values({
+          conversation_id: conversationId,
+          role: "tool",
+          content: JSON.stringify(toolResults.map((r, i) => ({
+            toolCallId: result.toolCalls![i].toolCallId,
+            toolName: result.toolCalls![i].toolName,
+            result: r
+          }))),
+          metadata: {
+            type: 'agentic_tool_results',
+            iteration,
+            timestamp: new Date().toISOString()
+          },
+          created_at: new Date(),
+        });
+
+        // Update context with the response messages from AI SDK
+        // The AI SDK returns a responseMessages array that includes the assistant message and tool messages
+        currentMessages = [
+          ...currentMessages,
+          ...result.responseMessages
+        ];
+      } else {
+        // No tool calls, we're done
         console.log(`[Agentic] No tool calls, finishing with response`);
-        finalResponse = response.content;
+        finalResponse = result.text;
         break;
       }
-      
-      // Execute tool calls
-      console.log(`[Agentic] Executing ${response.toolCalls.length} tool calls:`, 
-        response.toolCalls.map(tc => tc.name).join(', '));
-      
-      intermediateSteps.push({
-        iteration,
-        action: 'tool_execution',
-        details: {
-          tools: response.toolCalls.map(tc => tc.name)
-        }
-      });
-      
-      // Store tool calls as internal messages (for debugging/history)
-      await db.insert(messages).values({
-        conversation_id: conversationId,
-        role: "tool",
-        content: JSON.stringify(response.toolCalls),
-        metadata: { 
-          type: 'agentic_tool_calls',
-          iteration,
-          timestamp: new Date().toISOString()
-        },
-        created_at: new Date(),
-      });
-      
-      // Execute all tool calls
-      const toolResults = await handleToolCalls(response.toolCalls);
-      
-      console.log(`[Agentic] Tool execution completed:`,
-        toolResults.map(r => ({ tool: r.toolName, hasError: !!r.error })));
-      
-      intermediateSteps.push({
-        iteration,
-        action: 'tool_results',
-        details: {
-          results: toolResults.map(r => ({
-            tool: r.toolName,
-            success: !r.error
-          }))
-        }
-      });
-      
-      // Store tool results as internal messages
-      await db.insert(messages).values({
-        conversation_id: conversationId,
-        role: "tool",
-        content: JSON.stringify(toolResults),
-        metadata: { 
-          type: 'agentic_tool_results',
-          iteration,
-          timestamp: new Date().toISOString()
-        },
-        created_at: new Date(),
-      });
-      
-      // Add assistant message with tool calls to context
-      const assistantMessage = {
-        role: 'assistant',
-        content: response.content || '' // OpenAI requires string, not null
-      };
-      
-      // Format tool messages for the provider
-      const toolMessages = provider.formatToolMessages(response.toolCalls, toolResults);
-      
-      // Update context with assistant message and tool results
-      currentMessages = [
-        ...currentMessages,
-        assistantMessage,
-        ...toolMessages
-      ];
-      
+
       // Manage context length - keep only recent messages if too many
       if (currentMessages.length > maxContextMessages) {
         console.log(`[Agentic] Trimming context from ${currentMessages.length} to ${maxContextMessages} messages`);
@@ -176,10 +216,10 @@ export async function runAgenticLoop(
         const recentMessages = currentMessages.slice(-maxContextMessages + 1);
         currentMessages = [firstMessage, ...recentMessages];
       }
-      
+
     } catch (error) {
       console.error(`[Agentic] Error in iteration ${iteration}:`, error);
-      
+
       intermediateSteps.push({
         iteration,
         action: 'error',
@@ -187,7 +227,7 @@ export async function runAgenticLoop(
           error: error instanceof Error ? error.message : 'Unknown error'
         }
       });
-      
+
       // If we have some response, return it; otherwise throw
       if (finalResponse) {
         console.log(`[Agentic] Returning partial response due to error`);
@@ -196,25 +236,30 @@ export async function runAgenticLoop(
       throw error;
     }
   }
-  
+
   // Check if we hit max iterations without getting a final response
   if (iteration >= maxIterations && !finalResponse) {
     console.log(`[Agentic] Max iterations reached, making final request for summary`);
-    
-    // Make one final request to get a response
+
+    // Make one final request to get a response (without tools)
     try {
-      const response = await provider.makeRequest(currentMessages, []);
-      finalResponse = response.content;
+      const result = await generateText({
+        model,
+        messages: currentMessages,
+        system: systemPrompt,
+        maxSteps: 1,
+      });
+      finalResponse = result.text;
     } catch (error) {
       console.error(`[Agentic] Error in final request:`, error);
       finalResponse = "I've completed the requested tasks but reached the maximum number of iterations. The work has been completed.";
     }
   }
-  
+
   // Log summary
   console.log(`[Agentic] Loop completed in ${iteration} iterations`);
   console.log(`[Agentic] Intermediate steps:`, intermediateSteps.length);
-  
+
   // Store the summary of the agentic workflow
   await db.insert(messages).values({
     conversation_id: conversationId,
@@ -225,30 +270,28 @@ export async function runAgenticLoop(
       intermediateSteps: intermediateSteps.length,
       finalResponseLength: finalResponse.length
     }),
-    metadata: { 
+    metadata: {
       type: 'agentic_summary',
       iterations: iteration,
       timestamp: new Date().toISOString()
     },
     created_at: new Date(),
   });
-  
+
   return finalResponse;
 }
 
 /**
  * Helper to check if context is getting too large
  */
-export function estimateContextSize(messages: any[]): number {
+export function estimateContextSize(messages: CoreMessage[]): number {
   let totalChars = 0;
   for (const msg of messages) {
     if (typeof msg.content === 'string') {
       totalChars += msg.content.length;
     } else if (Array.isArray(msg.content)) {
       for (const part of msg.content) {
-        if (typeof part === 'string') {
-          totalChars += part.length;
-        } else if (part.text) {
+        if (part.type === 'text') {
           totalChars += part.text.length;
         }
       }
@@ -257,4 +300,3 @@ export function estimateContextSize(messages: any[]): number {
   // Rough estimate: 1 token ≈ 4 characters
   return Math.ceil(totalChars / 4);
 }
-

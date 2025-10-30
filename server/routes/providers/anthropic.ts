@@ -8,7 +8,9 @@ import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { getToolDefinitions, handleToolCalls } from "../../tools";
-import { runAgenticLoop, AgenticProvider, ToolCall } from "../../agentic-workflow";
+import { runAgenticLoop } from "../../agentic-workflow";
+import { getAnthropicModel } from "../../ai-sdk-providers";
+import { CoreMessage } from "ai";
 
 const router = express.Router();
 let client: Anthropic | null = null;
@@ -94,74 +96,55 @@ function createUserMessageContent(message: string, imageAttachments: any[], docu
   }
 }
 
-// Anthropic provider adapter for agentic workflow
-class AnthropicAgenticProvider implements AgenticProvider {
-  constructor(
-    private client: Anthropic,
-    private model: string
-  ) {}
-
-  async makeRequest(messages: any[], tools: any[]): Promise<{ content: string; toolCalls: ToolCall[] }> {
-    const anthropicTools = tools.map(tool => ({
-      name: tool.function.name,
-      description: tool.function.description,
-      input_schema: tool.function.parameters
-    }));
-
-    const requestOptions: any = {
-      model: this.model,
-      messages: messages,
-      max_tokens: 4096,
-      temperature: 0.7,
-    };
-
-    if (anthropicTools.length > 0) {
-      requestOptions.tools = anthropicTools;
+// Helper to convert Anthropic messages to AI SDK CoreMessage format
+function convertToCoreMessages(messages: any[]): CoreMessage[] {
+  return messages.map(msg => {
+    if (msg.role === 'system') {
+      // System messages are handled separately in AI SDK
+      return null;
     }
-
-    const response = await this.client.messages.create(requestOptions);
-
-    // Extract text content
-    const textBlocks = response.content.filter((block: any) => block.type === 'text');
-    const content = textBlocks.map((block: any) => block.text).join('\n\n');
-
-    // Extract tool calls
-    const toolUseBlocks = response.content.filter((block: any) => block.type === 'tool_use');
-    const toolCalls: ToolCall[] = toolUseBlocks.map((block: any) => ({
-      id: block.id,
-      name: block.name,
-      arguments: block.input
-    }));
-
-    return { content, toolCalls };
-  }
-
-  formatToolMessages(toolCalls: ToolCall[], toolResults: any[]): any[] {
-    // First, add the assistant message with tool use
-    const assistantMessage = {
-      role: 'assistant' as const,
-      content: toolCalls.map(toolCall => ({
-        type: 'tool_use',
-        id: toolCall.id,
-        name: toolCall.name,
-        input: toolCall.arguments
-      }))
-    };
-
-    // Then, add the user message with tool results
-    const userMessage = {
-      role: 'user' as const,
-      content: toolResults.map(result => ({
-        type: 'tool_result',
-        tool_use_id: result.toolCallId,
-        content: result.error ?
-          `Error: ${result.error}` :
-          (typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2))
-      }))
-    };
-
-    return [assistantMessage, userMessage];
-  }
+    
+    if (msg.role === 'user') {
+      // Handle both string and array content
+      if (typeof msg.content === 'string') {
+        return {
+          role: 'user' as const,
+          content: msg.content
+        };
+      } else if (Array.isArray(msg.content)) {
+        // Convert Anthropic content blocks to AI SDK format
+        const textParts = msg.content
+          .filter((block: any) => block.type === 'text')
+          .map((block: any) => block.text)
+          .join('\n');
+        return {
+          role: 'user' as const,
+          content: textParts
+        };
+      }
+    }
+    
+    if (msg.role === 'assistant') {
+      // Handle both string and array content
+      if (typeof msg.content === 'string') {
+        return {
+          role: 'assistant' as const,
+          content: msg.content
+        };
+      } else if (Array.isArray(msg.content)) {
+        const textParts = msg.content
+          .filter((block: any) => block.type === 'text')
+          .map((block: any) => block.text)
+          .join('\n');
+        return {
+          role: 'assistant' as const,
+          content: textParts
+        };
+      }
+    }
+    
+    return null;
+  }).filter((msg): msg is CoreMessage => msg !== null);
 }
 
 // Helper function to execute tools and get response
@@ -531,20 +514,27 @@ router.post("/", async (req: Request, res: Response) => {
     try {
       // Check if using agentic mode
       if (useAgenticMode && useTools) {
-        console.log('[Anthropic] Using agentic mode');
+        console.log('[Anthropic] Using agentic mode with AI SDK');
         
-        // Create the agentic provider
-        const agenticProvider = new AnthropicAgenticProvider(client, model);
+        // Get the AI SDK model instance
+        const aiModel = getAnthropicModel(model);
         
-        // Run the agentic loop
+        // Extract system prompt from apiMessages
+        const systemMessage = apiMessages.find((msg: any) => msg.role === 'system');
+        const systemPrompt = systemMessage?.content || undefined;
+        
+        // Convert messages to CoreMessage format (excluding system messages)
+        const coreMessages = convertToCoreMessages(apiMessages);
+        
+        // Run the agentic loop with AI SDK
         const finalResponse = await runAgenticLoop(
-          agenticProvider,
-          apiMessages,
+          coreMessages,
           {
             maxIterations: 10,
             maxContextMessages: 15,
             conversationId: dbConversation.id,
-            provider: 'anthropic'
+            model: aiModel,
+            systemPrompt
           }
         );
         
@@ -566,6 +556,7 @@ router.post("/", async (req: Request, res: Response) => {
             content: finalResponse,
             metadata: {
               agentic_mode: true,
+              ai_sdk: true,
               ttft_ms: Date.now() - requestStart
             },
             created_at: new Date(),
