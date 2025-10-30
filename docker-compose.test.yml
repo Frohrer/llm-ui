@@ -1,10 +1,11 @@
-# docker-compose.yml removed version (obsolete in newer Docker Compose)
+# docker-compose.test.yml removed version (obsolete in newer Docker Compose)
+
 services:
+  # Main application and database
   app:
     build: .
     ports:
       - "5000:5000"
-    volumes: []
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-chat_app}?sslmode=disable
@@ -36,21 +37,26 @@ services:
       - CF_ACCESS_CLIENT_ID=${CF_ACCESS_CLIENT_ID}
       - CF_ACCESS_CLIENT_SECRET=${CF_ACCESS_CLIENT_SECRET}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - chat_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   db:
     image: postgres:15-alpine
-    ports:
-      - "5432:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       - POSTGRES_DB=${POSTGRES_DB:-chat_app}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_test:/var/lib/postgresql/data
     restart: unless-stopped
     networks:
       - chat_network
@@ -60,9 +66,29 @@ services:
       timeout: 5s
       retries: 5
 
+  # Test runner
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      - BASE_URL=http://app:5000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    networks:
+      - chat_network
+    # Override to keep test container running after tests
+    # Use: docker-compose -f docker-compose.test.yml run test
+    profiles:
+      - test
+
 networks:
   chat_network:
     driver: bridge
 
 volumes:
-  postgres_data:
+  postgres_data_test:
+

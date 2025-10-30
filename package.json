@@ -11,7 +11,9 @@
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
     "db:generate": "drizzle-kit generate",
-    "test:ai-models": "node tests/ai-model-tests.js"
+    "test:ai-models": "node tests/ai-model-tests.js",
+    "test:agentic": "bash test-agentic.sh",
+    "test:agentic:local": "node test-agentic-mode.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.8",

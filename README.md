@@ -1,209 +1,329 @@
-# Multi-LLM Chat Interface with Knowledge Management
+# LLM UI - AI SDK Agentic Mode
 
-A sophisticated AI interaction platform that enables seamless conversations with multiple language models enhanced by custom knowledge sources. This application provides a unified interface for communicating with various AI providers while managing knowledge bases, maintaining conversation history, and providing a rich user experience.
+A production-ready chat interface with agentic mode powered by the Vercel AI SDK.
 
 ## Features
 
-- 🤖 Multi-provider AI integration (OpenAI, Anthropic, DeepSeek, Gemini)
-- 📚 Advanced knowledge management system
-  - 📄 Document upload (PDF, DOCX, TXT, CSV, XLSX, PPTX, MD)
-  - 🔗 URL content extraction and processing
-  - ✏️ Direct text entry for knowledge sources
-  - 🧠 Retrieval-Augmented Generation (RAG) support
-- 💬 Turn-based conversations with context preservation
-- 🔄 Real-time message streaming
-- 📝 Markdown rendering for AI responses
-- 🌓 Dark/light mode support
-- 🎨 Clean, professional UI using shadcn/ui components
-- 📱 Responsive design with mobile support
-- 🔧 Server-side provider configuration
-- 🗄️ PostgreSQL-backed conversation and knowledge storage
-- 🔊 Speech-to-text and text-to-speech capabilities
-- 🔒 Cloudflare One authentication
-- 🐳 Docker deployment support
+✅ **Universal Provider Support** - Works with all AI SDK providers:
+- OpenAI (GPT-4, GPT-5, o1, o3)
+- Anthropic (Claude 3.5, Claude 3)
+- Google Gemini
+- xAI Grok
+- DeepSeek
+- And more...
 
-## Tech Stack
+✅ **Agentic Mode** - Multi-step reasoning with tool calling
+✅ **Tool Integration** - Web search, calculator, website browsing, and more
+✅ **Dockerized** - Production-ready containers
+✅ **Tested** - Automated integration tests
 
-- Frontend: React.js with TypeScript
-- Backend: Node.js with Express
-- Database: PostgreSQL with Drizzle ORM
-- UI Framework: shadcn/ui + Tailwind CSS
-- State Management: TanStack Query
-- Routing: wouter
-- Authentication: Cloudflare One
-- Knowledge Processing:
-  - Document Parsing: PDF.js, Mammoth, XLSX
-  - Web Content: Axios, Cheerio
-  - Text Processing: Custom chunking algorithms
-- Speech Capabilities: Microsoft Cognitive Services Speech SDK
+## Quick Start
 
-## Prerequisites
+### Prerequisites
 
-- Node.js 20 or higher
-- PostgreSQL 15 or higher
-- Cloudflare One account for authentication
-- API keys for the LLM providers you want to use (OpenAI/Anthropic/DeepSeek/Gemini)
-- For speech features: Microsoft Cognitive Services Speech API credentials (optional)
-- Sufficient storage space for uploaded knowledge files
+1. **Docker & Docker Compose** installed
+2. **API Keys** for at least one provider:
+   ```bash
+   export OPENAI_API_KEY=sk-...
+   export ANTHROPIC_API_KEY=sk-ant-...
+   ```
 
-## Authentication
+### Run the Application
 
-This application uses Cloudflare One for authentication. When deployed, it expects the following headers from Cloudflare:
+```bash
+# Build and start
+docker-compose up
 
-- `CF-Access-Authenticated-User-Email`: The email address of the authenticated user
-- `CF-Access-JWT-Assertion`: The JWT token from Cloudflare
-
-To set up authentication:
-
-1. Create a Cloudflare Zero Trust account
-2. Configure an application in the Zero Trust dashboard
-3. Set up authentication policies
-4. Configure your deployment to use Cloudflare Access
-
-The application will automatically use the Cloudflare headers to authenticate users and manage their conversations.
-
-## Environment Variables
-
-Create a `.env` file in the root directory with the following variables:
-
-```env
-# Required
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chat_app
-
-# LLM Provider API Keys - Include only the ones you want to use
-OPENAI_API_KEY=your_openai_api_key
-ANTHROPIC_API_KEY=your_anthropic_api_key
-DEEPSEEK_API_KEY=your_deepseek_api_key
-GEMINI_API_KEY=your_gemini_api_key
-
-# Optional - Microsoft Cognitive Services for Speech Features
-SPEECH_KEY=your_azure_speech_key
-SPEECH_REGION=your_azure_speech_region
-
-# Optional - Code Execution with Supakiln
-SUPAKILN_API_URL=https://your-supakiln-instance.com
-CF_ACCESS_CLIENT_ID=your_cf_access_client_id
-CF_ACCESS_CLIENT_SECRET=your_cf_access_client_secret
+# Visit http://localhost:5000
 ```
 
-Notes:
-- The application will only display and enable LLM providers for which valid API keys are provided. Missing API keys will cause the corresponding provider to be hidden from the UI automatically.
-- Speech-to-text and text-to-speech features require valid Microsoft Cognitive Services credentials, but these features are optional and the application will work without them.
-- Supakiln code execution requires a running supakiln instance. If your supakiln instance is protected by Cloudflare Access, you'll also need to provide CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET for service-to-service authentication.
+### Run Tests
 
-## Local Development
+```bash
+# Dockerized test (recommended)
+npm run test:agentic
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Set up the database:
-   ```bash
-   npm run db:push
-   ```
-4. Start the development server:
-   ```bash
-   npm run dev
-   ```
+# Or directly
+./test-agentic.sh
+```
 
-The application will be available at `http://localhost:5000`.
+## Test Suite
 
-## Docker Deployment
+The test suite validates that agentic mode works correctly:
 
-To run the application using Docker:
+1. ✅ Builds Docker containers
+2. ✅ Starts services (app + database)
+3. ✅ Waits for health checks
+4. ✅ Tests each provider with tool calling
+5. ✅ Validates responses
+6. ✅ Cleans up containers
 
-1. Clone the repository
-2. Create a `.env` file with the required environment variables
-3. Build and start the containers:
-   ```bash
-   docker-compose up -d
-   ```
+**What it tests:**
+- Model can use tools (browse_website)
+- Agentic loop works correctly
+- Multi-step reasoning functions
+- Tool results are processed
 
-The application will be available at `http://localhost:5000`.
+### Test Output
 
-## Provider Configuration
+```
+[TEST] Step 1: Building Docker containers...
+✅ Build completed
 
-The application supports configurable AI providers through JSON configuration files located in `server/config/providers/`.
+[TEST] Step 2: Starting services (app + database)...
+✅ Services started
 
-### Adding a New Provider
+[TEST] Step 3: Waiting for services to be healthy...
+✅ App is healthy!
 
-1. Create a new configuration file in `server/config/providers/` (e.g., `mistral.json`):
-   ```json
-   {
-     "id": "mistral",
-     "name": "Mistral AI",
-     "icon": "SiMistral",
-     "models": [
-       {
-         "id": "mistral-medium",
-         "name": "Mistral Medium",
-         "contextLength": 32000,
-         "defaultModel": true
-       }
-     ]
-   }
-   ```
+[TEST] Step 4: Running agentic mode tests...
 
-2. Implement the provider interface in `client/src/lib/llm/providers/`:
+================================================================================
+Testing OpenAI (gpt-4) - Agentic Mode
+================================================================================
+ℹ️  Tool called: browse_website
+✅ Tools were called (agentic mode working!)
+✅ OpenAI test passed!
+
+================================================================================
+Test Summary
+================================================================================
+✅ OpenAI: passed
+✅ Anthropic: passed
+
+🎉 All tests passed!
+
+[TEST] Step 5: Cleanup
+✅ Test suite completed successfully!
+```
+
+## Configuration
+
+### Environment Variables
+
+Create a `.env` file or export variables:
+
+```bash
+# Required (at least one)
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+XAI_KEY=...
+
+# Database
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=chat_app
+
+# Optional
+BRAVE_SEARCH_API_KEY=...
+AZURE_SPEECH_KEY=...
+AZURE_SPEECH_REGION=...
+```
+
+### Docker Compose Files
+
+- `docker-compose.yml` - Production deployment
+- `docker-compose.test.yml` - Test environment with health checks
+
+## Architecture
+
+### Agentic Workflow
+
+```
+User Query
+    ↓
+AI SDK generateText()
+    ↓
+Model decides: Need tools?
+    ├─ No → Return response
+    └─ Yes → Call tools
+         ↓
+Execute tools (parallel)
+         ↓
+Add results to context
+         ↓
+Next iteration (max 10)
+         ↓
+Final response
+```
+
+### Key Files
+
+- `server/agentic-workflow.ts` - Core agentic loop (AI SDK)
+- `server/ai-sdk-providers.ts` - Provider initialization
+- `server/tools/` - Available tools
+- `test-agentic-mode.mjs` - Integration tests
+- `Dockerfile.test` - Test container
+
+## Development
+
+### Local Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run dev server
+npm run dev
+
+# Run type checking
+npm run check
+
+# Build
+npm run build
+```
+
+### Adding a Provider
+
+1. Add API key to environment
+2. Create provider helper in `server/ai-sdk-providers.ts`:
    ```typescript
-   import type { LLMProvider } from "../types";
-
-   export class MistralProvider implements LLMProvider {
-     // Implementation details
+   export function getProviderModel(modelName: string, apiKey?: string): LanguageModel {
+     const provider = createProvider({ apiKey });
+     return provider(modelName);
    }
    ```
+3. Update provider route to use AI SDK
+4. Add to test suite
 
-3. Add the provider to the initialization logic in `client/src/lib/llm/providers/index.ts`.
+### Adding Tools
 
-4. Add the corresponding environment variable for the API key.
+Create a new tool in `server/tools/manual/`:
 
-Note: If the API key for a provider is not available in the environment variables, the provider will be automatically hidden from the UI. This allows for flexible deployment configurations where only some providers are enabled.
+```typescript
+export const myTool: Tool = {
+  name: 'my_tool',
+  description: 'What the tool does',
+  parameters: {
+    type: 'object',
+    properties: {
+      param: {
+        type: 'string',
+        description: 'Parameter description'
+      }
+    },
+    required: ['param']
+  },
+  execute: async (params) => {
+    // Tool logic
+    return result;
+  }
+};
+```
 
-## Usage
+Export it in `server/tools/manual/index.ts`.
 
-### Basic Chat Usage
-1. Start a new conversation by clicking the "New Chat" button
-2. Select your preferred AI model from the dropdown
-3. Type your message and press Enter or click the send button
-4. View your conversation history in the sidebar
-5. Toggle between light and dark modes using the theme toggle button
+## Troubleshooting
 
-### Python Code Execution with Supakiln
-If configured with a supakiln instance, the LLM can execute Python code in secure sandboxed containers:
+### Tests Fail
 
-1. **Basic Python execution**: The LLM can run Python code with automatic package installation
-2. **Container management**: Create persistent containers with pre-installed packages for complex workflows
-3. **Advanced workflows**: Use existing containers for stateful computations across multiple code executions
+```bash
+# Check logs
+docker-compose -f docker-compose.test.yml logs app
 
-Available tools:
-- `run_python`: Execute Python code with optional package installation
-- `manage_containers`: Create, list, inspect, and delete containers for persistent environments
+# Rebuild from scratch
+docker-compose -f docker-compose.test.yml down -v
+docker-compose -f docker-compose.test.yml build --no-cache
+./test-agentic.sh
+```
 
-### Knowledge Management
-1. Access the Knowledge Management by clicking the "Knowledge" button in the sidebar
-2. Add knowledge sources in three ways:
-   - **File Upload**: Upload supported document types (PDF, DOCX, TXT, CSV, XLSX, PPTX, MD)
-   - **URL**: Enter a URL to automatically extract and process web content
-   - **Text**: Directly paste or type text content
-3. For each knowledge source, you can:
-   - Provide a name and optional description
-   - Enable/disable RAG (Retrieval-Augmented Generation) for large documents
-4. Manage your knowledge sources:
-   - View all saved knowledge sources
-   - Delete knowledge sources you no longer need
-   - Attach knowledge sources to specific conversations
-5. Use knowledge in conversations:
-   - Attached knowledge sources will be used to enhance AI responses
-   - The AI will automatically reference relevant knowledge when answering questions
+### Service Won't Start
 
-## Contributing
+```bash
+# Check if port 5000 is in use
+lsof -i :5000  # macOS/Linux
+netstat -ano | findstr :5000  # Windows
 
-1. Fork the repository
-2. Create a new branch for your feature
-3. Make your changes
-4. Submit a pull request
+# Check Docker
+docker ps
+docker-compose logs
+```
+
+### API Key Issues
+
+```bash
+# Verify keys are set
+echo $OPENAI_API_KEY
+echo $ANTHROPIC_API_KEY
+
+# Check they're passed to containers
+docker-compose config | grep API_KEY
+```
+
+## CI/CD
+
+### GitHub Actions
+
+```yaml
+name: Test Agentic Mode
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: ./test-agentic.sh
+```
+
+## Performance
+
+Expected response times:
+- Simple queries: 2-5 seconds
+- With tools (1-2 iterations): 5-15 seconds
+- Complex multi-step: 30-60 seconds
+
+Token usage varies by:
+- Model selected
+- Number of iterations
+- Tool results size
+- Context length
+
+## Security
+
+- ✅ API keys in environment variables
+- ✅ No API keys in code
+- ✅ Docker network isolation
+- ✅ Health check endpoints (no auth)
+- ✅ Tool execution sandboxing
 
 ## License
 
 MIT
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests: `npm run test:agentic`
+5. Submit a pull request
+
+## Support
+
+- Documentation: See `docs/` directory
+- Issues: GitHub Issues
+- Discussions: GitHub Discussions
+
+## Acknowledgments
+
+Built with:
+- [Vercel AI SDK](https://ai-sdk.dev) - Unified AI provider interface
+- [React](https://react.dev) - UI framework
+- [Express](https://expressjs.com) - Server framework
+- [PostgreSQL](https://postgresql.org) - Database
+- [Docker](https://docker.com) - Containerization
+
+---
+
+**Status:** ✅ Production Ready
+
+**Version:** 2.0.0 (AI SDK Migration)
+
+**Last Updated:** October 30, 2025

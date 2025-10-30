@@ -1,4 +1,4 @@
-import { generateText, LanguageModel, CoreTool, CoreMessage } from "ai";
+import { generateText, LanguageModel, CoreTool, CoreMessage, jsonSchema } from "ai";
 import { getToolDefinitions, executeTool } from "./tools";
 import { db } from "@db";
 import { messages } from "@db/schema";
@@ -32,9 +32,31 @@ async function getAISDKTools(): Promise<Record<string, CoreTool>> {
 
   for (const toolDef of toolDefinitions) {
     const func = toolDef.function;
+    
+    // OpenAI has strict schema requirements:
+    // 1. additionalProperties must be false
+    // 2. All properties must be in the required array OR removed from properties
+    const properties = func.parameters.properties || {};
+    const required = func.parameters.required || [];
+    
+    // Get all property keys
+    const allPropertyKeys = Object.keys(properties);
+    
+    // For OpenAI strict mode: all defined properties must be required
+    // So we'll make the required array include all properties
+    const strictRequired = allPropertyKeys.length > 0 ? allPropertyKeys : required;
+    
+    const schema = {
+      type: 'object',
+      properties,
+      required: strictRequired,
+      additionalProperties: false
+    };
+    
+    // Use jsonSchema helper to wrap our JSON schema parameters
     tools[func.name] = {
       description: func.description,
-      parameters: func.parameters,
+      parameters: jsonSchema(schema),
       execute: async (params: any) => {
         try {
           const result = await executeTool(func.name, params);
@@ -195,11 +217,39 @@ export async function runAgenticLoop(
           created_at: new Date(),
         });
 
-        // Update context with the response messages from AI SDK
-        // The AI SDK returns a responseMessages array that includes the assistant message and tool messages
+        // Manually construct messages from tool calls and results
+        // Add assistant message with tool calls
+        const assistantMessage: CoreMessage = {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: result.text || '' },
+            ...result.toolCalls!.map(tc => ({
+              type: 'tool-call' as const,
+              toolCallId: tc.toolCallId,
+              toolName: tc.toolName,
+              args: tc.args
+            }))
+          ]
+        };
+
+        // Add tool result messages
+        const toolMessages: CoreMessage[] = toolResults.map((r, i) => ({
+          role: 'tool',
+          content: [
+            {
+              type: 'tool-result' as const,
+              toolCallId: result.toolCalls![i].toolCallId,
+              toolName: result.toolCalls![i].toolName,
+              result: r
+            }
+          ]
+        }));
+
+        // Update context with assistant message and tool messages
         currentMessages = [
           ...currentMessages,
-          ...result.responseMessages
+          assistantMessage,
+          ...toolMessages
         ];
       } else {
         // No tool calls, we're done

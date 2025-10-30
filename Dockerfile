@@ -26,8 +26,8 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Install git and postgresql-client
-RUN apt-get update && apt-get install -y git postgresql-client && rm -rf /var/lib/apt/lists/*
+# Install git, postgresql-client, and curl (for health checks)
+RUN apt-get update && apt-get install -y git postgresql-client curl && rm -rf /var/lib/apt/lists/*
 
 # Copy package files and install ALL dependencies (not just production)
 # This is necessary because Vite is used in the server code

@@ -3,55 +3,55 @@
  * This module provides a unified way to initialize AI SDK providers
  */
 
-import { openai } from '@ai-sdk/openai';
-import { anthropic } from '@ai-sdk/anthropic';
-import { google } from '@ai-sdk/google';
-import { xai } from '@ai-sdk/xai';
+import { createOpenAI } from '@ai-sdk/openai';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createXai } from '@ai-sdk/xai';
 import { LanguageModel } from 'ai';
 
 /**
  * Get an AI SDK model instance for OpenAI
  */
 export function getOpenAIModel(modelName: string, apiKey?: string): LanguageModel {
-  const provider = openai({
+  const openai = createOpenAI({
     apiKey: apiKey || process.env.OPENAI_API_KEY,
     compatibility: 'strict', // Ensure full compatibility
   });
   
-  return provider(modelName);
+  return openai(modelName);
 }
 
 /**
  * Get an AI SDK model instance for Anthropic
  */
 export function getAnthropicModel(modelName: string, apiKey?: string): LanguageModel {
-  const provider = anthropic({
+  const anthropic = createAnthropic({
     apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
   });
   
-  return provider(modelName);
+  return anthropic(modelName);
 }
 
 /**
  * Get an AI SDK model instance for Google
  */
 export function getGoogleModel(modelName: string, apiKey?: string): LanguageModel {
-  const provider = google({
+  const google = createGoogleGenerativeAI({
     apiKey: apiKey || process.env.GOOGLE_API_KEY,
   });
   
-  return provider(modelName);
+  return google(modelName);
 }
 
 /**
  * Get an AI SDK model instance for xAI (Grok)
  */
 export function getXAIModel(modelName: string, apiKey?: string): LanguageModel {
-  const provider = xai({
+  const xai = createXai({
     apiKey: apiKey || process.env.XAI_API_KEY,
   });
   
-  return provider(modelName);
+  return xai(modelName);
 }
 
 /**
@@ -59,12 +59,12 @@ export function getXAIModel(modelName: string, apiKey?: string): LanguageModel {
  * DeepSeek is OpenAI-compatible, so we use the OpenAI provider with custom baseURL
  */
 export function getDeepSeekModel(modelName: string, apiKey?: string): LanguageModel {
-  const provider = openai({
+  const deepseek = createOpenAI({
     apiKey: apiKey || process.env.DEEPSEEK_API_KEY,
     baseURL: 'https://api.deepseek.com/v1',
   });
   
-  return provider(modelName);
+  return deepseek(modelName);
 }
 
 /**
@@ -72,12 +72,12 @@ export function getDeepSeekModel(modelName: string, apiKey?: string): LanguageMo
  * Groq is OpenAI-compatible
  */
 export function getGroqModel(modelName: string, apiKey?: string): LanguageModel {
-  const provider = openai({
+  const groq = createOpenAI({
     apiKey: apiKey || process.env.GROQ_API_KEY,
     baseURL: 'https://api.groq.com/openai/v1',
   });
   
-  return provider(modelName);
+  return groq(modelName);
 }
 
 /**
@@ -88,7 +88,7 @@ export function getOpenAICompatibleModel(
   baseURL: string,
   apiKey: string
 ): LanguageModel {
-  const provider = openai({
+  const provider = createOpenAI({
     apiKey,
     baseURL,
   });

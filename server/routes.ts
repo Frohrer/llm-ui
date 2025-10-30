@@ -76,6 +76,15 @@ if (process.env.XAI_KEY) {
 clientsInitialized.superModel = initializeSuperModel();
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint (no auth required)
+  app.get('/api/health', (_req, res) => {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      providers: clientsInitialized
+    });
+  });
+
   // Speech credentials route
   app.get('/api/speech-credentials', (req, res) => {
     res.json({
