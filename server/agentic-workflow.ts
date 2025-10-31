@@ -6,7 +6,6 @@ import { messages } from "@db/schema";
 // Configuration for the agentic loop
 export interface AgenticConfig {
   maxIterations?: number;
-  maxContextMessages?: number;
   conversationId: number;
   model: LanguageModel;
   systemPrompt?: string;
@@ -25,8 +24,15 @@ export interface IterationResult {
 
 /**
  * Convert our tool definitions to AI SDK format
+ * This function dynamically loads tools, supporting hot reload of custom tools
  */
-async function getAISDKTools(): Promise<Record<string, CoreTool>> {
+async function getAISDKTools(forceReload: boolean = false): Promise<Record<string, CoreTool>> {
+  // Force reload tools from database if requested (hot reload support)
+  if (forceReload) {
+    const { refreshTools } = await import('./tools');
+    await refreshTools();
+  }
+  
   const toolDefinitions = await getToolDefinitions();
   const tools: Record<string, CoreTool> = {};
 
@@ -95,7 +101,6 @@ export async function runAgenticLoop(
 ): Promise<string> {
   const {
     maxIterations = 10,
-    maxContextMessages = 20,
     conversationId,
     model,
     systemPrompt
@@ -103,9 +108,10 @@ export async function runAgenticLoop(
 
   console.log(`[Agentic] Starting agentic loop with max ${maxIterations} iterations`);
 
-  // Get tools in AI SDK format
-  const tools = await getAISDKTools();
-  console.log(`[Agentic] Loaded ${Object.keys(tools).length} tools:`, Object.keys(tools).join(', '));
+  // Get tools in AI SDK format with hot reload support
+  // This ensures custom tools are always up-to-date
+  const tools = await getAISDKTools(true);
+  console.log(`[Agentic] Loaded ${Object.keys(tools).length} tools (with hot reload):`, Object.keys(tools).join(', '));
 
   // Keep track of messages for context
   let currentMessages = [...initialMessages];
@@ -258,14 +264,10 @@ export async function runAgenticLoop(
         break;
       }
 
-      // Manage context length - keep only recent messages if too many
-      if (currentMessages.length > maxContextMessages) {
-        console.log(`[Agentic] Trimming context from ${currentMessages.length} to ${maxContextMessages} messages`);
-        // Keep the first message (usually system or initial user message) and the most recent messages
-        const firstMessage = currentMessages[0];
-        const recentMessages = currentMessages.slice(-maxContextMessages + 1);
-        currentMessages = [firstMessage, ...recentMessages];
-      }
+      // Note: We don't trim context here because modern LLMs have huge context windows
+      // (Claude: 200K tokens, GPT-4: 128K, Gemini: 1M+). If we hit limits, the model
+      // will error and we can handle it. Trimming causes more problems (context loss, loops)
+      // than it solves.
 
     } catch (error) {
       console.error(`[Agentic] Error in iteration ${iteration}:`, error);

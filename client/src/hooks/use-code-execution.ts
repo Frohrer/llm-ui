@@ -175,7 +175,10 @@ export function useCodeExecution() {
       'lxml': 'lxml',
       'html5lib': 'html5lib',
       'jinja2': 'jinja2',
-      'markupsafe': 'markupsafe'
+      'markupsafe': 'markupsafe',
+      'paramiko': 'paramiko',
+      'fabric': 'fabric',
+      'invoke': 'invoke'
     };
 
     const stdLibModules = new Set([

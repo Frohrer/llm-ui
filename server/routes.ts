@@ -6,6 +6,7 @@ import { cloudflareAuthMiddleware } from "./middleware/auth";
 import knowledgeRoutes from "./routes/knowledge";
 import conversationsRoutes from "./routes/conversations";
 import toolsRoutes from "./routes/tools";
+import customToolsRoutes from "./routes/custom-tools";
 import {
   openaiRouter,
   anthropicRouter,
@@ -156,6 +157,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register tools routes
   app.use('/api/tools', toolsRoutes);
+
+  // Register custom tools routes
+  app.use(customToolsRoutes);
 
 
 

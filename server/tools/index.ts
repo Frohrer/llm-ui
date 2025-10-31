@@ -2,6 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { manualTools } from './manual/index.js';
+import { db } from '@db';
+import { customTools } from '@db/schema';
+import { eq } from 'drizzle-orm';
+import { runPythonTool } from './manual/run-python.js';
 
 
 // Define the interface for a tool
@@ -21,6 +25,172 @@ let toolsCache: Record<string, Tool> = {};
 let toolsLoaded = false;
 
 /**
+ * Helper function to detect packages from Python code
+ */
+function detectPackagesFromCode(code: string): string[] {
+  const importToPackage: Record<string, string> = {
+    'cv2': 'opencv-python',
+    'sklearn': 'scikit-learn',
+    'PIL': 'Pillow',
+    'bs4': 'beautifulsoup4',
+    'yaml': 'PyYAML',
+    'dns': 'dnspython',
+    'serial': 'pyserial',
+    'crypto': 'pycryptodome',
+    'jwt': 'PyJWT',
+    'dateutil': 'python-dateutil',
+    'magic': 'python-magic',
+    'psutil': 'psutil',
+    'requests': 'requests',
+    'numpy': 'numpy',
+    'pandas': 'pandas',
+    'matplotlib': 'matplotlib',
+    'seaborn': 'seaborn',
+    'plotly': 'plotly',
+    'scipy': 'scipy',
+    'tensorflow': 'tensorflow',
+    'torch': 'torch',
+    'transformers': 'transformers',
+    'flask': 'flask',
+    'fastapi': 'fastapi',
+    'django': 'django',
+    'sqlalchemy': 'sqlalchemy',
+    'pymongo': 'pymongo',
+    'redis': 'redis',
+    'celery': 'celery',
+    'pytest': 'pytest',
+    'click': 'click',
+    'rich': 'rich',
+    'typer': 'typer',
+    'pydantic': 'pydantic',
+    'httpx': 'httpx',
+    'aiohttp': 'aiohttp',
+    'websockets': 'websockets',
+    'paramiko': 'paramiko',
+    'fabric': 'fabric',
+    'invoke': 'invoke',
+  };
+
+  const stdLibModules = new Set([
+    'os', 'sys', 'json', 'time', 'datetime', 'random', 'math', 'collections',
+    'itertools', 'functools', 'operator', 'pathlib', 'glob', 'shutil', 'tempfile',
+    'subprocess', 'threading', 'multiprocessing', 'asyncio', 'concurrent', 'queue',
+    'socket', 'ssl', 'urllib', 'http', 'email', 'base64', 'hashlib', 'hmac',
+    'secrets', 'uuid', 'pickle', 'shelve', 'dbm', 'sqlite3', 'zlib', 'gzip',
+    'bz2', 'lzma', 'zipfile', 'tarfile', 'csv', 'configparser', 'logging',
+    'getpass', 'platform', 'stat', 're', 'string', 'typing', 'io', 'copy',
+  ]);
+
+  const importPatterns = [
+    /^import\s+([\w.]+)/gm,
+    /^from\s+([\w.]+)\s+import/gm,
+  ];
+
+  const detectedImports = new Set<string>();
+
+  for (const pattern of importPatterns) {
+    let match;
+    while ((match = pattern.exec(code)) !== null) {
+      const rootModule = match[1].split('.')[0];
+      detectedImports.add(rootModule);
+    }
+  }
+
+  const packages: string[] = [];
+  detectedImports.forEach(imp => {
+    if (importToPackage[imp]) {
+      packages.push(importToPackage[imp]);
+    } else if (!stdLibModules.has(imp)) {
+      packages.push(imp);
+    }
+  });
+
+  return Array.from(new Set(packages)).sort();
+}
+
+/**
+ * Load custom Python tools from the database
+ */
+async function loadCustomTools(): Promise<void> {
+  try {
+    // Get all enabled custom tools
+    const customToolsList = await db
+      .select()
+      .from(customTools)
+      .where(eq(customTools.is_enabled, true));
+
+    console.log(`Loading ${customToolsList.length} custom Python tools from database`);
+
+    for (const customTool of customToolsList) {
+      // Create a tool wrapper that executes Python code
+      const tool: Tool = {
+        name: customTool.name,
+        description: customTool.description,
+        parameters: customTool.parameters_schema as any,
+        execute: async (params: any) => {
+          try {
+            // Extract the parameters from the schema
+            const paramsList: string[] = [];
+            const paramsCode: string[] = [];
+            
+            if (customTool.parameters_schema && 
+                typeof customTool.parameters_schema === 'object' && 
+                'properties' in customTool.parameters_schema) {
+              const properties = (customTool.parameters_schema as any).properties || {};
+              
+              // Build parameter assignments for the Python code
+              for (const [key, value] of Object.entries(params)) {
+                const jsonValue = JSON.stringify(value);
+                paramsCode.push(`${key} = ${jsonValue}`);
+              }
+            }
+
+            // Combine parameter assignments with user's Python code
+            const fullCode = paramsCode.length > 0 
+              ? `import json\n\n# Parameters\n${paramsCode.join('\n')}\n\n# User code\n${customTool.python_code}`
+              : customTool.python_code;
+
+            // Auto-detect packages from the code
+            const detectedPackages = detectPackagesFromCode(fullCode);
+            console.log(`[Custom Tool: ${customTool.name}] Auto-detected packages: ${detectedPackages.join(', ') || 'none'}`);
+
+            // Execute the Python code using the run_python tool
+            const result = await runPythonTool.execute({
+              code: fullCode,
+              packages: detectedPackages,
+              timeout: 30
+            });
+
+            // Update execution statistics
+            await db
+              .update(customTools)
+              .set({
+                execution_count: customTool.execution_count + 1,
+                last_executed_at: new Date(),
+              })
+              .where(eq(customTools.id, customTool.id));
+
+            return result;
+          } catch (error) {
+            console.error(`Error executing custom tool ${customTool.name}:`, error);
+            return {
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error',
+              tool_name: customTool.name
+            };
+          }
+        }
+      };
+
+      toolsCache[tool.name] = tool;
+      console.log(`Loaded custom Python tool: ${tool.name}`);
+    }
+  } catch (error) {
+    console.error('Error loading custom tools:', error);
+  }
+}
+
+/**
  * Load all tools from the tools directory
  */
 export async function loadTools(): Promise<Record<string, Tool>> {
@@ -31,6 +201,9 @@ export async function loadTools(): Promise<Record<string, Tool>> {
   try {
     // Load local tools
     await loadLocalTools();
+
+    // Load custom Python tools from database
+    await loadCustomTools();
 
     console.log(`Loaded ${Object.keys(toolsCache).length} total tools: ${Object.keys(toolsCache).join(', ')}`);
     

@@ -3,7 +3,7 @@ import { useUser } from "@/hooks/use-user";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "./theme-toggle";
-import { MessageCircle, BookOpen, Plus, BarChart3 } from "lucide-react";
+import { MessageCircle, BookOpen, Plus, BarChart3, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect } from "react";
 import { ConversationList } from "./conversation-list";
@@ -83,6 +83,16 @@ export function MainSidebar({
                 >
                   <BarChart3 className="mr-2 h-4 w-4" />
                   Statistics
+                </a>
+              </Link>
+              <Link href="/custom-tools">
+                <a
+                  className={`mt-1 flex items-center py-2 px-3 rounded-md text-sm font-medium ${
+                    isActive("/custom-tools") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  }`}
+                >
+                  <Wrench className="mr-2 h-4 w-4" />
+                  Custom Tools
                 </a>
               </Link>
               <KnowledgeSheet 
