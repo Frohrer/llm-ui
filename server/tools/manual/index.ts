@@ -8,6 +8,7 @@ import { sendEmailTool } from './send-email';
 import { ghostBlogTool } from './ghost-blog';
 import { knowledgeSourceTool } from './knowledge-source';
 import { screenshotTool } from './screenshot';
+import { createCustomToolTool } from './create-custom-tool';
 
 export const manualTools = [
   calculatorTool,
@@ -19,5 +20,6 @@ export const manualTools = [
   sendEmailTool,
   ghostBlogTool,
   knowledgeSourceTool,
-  screenshotTool
+  screenshotTool,
+  createCustomToolTool
 ]; 

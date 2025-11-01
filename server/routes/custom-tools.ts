@@ -20,6 +20,7 @@ const toolSchema = z.object({
     properties: z.record(z.any()).optional(),
     required: z.array(z.string()).optional(),
   }),
+  packages: z.array(z.string()).optional(),
   is_enabled: z.boolean().optional(),
   is_shared: z.boolean().optional(),
 });
@@ -133,6 +134,7 @@ router.post('/api/custom-tools', async (req: Request, res: Response) => {
         description: toolData.description,
         python_code: toolData.python_code,
         parameters_schema: toolData.parameters_schema,
+        packages: toolData.packages || [],
         is_enabled: toolData.is_enabled ?? true,
         is_shared: toolData.is_shared ?? false,
         created_at: new Date(),
@@ -431,13 +433,16 @@ router.post('/api/custom-tools/test', async (req: Request, res: Response) => {
       ? `import json\n\n# Test Parameters\n${paramsCode.join('\n')}\n\n# User code\n${python_code}`
       : python_code;
 
-    // Auto-detect packages from code or use user-provided packages
+    // Auto-detect packages from code
     const detectedPackages = detectPackagesFromCode(fullCode);
+    
+    // Use user-provided packages if specified, otherwise use detected packages
     const packagesToInstall = userPackages && Array.isArray(userPackages) && userPackages.length > 0
       ? userPackages
       : detectedPackages;
 
     console.log(`[Custom Tools Test] Detected packages: ${detectedPackages.join(', ') || 'none'}`);
+    console.log(`[Custom Tools Test] User-provided packages: ${userPackages?.join(', ') || 'none'}`);
     console.log(`[Custom Tools Test] Installing packages: ${packagesToInstall.join(', ') || 'none'}`);
 
     // Execute the Python code

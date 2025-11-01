@@ -150,14 +150,24 @@ async function loadCustomTools(): Promise<void> {
               ? `import json\n\n# Parameters\n${paramsCode.join('\n')}\n\n# User code\n${customTool.python_code}`
               : customTool.python_code;
 
-            // Auto-detect packages from the code
-            const detectedPackages = detectPackagesFromCode(fullCode);
-            console.log(`[Custom Tool: ${customTool.name}] Auto-detected packages: ${detectedPackages.join(', ') || 'none'}`);
+            // Use stored packages if available, otherwise auto-detect
+            let packagesToInstall: string[] = [];
+            
+            // Check if tool has manually specified packages
+            if (customTool.packages && Array.isArray(customTool.packages) && customTool.packages.length > 0) {
+              packagesToInstall = customTool.packages as string[];
+              console.log(`[Custom Tool: ${customTool.name}] Using stored packages: ${packagesToInstall.join(', ')}`);
+            } else {
+              // Auto-detect packages from the code
+              const detectedPackages = detectPackagesFromCode(fullCode);
+              packagesToInstall = detectedPackages;
+              console.log(`[Custom Tool: ${customTool.name}] Auto-detected packages: ${detectedPackages.join(', ') || 'none'}`);
+            }
 
             // Execute the Python code using the run_python tool
             const result = await runPythonTool.execute({
               code: fullCode,
-              packages: detectedPackages,
+              packages: packagesToInstall,
               timeout: 30
             });
 
@@ -314,7 +324,7 @@ export async function getToolDefinitions() {
 /**
  * Execute a tool by name with the given parameters
  */
-export async function executeTool(toolName: string, params: any): Promise<any> {
+export async function executeTool(toolName: string, params: any, userId?: number): Promise<any> {
   const toolsMap = await loadTools();
   
   if (!toolsMap[toolName]) {
@@ -322,7 +332,8 @@ export async function executeTool(toolName: string, params: any): Promise<any> {
   }
   
   try {
-    return await toolsMap[toolName].execute(params);
+    // Pass userId as a second parameter for tools that need it
+    return await toolsMap[toolName].execute(params, { userId });
   } catch (error) {
     console.error(`Error executing tool ${toolName}:`, error);
     throw error;

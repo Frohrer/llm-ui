@@ -85,6 +85,7 @@ export const customTools = pgTable("custom_tools", {
   description: text("description").notNull(), // Description for the LLM
   python_code: text("python_code").notNull(), // Python code to execute
   parameters_schema: jsonb("parameters_schema").notNull(), // JSON schema for parameters
+  packages: jsonb("packages").default([]), // Python packages to install
   is_enabled: boolean("is_enabled").default(true), // Whether the tool is active
   is_shared: boolean("is_shared").default(false), // Whether tool is shared across all users
   execution_count: integer("execution_count").default(0), // Track usage

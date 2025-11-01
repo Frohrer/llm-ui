@@ -6,9 +6,11 @@ import { messages } from "@db/schema";
 // Configuration for the agentic loop
 export interface AgenticConfig {
   maxIterations?: number;
+  maxContextTokens?: number; // Max tokens before trimming (default: 120K)
   conversationId: number;
   model: LanguageModel;
   systemPrompt?: string;
+  userId?: number; // User ID for tools that need authentication/authorization
 }
 
 // Result of a single iteration
@@ -26,7 +28,7 @@ export interface IterationResult {
  * Convert our tool definitions to AI SDK format
  * This function dynamically loads tools, supporting hot reload of custom tools
  */
-async function getAISDKTools(forceReload: boolean = false): Promise<Record<string, CoreTool>> {
+async function getAISDKTools(forceReload: boolean = false, userId?: number): Promise<Record<string, CoreTool>> {
   // Force reload tools from database if requested (hot reload support)
   if (forceReload) {
     const { refreshTools } = await import('./tools');
@@ -65,7 +67,7 @@ async function getAISDKTools(forceReload: boolean = false): Promise<Record<strin
       parameters: jsonSchema(schema),
       execute: async (params: any) => {
         try {
-          const result = await executeTool(func.name, params);
+          const result = await executeTool(func.name, params, userId);
           return result;
         } catch (error) {
           console.error(`Error executing tool ${func.name}:`, error);
@@ -101,16 +103,18 @@ export async function runAgenticLoop(
 ): Promise<string> {
   const {
     maxIterations = 10,
+    maxContextTokens = 120000, // Conservative default (Claude: 200K, GPT-4: 128K)
     conversationId,
     model,
-    systemPrompt
+    systemPrompt,
+    userId
   } = config;
 
-  console.log(`[Agentic] Starting agentic loop with max ${maxIterations} iterations`);
+  console.log(`[Agentic] Starting agentic loop with max ${maxIterations} iterations, ${maxContextTokens} token limit`);
 
   // Get tools in AI SDK format with hot reload support
   // This ensures custom tools are always up-to-date
-  const tools = await getAISDKTools(true);
+  const tools = await getAISDKTools(true, userId);
   console.log(`[Agentic] Loaded ${Object.keys(tools).length} tools (with hot reload):`, Object.keys(tools).join(', '));
 
   // Keep track of messages for context
@@ -257,17 +261,26 @@ export async function runAgenticLoop(
           assistantMessage,
           ...toolMessages
         ];
+
+        // Smart context management:
+        // 1. First, truncate any oversized individual tool results (max 10K tokens each)
+        currentMessages = truncateLargeToolResults(currentMessages, 10000);
+        
+        // 2. Check total context size and trim if needed
+        const currentTokens = estimateTokenCount(currentMessages);
+        
+        if (currentTokens > maxContextTokens) {
+          console.log(`[Agentic] Context size: ${currentTokens} tokens, trimming to ${maxContextTokens}`);
+          currentMessages = trimMessagesSmartly(currentMessages, maxContextTokens);
+        } else {
+          console.log(`[Agentic] Context size: ${currentTokens} tokens (within limits)`);
+        }
       } else {
         // No tool calls, we're done
         console.log(`[Agentic] No tool calls, finishing with response`);
         finalResponse = result.text;
         break;
       }
-
-      // Note: We don't trim context here because modern LLMs have huge context windows
-      // (Claude: 200K tokens, GPT-4: 128K, Gemini: 1M+). If we hit limits, the model
-      // will error and we can handle it. Trimming causes more problems (context loss, loops)
-      // than it solves.
 
     } catch (error) {
       console.error(`[Agentic] Error in iteration ${iteration}:`, error);
@@ -279,6 +292,23 @@ export async function runAgenticLoop(
           error: error instanceof Error ? error.message : 'Unknown error'
         }
       });
+
+      // Check if it's a context length error
+      const errorMessage = error instanceof Error ? error.message : '';
+      const isContextError = errorMessage.includes('context') || 
+                            errorMessage.includes('too long') || 
+                            errorMessage.includes('maximum context') ||
+                            errorMessage.includes('token limit');
+      
+      if (isContextError && currentMessages.length > 5) {
+        console.log(`[Agentic] Context length error detected, attempting to recover by trimming aggressively`);
+        // Try to recover by aggressive trimming
+        currentMessages = truncateLargeToolResults(currentMessages, 5000);
+        currentMessages = trimMessagesSmartly(currentMessages, 80000);
+        console.log(`[Agentic] Reduced context to ${estimateTokenCount(currentMessages)} tokens, retrying...`);
+        // Continue the loop to retry
+        continue;
+      }
 
       // If we have some response, return it; otherwise throw
       if (finalResponse) {
@@ -334,9 +364,9 @@ export async function runAgenticLoop(
 }
 
 /**
- * Helper to check if context is getting too large
+ * Helper to estimate token count from messages
  */
-export function estimateContextSize(messages: CoreMessage[]): number {
+export function estimateTokenCount(messages: CoreMessage[]): number {
   let totalChars = 0;
   for (const msg of messages) {
     if (typeof msg.content === 'string') {
@@ -345,10 +375,141 @@ export function estimateContextSize(messages: CoreMessage[]): number {
       for (const part of msg.content) {
         if (part.type === 'text') {
           totalChars += part.text.length;
+        } else if (part.type === 'tool-result') {
+          // Tool results can be large - estimate their size
+          const resultStr = typeof part.result === 'string' 
+            ? part.result 
+            : JSON.stringify(part.result);
+          totalChars += resultStr.length;
         }
       }
     }
   }
   // Rough estimate: 1 token ≈ 4 characters
   return Math.ceil(totalChars / 4);
+}
+
+/**
+ * Truncate large tool results to prevent context overflow
+ * Returns a modified copy of the messages with truncated tool results
+ */
+function truncateLargeToolResults(messages: CoreMessage[], maxResultTokens: number = 10000): CoreMessage[] {
+  const maxResultChars = maxResultTokens * 4; // Rough estimate
+  
+  return messages.map(msg => {
+    if (msg.role !== 'tool' || !Array.isArray(msg.content)) {
+      return msg;
+    }
+    
+    const newContent = msg.content.map((part: any) => {
+      if (part.type !== 'tool-result') {
+        return part;
+      }
+      
+      const resultStr = typeof part.result === 'string' 
+        ? part.result 
+        : JSON.stringify(part.result);
+      
+      if (resultStr.length <= maxResultChars) {
+        return part;
+      }
+      
+      // Truncate large results
+      const truncated = resultStr.slice(0, maxResultChars);
+      const tokenEstimate = Math.ceil(resultStr.length / 4);
+      const truncatedResult = typeof part.result === 'string'
+        ? `${truncated}\n\n...[TRUNCATED: Original was ~${tokenEstimate} tokens, showing first ${maxResultTokens} tokens]`
+        : `${truncated}...[TRUNCATED: Original was ~${tokenEstimate} tokens]`;
+      
+      console.log(`[Agentic] Truncated tool result for ${part.toolName} from ~${tokenEstimate} to ~${maxResultTokens} tokens`);
+      
+      return {
+        ...part,
+        result: truncatedResult
+      };
+    });
+    
+    return {
+      ...msg,
+      content: newContent
+    };
+  });
+}
+
+/**
+ * Smart message trimming that keeps tool_use and tool_result pairs together
+ * This prevents Anthropic API errors about orphaned tool_result blocks
+ */
+function trimMessagesSmartly(messages: CoreMessage[], targetTokens: number): CoreMessage[] {
+  const currentTokens = estimateTokenCount(messages);
+  
+  if (currentTokens <= targetTokens) {
+    return messages;
+  }
+  
+  console.log(`[Agentic] Context too large (${currentTokens} tokens), trimming to ~${targetTokens} tokens`);
+  
+  // Always keep the first message (initial user prompt)
+  const firstMessage = messages[0];
+  const remainingMessages = messages.slice(1);
+  
+  // Build conversation "groups" where each group is:
+  // - A user message, OR
+  // - An assistant message + any following tool messages
+  const groups: CoreMessage[][] = [];
+  let i = 0;
+  
+  while (i < remainingMessages.length) {
+    const msg = remainingMessages[i];
+    
+    if (msg.role === 'user') {
+      groups.push([msg]);
+      i++;
+    } else if (msg.role === 'assistant') {
+      const group = [msg];
+      i++;
+      
+      // Collect all consecutive tool messages
+      while (i < remainingMessages.length && remainingMessages[i].role === 'tool') {
+        group.push(remainingMessages[i]);
+        i++;
+      }
+      
+      groups.push(group);
+    } else if (msg.role === 'tool') {
+      console.warn('[Agentic] Found orphaned tool message during trimming');
+      i++;
+    } else {
+      groups.push([msg]);
+      i++;
+    }
+  }
+  
+  // Keep most recent groups that fit in target
+  let totalTokens = estimateTokenCount([firstMessage]);
+  const keptGroups: CoreMessage[][] = [];
+  
+  // Iterate from end (most recent) backwards
+  for (let j = groups.length - 1; j >= 0; j--) {
+    const groupTokens = estimateTokenCount(groups[j]);
+    
+    if (totalTokens + groupTokens <= targetTokens) {
+      keptGroups.unshift(groups[j]);
+      totalTokens += groupTokens;
+    } else {
+      // Can't fit this group - if we have no groups yet, keep it anyway to preserve some context
+      if (keptGroups.length === 0) {
+        console.warn(`[Agentic] Keeping oversized group (${groupTokens} tokens) to preserve context`);
+        keptGroups.unshift(groups[j]);
+      }
+      break;
+    }
+  }
+  
+  const result = [firstMessage, ...keptGroups.flat()];
+  const finalTokens = estimateTokenCount(result);
+  
+  console.log(`[Agentic] Trimmed from ${currentTokens} to ${finalTokens} tokens (${groups.length - keptGroups.length} groups removed)`);
+  
+  return result;
 }

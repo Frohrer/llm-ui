@@ -3,8 +3,9 @@ import { useUser } from "@/hooks/use-user";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "./theme-toggle";
-import { MessageCircle, BookOpen, Plus, BarChart3, Wrench } from "lucide-react";
+import { MessageCircle, BookOpen, Plus, BarChart3, Wrench, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { useEffect } from "react";
 import { ConversationList } from "./conversation-list";
 import { Conversation } from "@/lib/llm/types";
@@ -93,6 +94,19 @@ export function MainSidebar({
                 >
                   <Wrench className="mr-2 h-4 w-4" />
                   Custom Tools
+                </a>
+              </Link>
+              <Link href="/voice-chat">
+                <a
+                  className={`mt-1 flex items-center py-2 px-3 rounded-md text-sm font-medium ${
+                    isActive("/voice-chat") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  }`}
+                >
+                  <Mic className="mr-2 h-4 w-4" />
+                  Voice Chat
+                  <Badge variant="secondary" className="ml-2 text-xs">
+                    Beta
+                  </Badge>
                 </a>
               </Link>
               <KnowledgeSheet 

@@ -48,6 +48,7 @@ COPY --from=builder /app/postcss.config.js ./postcss.config.js
 COPY --from=builder /app/tailwind.config.ts ./tailwind.config.ts
 COPY --from=builder /app/types ./types
 COPY --from=builder /app/server/config/providers ./server/config/providers
+COPY --from=builder /app/CUSTOM_TOOLS_GUIDE.md ./CUSTOM_TOOLS_GUIDE.md
 
 # Create screenshots directory
 RUN mkdir -p /app/public/screenshots && chmod 777 /app/public/screenshots

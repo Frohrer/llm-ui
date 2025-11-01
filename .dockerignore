@@ -12,4 +12,5 @@ README*.md
 docs
 TESTING.md
 *.md
+!CUSTOM_TOOLS_GUIDE.md
 !package.json

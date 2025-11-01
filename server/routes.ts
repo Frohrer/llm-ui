@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer } from "ws";
 import { db } from "@db";
 import { loadProviderConfigs } from "./config/loader";
 import { cloudflareAuthMiddleware } from "./middleware/auth";
@@ -25,6 +26,7 @@ import {
   getSuperModelStatus,
 } from "./routes/providers";
 import { uploadSingleMiddleware, extractTextFromFile, transformUrlToProxy } from "./file-handler";
+import { handleRealtimeVoiceConnection } from "./routes/realtime-voice";
 
 // Load provider configurations at startup
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -401,5 +403,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const server = createServer(app);
+
+  // Setup WebSocket server for realtime voice
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (request, socket, head) => {
+    const pathname = new URL(request.url!, `http://${request.headers.host}`).pathname;
+
+    if (pathname === '/api/realtime-voice') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        handleRealtimeVoiceConnection(ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+
   return server;
 }

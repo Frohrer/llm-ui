@@ -24,6 +24,7 @@ interface CustomTool {
     properties?: Record<string, any>;
     required?: string[];
   };
+  packages?: string[];
   is_enabled: boolean;
   is_shared: boolean;
   execution_count: number;
@@ -37,6 +38,7 @@ interface ToolFormData {
   description: string;
   python_code: string;
   parameters_schema: string; // JSON string
+  packages: string[];
   is_enabled: boolean;
   is_shared: boolean;
 }
@@ -55,6 +57,7 @@ export default function CustomToolsPage() {
       properties: {},
       required: []
     }, null, 2),
+    packages: [],
     is_enabled: true,
     is_shared: false,
   });
@@ -66,6 +69,9 @@ export default function CustomToolsPage() {
   const [isTesting, setIsTesting] = useState(false);
   const [isGeneratingSchema, setIsGeneratingSchema] = useState(false);
   const [useFormView, setUseFormView] = useState(true);
+  
+  // Package management state
+  const [packageInput, setPackageInput] = useState('');
 
   // Fetch custom tools
   const { data: tools = [], isLoading } = useQuery<CustomTool[]>({
@@ -92,8 +98,7 @@ export default function CustomToolsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/custom-tools'] });
-      setIsCreateDialogOpen(false);
-      resetForm();
+      // Keep dialog open after saving
       toast({
         title: 'Tool created',
         description: 'Your custom tool has been created successfully.',
@@ -128,8 +133,7 @@ export default function CustomToolsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/custom-tools'] });
-      setEditingTool(null);
-      resetForm();
+      // Keep dialog open after updating
       toast({
         title: 'Tool updated',
         description: 'Your custom tool has been updated successfully.',
@@ -211,12 +215,14 @@ export default function CustomToolsPage() {
         properties: {},
         required: []
       }, null, 2),
+      packages: [],
       is_enabled: true,
       is_shared: false,
     });
     setTestParameters('{}');
     setTestFormData({});
     setTestOutput(null);
+    setPackageInput('');
   };
 
   // Parse schema and get form fields
@@ -281,6 +287,7 @@ export default function CustomToolsPage() {
         body: JSON.stringify({
           python_code: formData.python_code,
           parameters,
+          packages: formData.packages.length > 0 ? formData.packages : undefined,
         }),
         credentials: 'include',
       });
@@ -358,6 +365,7 @@ export default function CustomToolsPage() {
       description: tool.description,
       python_code: tool.python_code,
       parameters_schema: JSON.stringify(tool.parameters_schema, null, 2),
+      packages: tool.packages || [],
       is_enabled: tool.is_enabled,
       is_shared: tool.is_shared,
     });
@@ -403,6 +411,7 @@ export default function CustomToolsPage() {
         <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
           setIsCreateDialogOpen(open);
           if (!open) {
+            // Reset form when dialog closes (handles cancel, save success, escape, etc.)
             setEditingTool(null);
             resetForm();
           }
@@ -462,6 +471,66 @@ export default function CustomToolsPage() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Use print() statements to see output. Parameters will be available as variables.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="packages">Python Packages</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="packages"
+                    placeholder="e.g., opencv-python, scikit-learn, beautifulsoup4"
+                    value={packageInput}
+                    onChange={(e) => setPackageInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const pkg = packageInput.trim();
+                        if (pkg && !formData.packages.includes(pkg)) {
+                          setFormData({ ...formData, packages: [...formData.packages, pkg] });
+                          setPackageInput('');
+                        }
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const pkg = packageInput.trim();
+                      if (pkg && !formData.packages.includes(pkg)) {
+                        setFormData({ ...formData, packages: [...formData.packages, pkg] });
+                        setPackageInput('');
+                      }
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add
+                  </Button>
+                </div>
+                {formData.packages.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {formData.packages.map((pkg, index) => (
+                      <Badge key={index} variant="secondary" className="flex items-center gap-1">
+                        {pkg}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormData({
+                              ...formData,
+                              packages: formData.packages.filter((_, i) => i !== index)
+                            });
+                          }}
+                          className="ml-1 hover:text-destructive"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Add Python packages that will be installed when running this tool. Useful when package names differ from import names (e.g., opencv-python vs cv2).
                 </p>
               </div>
               <div className="space-y-2">
@@ -713,8 +782,7 @@ export default function CustomToolsPage() {
             <DialogFooter>
               <Button variant="outline" onClick={() => {
                 setIsCreateDialogOpen(false);
-                setEditingTool(null);
-                resetForm();
+                // Form reset is handled by dialog's onOpenChange
               }}>
                 Cancel
               </Button>

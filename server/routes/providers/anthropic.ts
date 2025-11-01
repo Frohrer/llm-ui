@@ -534,7 +534,8 @@ router.post("/", async (req: Request, res: Response) => {
             maxContextMessages: 15,
             conversationId: dbConversation.id,
             model: aiModel,
-            systemPrompt
+            systemPrompt,
+            userId: req.user!.id
           }
         );
         
