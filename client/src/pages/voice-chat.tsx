@@ -551,13 +551,20 @@ export default function VoiceChat() {
       case 'response.done':
         console.log('[Voice Chat] Response completed - marking for final playback');
         responseCompleteRef.current = true;
-        // Trigger one more check after a delay to catch any final chunks
+        // Trigger checks with longer delays to ensure all final chunks arrive and play
         setTimeout(() => {
           if (audioQueueRef.current.length > 0 && !isPlayingRef.current) {
             console.log('[Voice Chat] Playing final chunks after response.done');
             playNextChunk();
           }
-        }, 100);
+        }, 200);
+        // Add a second check to catch any stragglers
+        setTimeout(() => {
+          if (audioQueueRef.current.length > 0 && !isPlayingRef.current) {
+            console.log('[Voice Chat] Playing remaining chunks after extended delay');
+            playNextChunk();
+          }
+        }, 500);
         break;
 
       case 'error':
@@ -656,9 +663,10 @@ export default function VoiceChat() {
         playNextChunk();
       } else {
         // Queue is empty - wait and check again
-        const waitTime = responseCompleteRef.current ? 50 : 150;
+        // Increase wait time and retries when response is complete to ensure we don't cut off the last words
+        const waitTime = responseCompleteRef.current ? 100 : 150;
         let retryCount = 0;
-        const maxRetries = responseCompleteRef.current ? 3 : 10;
+        const maxRetries = responseCompleteRef.current ? 8 : 10;
         
         const checkForMore = () => {
           if (audioQueueRef.current.length > 0) {
