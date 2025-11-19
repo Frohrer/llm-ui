@@ -1,7 +1,14 @@
-import { pgTable, text, serial, integer, timestamp, boolean, json, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, json, jsonb, customType } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
+
+// Custom type for PostgreSQL tsvector (full-text search)
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -12,6 +19,7 @@ export const users = pgTable("users", {
 export const conversations = pgTable("conversations", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
+  title_search: tsvector("title_search"), // Full-text search column
   user_id: integer("user_id").references(() => users.id).notNull(),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
@@ -26,6 +34,7 @@ export const messages = pgTable("messages", {
     .notNull(),
   role: text("role", { enum: ["user", "assistant", "tool"] }).notNull(),
   content: text("content").notNull(),
+  content_search: tsvector("content_search"), // Full-text search column
   metadata: jsonb("metadata").default({}),
   created_at: timestamp("created_at").defaultNow().notNull(),
 });

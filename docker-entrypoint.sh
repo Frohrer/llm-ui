@@ -24,6 +24,14 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# Run full-text search migration
+echo "Setting up full-text search..."
+psql -f migrations/0002_add_fulltext_search.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to setup full-text search (may already be applied)"
+    # Don't exit - migration might already be applied
+fi
+
 echo "Database schema setup completed!"
 
 # Start the application

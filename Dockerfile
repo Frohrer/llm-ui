@@ -38,6 +38,7 @@ RUN npm i
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/db ./db
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/client/src ./client/src
 COPY --from=builder /app/client/index.html ./client/index.html
 COPY --from=builder /app/server ./server
