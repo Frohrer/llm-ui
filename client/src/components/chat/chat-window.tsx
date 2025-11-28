@@ -893,8 +893,9 @@ export function ChatWindow({
             </SheetHeader>
             <ScrollArea className="flex-1">
               <div className="py-4">
+                {/* Always show all knowledge sources so users can add new ones mid-conversation */}
                 <KnowledgeSourceList
-                  mode={conversation ? "conversation" : "all"}
+                  mode="all"
                   conversationId={conversation?.id}
                   showAttachButton={true}
                   onSelectKnowledgeSource={(source) => {
@@ -910,6 +911,7 @@ export function ChatWindow({
                     }
                   }}
                   selectedSourceIds={pendingKnowledgeSources}
+                  attachedSourceIds={conversationKnowledgeQuery.data?.map(s => s.id) || []}
                 />
               </div>
             </ScrollArea>

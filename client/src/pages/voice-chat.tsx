@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
+import { useParams, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Mic, MicOff, Volume2, VolumeX, Loader2, Wrench, Signal, SignalMedium, SignalLow } from 'lucide-react';
+import { Mic, MicOff, Loader2, Wrench, Signal, SignalMedium, SignalLow, ArrowLeft } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
+import { Link } from 'wouter';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface Message {
   id: string;
@@ -24,7 +25,21 @@ interface ConnectionQuality {
   packetsSent: number;
 }
 
-export default function VoiceChat() {
+interface VoiceChatProps {
+  conversationId?: string;
+}
+
+export default function VoiceChat({ conversationId: propConversationId }: VoiceChatProps) {
+  const params = useParams<{ id?: string }>();
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  
+  // Use prop or URL param for conversation ID
+  const initialConversationId = propConversationId || params.id;
+  const [conversationId, setConversationId] = useState<number | null>(
+    initialConversationId ? parseInt(initialConversationId) : null
+  );
+  
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [isRecording, setIsRecording] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -51,6 +66,38 @@ export default function VoiceChat() {
   const latencyCheckRef = useRef<{ timestamp: number; messageId: string } | null>(null);
   const lastPingRef = useRef<number>(Date.now());
   const audioWorkletLoadedRef = useRef(false);
+
+  // Fetch previous messages if resuming a conversation
+  const { data: previousMessages } = useQuery({
+    queryKey: ['/api/conversations', conversationId, 'messages'],
+    queryFn: async () => {
+      if (!conversationId) return null;
+      const response = await fetch(`/api/conversations/${conversationId}/messages`, {
+        credentials: 'include'
+      });
+      if (!response.ok) return null;
+      return response.json();
+    },
+    enabled: !!conversationId && status === 'disconnected',
+  });
+
+  // Load previous messages into state when fetched
+  useEffect(() => {
+    if (previousMessages?.messages && messages.length === 0) {
+      const loadedMessages: Message[] = previousMessages.messages
+        .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+        .map((m: any, index: number) => ({
+          id: `prev-${m.id || index}`,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: new Date(m.created_at)
+        }));
+      
+      if (loadedMessages.length > 0) {
+        setMessages(loadedMessages);
+      }
+    }
+  }, [previousMessages, messages.length]);
 
   // Prevent body scrolling on mobile
   useEffect(() => {
@@ -134,9 +181,13 @@ export default function VoiceChat() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
 
-      // Create WebSocket connection
+      // Create WebSocket connection with conversation ID if resuming
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/api/realtime-voice`);
+      const wsUrl = conversationId 
+        ? `${protocol}//${window.location.host}/api/realtime-voice?conversationId=${conversationId}`
+        : `${protocol}//${window.location.host}/api/realtime-voice`;
+      
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -170,6 +221,9 @@ export default function VoiceChat() {
         console.log('[Voice Chat] Disconnected from server');
         setStatus('disconnected');
         stopRecording();
+        
+        // Invalidate conversations query to refresh the list
+        queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
       };
     } catch (error) {
       console.error('[Voice Chat] Error connecting:', error);
@@ -224,12 +278,11 @@ export default function VoiceChat() {
     responseCompleteRef.current = false;
     nextPlayTimeRef.current = 0;
     
-    // Reset state
+    // Reset state (but keep messages for history)
     setStatus('disconnected');
     setIsRecording(false);
     setError(null);
     setVoiceActivity(0);
-    setMessages([]); // Clear messages
     setCurrentToolCall(null);
     setConnectionQuality({
       latency: 0,
@@ -237,6 +290,9 @@ export default function VoiceChat() {
       packetsReceived: 0,
       packetsSent: 0
     });
+    
+    // Invalidate conversations query to refresh the list
+    queryClient.invalidateQueries({ queryKey: ['/api/conversations'] });
     
     console.log('[Voice Chat] Cleanup complete');
   };
@@ -430,6 +486,19 @@ export default function VoiceChat() {
     }));
 
     switch (message.type) {
+      case 'conversation.created':
+        // New conversation was created on the server
+        console.log('[Voice Chat] Conversation created:', message.conversationId);
+        setConversationId(message.conversationId);
+        // Update URL without full navigation
+        setLocation(`/voice-chat/${message.conversationId}`, { replace: true });
+        break;
+
+      case 'conversation.resumed':
+        // Resumed existing conversation
+        console.log('[Voice Chat] Conversation resumed:', message.conversationId);
+        break;
+
       case 'session.created':
         console.log('[Voice Chat] Session created');
         latencyCheckRef.current = { timestamp: Date.now(), messageId: 'session_start' };
@@ -696,6 +765,13 @@ export default function VoiceChat() {
     source.start(startTime);
   };
 
+  // Start new conversation
+  const startNewConversation = () => {
+    setConversationId(null);
+    setMessages([]);
+    setLocation('/voice-chat', { replace: true });
+  };
+
   return (
     <div className="fixed inset-0 flex flex-col bg-background overflow-hidden overscroll-none">
       {/* Static Header - Won't scroll */}
@@ -706,13 +782,26 @@ export default function VoiceChat() {
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
+                  <Link href="/">
+                    <a className="flex items-center text-muted-foreground hover:text-foreground">
+                      <ArrowLeft className="h-4 w-4 mr-1" />
+                      <span className="text-sm hidden sm:inline">Back</span>
+                    </a>
+                  </Link>
                   <h1 className="text-lg md:text-xl font-semibold truncate">Voice Chat</h1>
                   <Badge variant={status === 'connected' ? 'default' : 'secondary'} className="text-xs">
                     {status}
                   </Badge>
+                  {conversationId && (
+                    <Badge variant="outline" className="text-xs">
+                      #{conversationId}
+                    </Badge>
+                  )}
                 </div>
                 <p className="text-xs md:text-sm text-muted-foreground mt-1 hidden sm:block">
-                  Talk to the AI with real-time voice and access to all tools
+                  {conversationId 
+                    ? 'Continue your voice conversation - all messages are saved' 
+                    : 'Start a new voice conversation - it will be saved automatically'}
                 </p>
               </div>
             </div>
@@ -746,11 +835,26 @@ export default function VoiceChat() {
                 </Button>
               )}
               
+              {/* New conversation button (when connected and has conversation) */}
+              {status === 'connected' && conversationId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    disconnect();
+                    startNewConversation();
+                  }}
+                  className="h-9"
+                >
+                  New Chat
+                </Button>
+              )}
+              
               {/* Main action button */}
               <div className="flex-1 sm:flex-none sm:ml-auto">
                 {status === 'disconnected' || status === 'error' ? (
                   <Button onClick={connect} className="w-full sm:w-auto h-9">
-                    Connect
+                    {conversationId ? 'Resume' : 'Connect'}
                   </Button>
                 ) : status === 'connecting' ? (
                   <Button disabled className="w-full sm:w-auto h-9">
@@ -791,6 +895,14 @@ export default function VoiceChat() {
 
             {/* Messages */}
             <div className="space-y-3 pb-4">
+              {messages.length === 0 && status === 'disconnected' && !conversationId && (
+                <div className="text-center text-muted-foreground py-12">
+                  <Mic className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-sm md:text-base">Click Connect to start a voice conversation</p>
+                  <p className="text-xs text-muted-foreground mt-2">Your conversation will be saved automatically</p>
+                </div>
+              )}
+              
               {messages.length === 0 && status === 'connected' && (
                 <div className="text-center text-muted-foreground py-12">
                   <Mic className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -865,4 +977,3 @@ export default function VoiceChat() {
     </div>
   );
 }
-

@@ -234,6 +234,19 @@ router.post("/", async (req: Request, res: Response) => {
         created_at: timestamp,
       });
 
+      // Add any pending knowledge sources to existing conversation (allows mid-conversation injection)
+      if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+        console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to existing conversation ${conversationIdNum}`);
+        
+        for (const knowledgeSourceId of pendingKnowledgeSources) {
+          try {
+            await addKnowledgeToConversation(conversationIdNum, knowledgeSourceId);
+          } catch (error) {
+            console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+          }
+        }
+      }
+
       dbConversation = existingConversation;
     }
 
