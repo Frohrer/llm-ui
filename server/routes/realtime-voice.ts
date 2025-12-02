@@ -155,7 +155,7 @@ ${contextSummary}`;
   }
 
   // Connect to OpenAI Realtime API
-  const realtimeUrl = 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01';
+  const realtimeUrl = 'wss://api.openai.com/v1/realtime?model=gpt-realtime';
   let openaiWs: WebSocket | null = null;
 
   // Helper to save user message
