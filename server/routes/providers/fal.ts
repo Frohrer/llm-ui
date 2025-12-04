@@ -163,7 +163,14 @@ router.post("/", async (req: Request, res: Response) => {
                            model.toLowerCase().includes("stable") ||
                            model.toLowerCase().includes("sd") ||
                            model.toLowerCase().includes("diffusion") ||
-                           model.toLowerCase().includes("flux"); // Add Flux Pro to image models
+                           model.toLowerCase().includes("flux") ||
+                           model.toLowerCase().includes("reve") ||
+                           model.toLowerCase().includes("nano") ||
+                           model.toLowerCase().includes("banana") ||
+                           model.toLowerCase().includes("seedream") ||
+                           model.toLowerCase().includes("dreamina") ||
+                           model.toLowerCase().includes("bytedance") ||
+                           model.toLowerCase().includes("text-to-image"); // Match any text-to-image endpoint
 
       if (isImageRequest) {
         // Send a single initial progress message

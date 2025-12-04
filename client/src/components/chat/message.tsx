@@ -299,16 +299,22 @@ export function Message({ message }: MessageProps) {
 
               return (
                 <div className="my-4 flex justify-center">
-                  <img
-                    src={src}
-                    alt={alt || "Generated image"}
-                    className="max-w-full h-auto rounded-lg shadow-lg"
-                    style={{ maxHeight: "512px" }}
-                    onError={(e) => {
-                      console.error("Image failed to load:", src);
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
+                  <a href={src} target="_blank" rel="noopener noreferrer" className="block">
+                    <img
+                      src={src}
+                      alt={alt || "Generated image"}
+                      className="max-w-full h-auto rounded-lg shadow-lg cursor-zoom-in hover:opacity-95 transition-opacity"
+                      style={{ 
+                        maxHeight: "80vh",
+                        imageRendering: "auto",
+                        WebkitImageSmoothing: "high",
+                      }}
+                      onError={(e) => {
+                        console.error("Image failed to load:", src);
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  </a>
                 </div>
               );
             },

@@ -16,8 +16,8 @@
       "defaultModel": false
     },
     {
-      "id": "gemini-2.5-flash-image-preview",
-      "name": "Gemini 2.5 Flash Image Preview",
+      "id": "gemini-2.5-flash-image",
+      "name": "Gemini 2.5 Flash Image",
       "contextLength": 32768,
       "defaultModel": false
     },

@@ -17,7 +17,7 @@
           "guidance_scale": 5,
           "num_images": 1,
           "enable_safety_checker": false,
-          "output_format": "jpeg",
+          "output_format": "png",
           "sync_mode": true
         }
       },
@@ -29,7 +29,7 @@
         "parameters": {
           "num_images": 1,
           "enable_safety_checker": false,
-          "output_format": "jpeg",
+          "output_format": "png",
           "aspect_ratio": "16:9",
           "sync_mode": true,
           "raw": true
@@ -49,7 +49,59 @@
           "guidance_scale": 3.5,
           "num_images": 1,
           "enable_safety_checker": false,
-          "output_format": "jpeg",
+          "output_format": "png",
+          "sync_mode": true
+        }
+      },
+      {
+        "id": "fal-ai/reve/text-to-image",
+        "name": "Reve",
+        "contextLength": 1024,
+        "defaultModel": false,
+        "parameters": {
+          "image_size": "square_hd",
+          "num_images": 1,
+          "enable_safety_checker": false,
+          "output_format": "png",
+          "sync_mode": true
+        }
+      },
+      {
+        "id": "fal-ai/nano-banana-pro",
+        "name": "Nano Banana Pro",
+        "contextLength": 1024,
+        "defaultModel": false,
+        "parameters": {
+          "image_size": "square_hd",
+          "num_images": 1,
+          "enable_safety_checker": false,
+          "output_format": "png",
+          "sync_mode": true
+        }
+      },
+      {
+        "id": "fal-ai/bytedance/seedream/v4/text-to-image",
+        "name": "ByteDance Seedream v4",
+        "contextLength": 1024,
+        "defaultModel": false,
+        "parameters": {
+          "image_size": "square_hd",
+          "num_images": 1,
+          "enable_safety_checker": false,
+          "output_format": "png",
+          "sync_mode": true
+        }
+      },
+      {
+        "id": "fal-ai/bytedance/dreamina/v3.1/text-to-image",
+        "name": "ByteDance Dreamina v3.1",
+        "contextLength": 1024,
+        "defaultModel": false,
+        "parameters": {
+          "image_size": "square_hd",
+          "num_images": 1,
+          "enable_safety_checker": false,
+          "output_format": "png",
           "sync_mode": true
         }
       }
