@@ -1,0 +1,21 @@
+# Test container for running agentic mode integration tests
+FROM node:20-slim
+
+WORKDIR /test
+
+# Install required tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy test script and package files
+COPY test-agentic-mode.mjs ./
+COPY package.json ./
+
+# The test script doesn't need npm install since it uses built-in fetch
+# Just make it executable
+RUN chmod +x test-agentic-mode.mjs
+
+# Set the entrypoint to run the test
+ENTRYPOINT ["node", "test-agentic-mode.mjs"]
+

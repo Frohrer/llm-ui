@@ -3,8 +3,9 @@ import { useUser } from "@/hooks/use-user";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "./theme-toggle";
-import { MessageCircle, LogOut, BookOpen, Plus } from "lucide-react";
+import { MessageCircle, BookOpen, Plus, BarChart3, Wrench, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { useEffect } from "react";
 import { ConversationList } from "./conversation-list";
 import { Conversation } from "@/lib/llm/types";
@@ -75,6 +76,39 @@ export function MainSidebar({
                   Conversations
                 </a>
               </Link>
+              <Link href="/stats">
+                <a
+                  className={`mt-1 flex items-center py-2 px-3 rounded-md text-sm font-medium ${
+                    isActive("/stats") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  }`}
+                >
+                  <BarChart3 className="mr-2 h-4 w-4" />
+                  Statistics
+                </a>
+              </Link>
+              <Link href="/custom-tools">
+                <a
+                  className={`mt-1 flex items-center py-2 px-3 rounded-md text-sm font-medium ${
+                    isActive("/custom-tools") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  }`}
+                >
+                  <Wrench className="mr-2 h-4 w-4" />
+                  Custom Tools
+                </a>
+              </Link>
+              <Link href="/voice-chat">
+                <a
+                  className={`mt-1 flex items-center py-2 px-3 rounded-md text-sm font-medium ${
+                    isActive("/voice-chat") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  }`}
+                >
+                  <Mic className="mr-2 h-4 w-4" />
+                  Voice Chat
+                  <Badge variant="secondary" className="ml-2 text-xs">
+                    Beta
+                  </Badge>
+                </a>
+              </Link>
               <KnowledgeSheet 
                 trigger={
                   <Button 
@@ -107,23 +141,15 @@ export function MainSidebar({
       </ScrollArea>
 
       <div className="p-3 mt-auto border-t">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary mr-2">
-              {user?.email?.charAt(0).toUpperCase()}
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-medium truncate max-w-[140px]">
-                {user?.email}
-              </span>
-            </div>
+        <div className="flex items-center">
+          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary mr-2">
+            {user?.email?.charAt(0).toUpperCase()}
           </div>
-          <Button variant="ghost" size="icon" asChild>
-            <a href="/api/auth/logout">
-              <LogOut className="h-4 w-4" />
-              <span className="sr-only">Logout</span>
-            </a>
-          </Button>
+          <div className="flex flex-col">
+            <span className="text-sm font-medium truncate max-w-[230px]">
+              {user?.email}
+            </span>
+          </div>
         </div>
       </div>
     </div>

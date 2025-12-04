@@ -6,6 +6,9 @@ import { ThemeProvider } from "@/components/providers/theme-provider";
 import { useUser } from "@/hooks/use-user";
 import { Loader2 } from "lucide-react";
 import Home from "@/pages/home";
+import StatsPage from "@/pages/stats";
+import CustomToolsPage from "@/pages/custom-tools";
+import VoiceChat from "@/pages/voice-chat";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth";
 
@@ -27,6 +30,10 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/stats" component={StatsPage} />
+      <Route path="/custom-tools" component={CustomToolsPage} />
+      <Route path="/voice-chat" component={VoiceChat} />
+      <Route path="/voice-chat/:id" component={VoiceChat} />
       <Route component={NotFound} />
     </Switch>
   );

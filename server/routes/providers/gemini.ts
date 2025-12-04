@@ -32,7 +32,7 @@ router.post("/", async (req: Request, res: Response) => {
       message,
       conversationId,
       context = [],
-      model = "gemini-1.5-pro",
+      model = "gemini-2.5-flash",
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
@@ -78,10 +78,19 @@ router.post("/", async (req: Request, res: Response) => {
         throw new Error("Failed to create conversation");
       }
 
+      // Save attachment metadata so it's available in future context
+      const messageMetadata: any = {};
+      if (allAttachments && allAttachments.length > 0) {
+        messageMetadata.attachments = allAttachments;
+      } else if (attachment) {
+        messageMetadata.attachments = [attachment];
+      }
+
       await db.insert(messages).values({
         conversation_id: newConversation.id,
         role: "user",
         content: message,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         created_at: timestamp,
       });
 
@@ -122,26 +131,65 @@ router.post("/", async (req: Request, res: Response) => {
         .set({ last_message_at: timestamp })
         .where(eq(conversations.id, conversationIdNum));
 
+      // Save attachment metadata so it's available in future context
+      const messageMetadata: any = {};
+      if (allAttachments && allAttachments.length > 0) {
+        messageMetadata.attachments = allAttachments;
+      } else if (attachment) {
+        messageMetadata.attachments = [attachment];
+      }
+
       await db.insert(messages).values({
         conversation_id: conversationIdNum,
         role: "user",
         content: message,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         created_at: timestamp,
       });
+
+      // Add any pending knowledge sources to existing conversation (allows mid-conversation injection)
+      if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+        console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to existing conversation ${conversationIdNum}`);
+        
+        for (const knowledgeSourceId of pendingKnowledgeSources) {
+          try {
+            await addKnowledgeToConversation(conversationIdNum, knowledgeSourceId);
+          } catch (error) {
+            console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+          }
+        }
+      }
 
       dbConversation = existingConversation;
     }
 
-    // Initialize history for the Gemini model
+    // Initialize history for the Gemini model and include attachment content from metadata
     const history = context
       .sort(
         (a: any, b: any) =>
           new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       )
-      .map((msg: any) => ({
-        role: msg.role === "user" ? "user" : "model",
-        parts: [{ text: msg.content }],
-      }));
+      .map((msg: any) => {
+        let content = msg.content;
+        
+        // Include attachment content from metadata for historical messages
+        if (msg.metadata && msg.metadata.attachments) {
+          const attachments = msg.metadata.attachments;
+          const documentTexts = attachments
+            .filter((att: any) => att.type === 'document' && att.text)
+            .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
+            .join('\n');
+          
+          if (documentTexts) {
+            content += documentTexts;
+          }
+        }
+        
+        return {
+          role: msg.role === "user" ? "user" : "model",
+          parts: [{ text: content }],
+        };
+      });
 
     // Process attachments based on type
     const maxRetries = 3;
@@ -291,6 +339,8 @@ router.post("/", async (req: Request, res: Response) => {
         }
       }
 
+      const requestStart = Date.now();
+      let ttftMs: number | null = null;
       let lastChunkTime = Date.now();
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
 
@@ -308,14 +358,36 @@ router.post("/", async (req: Request, res: Response) => {
               content = chunk.text;
             } else if (chunk.candidates && chunk.candidates.length > 0 && chunk.candidates[0].content && 
                       chunk.candidates[0].content.parts && chunk.candidates[0].content.parts.length > 0) {
-              // Extract content from candidates structure
-              content = chunk.candidates[0].content.parts[0].text || '';
+              
+              // Process all parts in the response
+              const parts = chunk.candidates[0].content.parts;
+              for (const part of parts) {
+                // Handle text parts
+                if (part.text) {
+                  content += part.text;
+                }
+                // Handle image parts (inline_data)
+                else if (part.inline_data || part.inlineData) {
+                  const imageData = part.inline_data || part.inlineData;
+                  if (imageData && imageData.data) {
+                    // Handle different mime type property names
+                    const mimeType = imageData.mime_type || imageData.mimeType || 'image/png';
+                    // Convert generated image to markdown format
+                    const dataUri = `data:${mimeType};base64,${imageData.data}`;
+                    content += `\n\n![Generated Image](${dataUri})\n\n`;
+                    console.log("Generated image detected and converted to markdown");
+                  }
+                }
+              }
             }
             
             // Process non-empty content
             if (content && content.trim()) {
               streamedResponse += content;
               lastChunkTime = Date.now();
+              if (ttftMs === null) {
+                ttftMs = lastChunkTime - requestStart;
+              }
               
               // Send formatted chunk to client
               res.write(
@@ -336,10 +408,44 @@ router.post("/", async (req: Request, res: Response) => {
 
       // Save the complete response only after successful streaming
       const timestamp = new Date();
+      // Try to extract Gemini usage if available on the result
+      let exactInputTokens: number | undefined;
+      let exactOutputTokens: number | undefined;
+      let exactTotalTokens: number | undefined;
+      try {
+        const usage = (result as any)?.usage || (result as any)?.responseMetadata?.tokenCount || (result as any)?.responseMetadata?.usage;
+        if (usage) {
+          exactInputTokens = usage.inputTokens ?? usage.input_tokens ?? usage.input ?? usage.promptTokens;
+          exactOutputTokens = usage.outputTokens ?? usage.output_tokens ?? usage.output ?? usage.candidatesTokens;
+          const total = usage.totalTokens ?? usage.total_tokens ?? usage.total;
+          if (typeof total === 'number') exactTotalTokens = total;
+        }
+      } catch {}
+      // Approximate input tokens from apiMessages
+      let approxInputTokens = 0;
+      try {
+        const texts: string[] = [];
+        for (const m of apiMessages as any[]) {
+          if (typeof m?.content === 'string') texts.push(m.content);
+        }
+        const EULER = 2.7182818284590;
+        const combined = texts.join('\n');
+        if (combined) {
+          const len = combined.length;
+          approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
+        }
+      } catch {}
       await db.insert(messages).values({
         conversation_id: dbConversation.id,
         role: "assistant",
         content: streamedResponse,
+        metadata: {
+          ttft_ms: ttftMs ?? undefined,
+          total_tokens: exactTotalTokens ?? (result as any)?.usage?.total_tokens,
+          input_tokens: exactInputTokens,
+          output_tokens: exactOutputTokens,
+          approx_input_tokens: approxInputTokens,
+        },
         created_at: timestamp,
       });
 

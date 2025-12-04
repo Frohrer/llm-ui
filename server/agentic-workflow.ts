@@ -1,0 +1,515 @@
+import { generateText, LanguageModel, CoreTool, CoreMessage, jsonSchema } from "ai";
+import { getToolDefinitions, executeTool } from "./tools";
+import { db } from "@db";
+import { messages } from "@db/schema";
+
+// Configuration for the agentic loop
+export interface AgenticConfig {
+  maxIterations?: number;
+  maxContextTokens?: number; // Max tokens before trimming (default: 120K)
+  conversationId: number;
+  model: LanguageModel;
+  systemPrompt?: string;
+  userId?: number; // User ID for tools that need authentication/authorization
+}
+
+// Result of a single iteration
+export interface IterationResult {
+  content: string;
+  toolCalls: Array<{
+    id: string;
+    name: string;
+    arguments: any;
+  }>;
+  shouldContinue: boolean;
+}
+
+/**
+ * Convert our tool definitions to AI SDK format
+ * This function dynamically loads tools, supporting hot reload of custom tools
+ */
+async function getAISDKTools(forceReload: boolean = false, userId?: number): Promise<Record<string, CoreTool>> {
+  // Force reload tools from database if requested (hot reload support)
+  if (forceReload) {
+    const { refreshTools } = await import('./tools');
+    await refreshTools();
+  }
+  
+  const toolDefinitions = await getToolDefinitions();
+  const tools: Record<string, CoreTool> = {};
+
+  for (const toolDef of toolDefinitions) {
+    const func = toolDef.function;
+    
+    // OpenAI has strict schema requirements:
+    // 1. additionalProperties must be false
+    // 2. All properties must be in the required array OR removed from properties
+    const properties = func.parameters.properties || {};
+    const required = func.parameters.required || [];
+    
+    // Get all property keys
+    const allPropertyKeys = Object.keys(properties);
+    
+    // For OpenAI strict mode: all defined properties must be required
+    // So we'll make the required array include all properties
+    const strictRequired = allPropertyKeys.length > 0 ? allPropertyKeys : required;
+    
+    const schema = {
+      type: 'object',
+      properties,
+      required: strictRequired,
+      additionalProperties: false
+    };
+    
+    // Use jsonSchema helper to wrap our JSON schema parameters
+    tools[func.name] = {
+      description: func.description,
+      parameters: jsonSchema(schema),
+      execute: async (params: any) => {
+        try {
+          const result = await executeTool(func.name, params, userId);
+          return result;
+        } catch (error) {
+          console.error(`Error executing tool ${func.name}:`, error);
+          return {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            success: false
+          };
+        }
+      }
+    };
+  }
+
+  return tools;
+}
+
+/**
+ * Run the agentic workflow loop using AI SDK
+ * This function works with ALL AI SDK supported providers:
+ * - OpenAI (GPT-4, GPT-4o, GPT-5, o1, o3, etc.)
+ * - Anthropic (Claude 3.5 Sonnet, Claude 3 Opus, etc.)
+ * - Google (Gemini Pro, Gemini Flash, etc.)
+ * - xAI (Grok)
+ * - DeepSeek
+ * - Groq
+ * - Mistral
+ * - Cohere
+ * - Together.ai
+ * - And many more!
+ */
+export async function runAgenticLoop(
+  initialMessages: CoreMessage[],
+  config: AgenticConfig
+): Promise<string> {
+  const {
+    maxIterations = 10,
+    maxContextTokens = 120000, // Conservative default (Claude: 200K, GPT-4: 128K)
+    conversationId,
+    model,
+    systemPrompt,
+    userId
+  } = config;
+
+  console.log(`[Agentic] Starting agentic loop with max ${maxIterations} iterations, ${maxContextTokens} token limit`);
+
+  // Get tools in AI SDK format with hot reload support
+  // This ensures custom tools are always up-to-date
+  const tools = await getAISDKTools(true, userId);
+  console.log(`[Agentic] Loaded ${Object.keys(tools).length} tools (with hot reload):`, Object.keys(tools).join(', '));
+
+  // Keep track of messages for context
+  let currentMessages = [...initialMessages];
+  let iteration = 0;
+  let finalResponse = '';
+
+  // Track all intermediate steps (for logging only, not shown to user)
+  const intermediateSteps: Array<{ iteration: number; action: string; details: any }> = [];
+
+  while (iteration < maxIterations) {
+    iteration++;
+    console.log(`[Agentic] Iteration ${iteration}/${maxIterations}`);
+
+    intermediateSteps.push({
+      iteration,
+      action: 'llm_request',
+      details: { messageCount: currentMessages.length }
+    });
+
+    try {
+      // Use AI SDK's generateText with automatic tool handling
+      console.log(`[Agentic] Making request to model with ${currentMessages.length} messages`);
+      
+      const result = await generateText({
+        model,
+        messages: currentMessages,
+        tools,
+        maxSteps: 1, // Process one step at a time for full control
+        system: systemPrompt,
+      });
+
+      console.log(`[Agentic] LLM responded with ${result.text.length} chars, ${result.toolCalls?.length || 0} tool calls`);
+      console.log(`[Agentic] Finish reason: ${result.finishReason}`);
+
+      intermediateSteps.push({
+        iteration,
+        action: 'llm_response',
+        details: {
+          contentLength: result.text.length,
+          toolCallCount: result.toolCalls?.length || 0,
+          finishReason: result.finishReason
+        }
+      });
+
+      // Check if there are tool calls
+      if (result.toolCalls && result.toolCalls.length > 0) {
+        console.log(`[Agentic] Executing ${result.toolCalls.length} tool calls:`,
+          result.toolCalls.map(tc => tc.toolName).join(', '));
+
+        intermediateSteps.push({
+          iteration,
+          action: 'tool_execution',
+          details: {
+            tools: result.toolCalls.map(tc => tc.toolName)
+          }
+        });
+
+        // Store tool calls as internal messages (for debugging/history)
+        await db.insert(messages).values({
+          conversation_id: conversationId,
+          role: "tool",
+          content: JSON.stringify(result.toolCalls.map(tc => ({
+            id: tc.toolCallId,
+            name: tc.toolName,
+            arguments: tc.args
+          }))),
+          metadata: {
+            type: 'agentic_tool_calls',
+            iteration,
+            timestamp: new Date().toISOString()
+          },
+          created_at: new Date(),
+        });
+
+        // Tool results are automatically collected in result.toolResults
+        const toolResults = result.toolResults || [];
+
+        console.log(`[Agentic] Tool execution completed:`,
+          toolResults.map((r, i) => ({
+            tool: result.toolCalls![i].toolName,
+            hasError: typeof r === 'object' && r !== null && 'error' in r
+          })));
+
+        intermediateSteps.push({
+          iteration,
+          action: 'tool_results',
+          details: {
+            results: toolResults.map((r, i) => ({
+              tool: result.toolCalls![i].toolName,
+              success: !(typeof r === 'object' && r !== null && 'error' in r)
+            }))
+          }
+        });
+
+        // Store tool results as internal messages
+        await db.insert(messages).values({
+          conversation_id: conversationId,
+          role: "tool",
+          content: JSON.stringify(toolResults.map((r, i) => ({
+            toolCallId: result.toolCalls![i].toolCallId,
+            toolName: result.toolCalls![i].toolName,
+            result: r
+          }))),
+          metadata: {
+            type: 'agentic_tool_results',
+            iteration,
+            timestamp: new Date().toISOString()
+          },
+          created_at: new Date(),
+        });
+
+        // Manually construct messages from tool calls and results
+        // Add assistant message with tool calls
+        const assistantMessage: CoreMessage = {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: result.text || '' },
+            ...result.toolCalls!.map(tc => ({
+              type: 'tool-call' as const,
+              toolCallId: tc.toolCallId,
+              toolName: tc.toolName,
+              args: tc.args
+            }))
+          ]
+        };
+
+        // Add tool result messages
+        const toolMessages: CoreMessage[] = toolResults.map((r, i) => ({
+          role: 'tool',
+          content: [
+            {
+              type: 'tool-result' as const,
+              toolCallId: result.toolCalls![i].toolCallId,
+              toolName: result.toolCalls![i].toolName,
+              result: r
+            }
+          ]
+        }));
+
+        // Update context with assistant message and tool messages
+        currentMessages = [
+          ...currentMessages,
+          assistantMessage,
+          ...toolMessages
+        ];
+
+        // Smart context management:
+        // 1. First, truncate any oversized individual tool results (max 10K tokens each)
+        currentMessages = truncateLargeToolResults(currentMessages, 10000);
+        
+        // 2. Check total context size and trim if needed
+        const currentTokens = estimateTokenCount(currentMessages);
+        
+        if (currentTokens > maxContextTokens) {
+          console.log(`[Agentic] Context size: ${currentTokens} tokens, trimming to ${maxContextTokens}`);
+          currentMessages = trimMessagesSmartly(currentMessages, maxContextTokens);
+        } else {
+          console.log(`[Agentic] Context size: ${currentTokens} tokens (within limits)`);
+        }
+      } else {
+        // No tool calls, we're done
+        console.log(`[Agentic] No tool calls, finishing with response`);
+        finalResponse = result.text;
+        break;
+      }
+
+    } catch (error) {
+      console.error(`[Agentic] Error in iteration ${iteration}:`, error);
+
+      intermediateSteps.push({
+        iteration,
+        action: 'error',
+        details: {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      });
+
+      // Check if it's a context length error
+      const errorMessage = error instanceof Error ? error.message : '';
+      const isContextError = errorMessage.includes('context') || 
+                            errorMessage.includes('too long') || 
+                            errorMessage.includes('maximum context') ||
+                            errorMessage.includes('token limit');
+      
+      if (isContextError && currentMessages.length > 5) {
+        console.log(`[Agentic] Context length error detected, attempting to recover by trimming aggressively`);
+        // Try to recover by aggressive trimming
+        currentMessages = truncateLargeToolResults(currentMessages, 5000);
+        currentMessages = trimMessagesSmartly(currentMessages, 80000);
+        console.log(`[Agentic] Reduced context to ${estimateTokenCount(currentMessages)} tokens, retrying...`);
+        // Continue the loop to retry
+        continue;
+      }
+
+      // If we have some response, return it; otherwise throw
+      if (finalResponse) {
+        console.log(`[Agentic] Returning partial response due to error`);
+        break;
+      }
+      throw error;
+    }
+  }
+
+  // Check if we hit max iterations without getting a final response
+  if (iteration >= maxIterations && !finalResponse) {
+    console.log(`[Agentic] Max iterations reached, making final request for summary`);
+
+    // Make one final request to get a response (without tools)
+    try {
+      const result = await generateText({
+        model,
+        messages: currentMessages,
+        system: systemPrompt,
+        maxSteps: 1,
+      });
+      finalResponse = result.text;
+    } catch (error) {
+      console.error(`[Agentic] Error in final request:`, error);
+      finalResponse = "I've completed the requested tasks but reached the maximum number of iterations. The work has been completed.";
+    }
+  }
+
+  // Log summary
+  console.log(`[Agentic] Loop completed in ${iteration} iterations`);
+  console.log(`[Agentic] Intermediate steps:`, intermediateSteps.length);
+
+  // Store the summary of the agentic workflow
+  await db.insert(messages).values({
+    conversation_id: conversationId,
+    role: "tool",
+    content: JSON.stringify({
+      summary: 'agentic_workflow_complete',
+      iterations: iteration,
+      intermediateSteps: intermediateSteps.length,
+      finalResponseLength: finalResponse.length
+    }),
+    metadata: {
+      type: 'agentic_summary',
+      iterations: iteration,
+      timestamp: new Date().toISOString()
+    },
+    created_at: new Date(),
+  });
+
+  return finalResponse;
+}
+
+/**
+ * Helper to estimate token count from messages
+ */
+export function estimateTokenCount(messages: CoreMessage[]): number {
+  let totalChars = 0;
+  for (const msg of messages) {
+    if (typeof msg.content === 'string') {
+      totalChars += msg.content.length;
+    } else if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (part.type === 'text') {
+          totalChars += part.text.length;
+        } else if (part.type === 'tool-result') {
+          // Tool results can be large - estimate their size
+          const resultStr = typeof part.result === 'string' 
+            ? part.result 
+            : JSON.stringify(part.result);
+          totalChars += resultStr.length;
+        }
+      }
+    }
+  }
+  // Rough estimate: 1 token ≈ 4 characters
+  return Math.ceil(totalChars / 4);
+}
+
+/**
+ * Truncate large tool results to prevent context overflow
+ * Returns a modified copy of the messages with truncated tool results
+ */
+function truncateLargeToolResults(messages: CoreMessage[], maxResultTokens: number = 10000): CoreMessage[] {
+  const maxResultChars = maxResultTokens * 4; // Rough estimate
+  
+  return messages.map(msg => {
+    if (msg.role !== 'tool' || !Array.isArray(msg.content)) {
+      return msg;
+    }
+    
+    const newContent = msg.content.map((part: any) => {
+      if (part.type !== 'tool-result') {
+        return part;
+      }
+      
+      const resultStr = typeof part.result === 'string' 
+        ? part.result 
+        : JSON.stringify(part.result);
+      
+      if (resultStr.length <= maxResultChars) {
+        return part;
+      }
+      
+      // Truncate large results
+      const truncated = resultStr.slice(0, maxResultChars);
+      const tokenEstimate = Math.ceil(resultStr.length / 4);
+      const truncatedResult = typeof part.result === 'string'
+        ? `${truncated}\n\n...[TRUNCATED: Original was ~${tokenEstimate} tokens, showing first ${maxResultTokens} tokens]`
+        : `${truncated}...[TRUNCATED: Original was ~${tokenEstimate} tokens]`;
+      
+      console.log(`[Agentic] Truncated tool result for ${part.toolName} from ~${tokenEstimate} to ~${maxResultTokens} tokens`);
+      
+      return {
+        ...part,
+        result: truncatedResult
+      };
+    });
+    
+    return {
+      ...msg,
+      content: newContent
+    };
+  });
+}
+
+/**
+ * Smart message trimming that keeps tool_use and tool_result pairs together
+ * This prevents Anthropic API errors about orphaned tool_result blocks
+ */
+function trimMessagesSmartly(messages: CoreMessage[], targetTokens: number): CoreMessage[] {
+  const currentTokens = estimateTokenCount(messages);
+  
+  if (currentTokens <= targetTokens) {
+    return messages;
+  }
+  
+  console.log(`[Agentic] Context too large (${currentTokens} tokens), trimming to ~${targetTokens} tokens`);
+  
+  // Always keep the first message (initial user prompt)
+  const firstMessage = messages[0];
+  const remainingMessages = messages.slice(1);
+  
+  // Build conversation "groups" where each group is:
+  // - A user message, OR
+  // - An assistant message + any following tool messages
+  const groups: CoreMessage[][] = [];
+  let i = 0;
+  
+  while (i < remainingMessages.length) {
+    const msg = remainingMessages[i];
+    
+    if (msg.role === 'user') {
+      groups.push([msg]);
+      i++;
+    } else if (msg.role === 'assistant') {
+      const group = [msg];
+      i++;
+      
+      // Collect all consecutive tool messages
+      while (i < remainingMessages.length && remainingMessages[i].role === 'tool') {
+        group.push(remainingMessages[i]);
+        i++;
+      }
+      
+      groups.push(group);
+    } else if (msg.role === 'tool') {
+      console.warn('[Agentic] Found orphaned tool message during trimming');
+      i++;
+    } else {
+      groups.push([msg]);
+      i++;
+    }
+  }
+  
+  // Keep most recent groups that fit in target
+  let totalTokens = estimateTokenCount([firstMessage]);
+  const keptGroups: CoreMessage[][] = [];
+  
+  // Iterate from end (most recent) backwards
+  for (let j = groups.length - 1; j >= 0; j--) {
+    const groupTokens = estimateTokenCount(groups[j]);
+    
+    if (totalTokens + groupTokens <= targetTokens) {
+      keptGroups.unshift(groups[j]);
+      totalTokens += groupTokens;
+    } else {
+      // Can't fit this group - if we have no groups yet, keep it anyway to preserve some context
+      if (keptGroups.length === 0) {
+        console.warn(`[Agentic] Keeping oversized group (${groupTokens} tokens) to preserve context`);
+        keptGroups.unshift(groups[j]);
+      }
+      break;
+    }
+  }
+  
+  const result = [firstMessage, ...keptGroups.flat()];
+  const finalTokens = estimateTokenCount(result);
+  
+  console.log(`[Agentic] Trimmed from ${currentTokens} to ${finalTokens} tokens (${groups.length - keptGroups.length} groups removed)`);
+  
+  return result;
+}

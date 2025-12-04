@@ -1,7 +1,14 @@
-import { pgTable, text, serial, integer, timestamp, boolean, json, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, json, jsonb, customType } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
+
+// Custom type for PostgreSQL tsvector (full-text search)
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -12,6 +19,7 @@ export const users = pgTable("users", {
 export const conversations = pgTable("conversations", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
+  title_search: tsvector("title_search"), // Full-text search column
   user_id: integer("user_id").references(() => users.id).notNull(),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
@@ -26,6 +34,7 @@ export const messages = pgTable("messages", {
     .notNull(),
   role: text("role", { enum: ["user", "assistant", "tool"] }).notNull(),
   content: text("content").notNull(),
+  content_search: tsvector("content_search"), // Full-text search column
   metadata: jsonb("metadata").default({}),
   created_at: timestamp("created_at").defaultNow().notNull(),
 });
@@ -77,6 +86,25 @@ export const conversationKnowledge = pgTable("conversation_knowledge", {
   created_at: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Custom Python tools table - stores user-defined tools
+export const customTools = pgTable("custom_tools", {
+  id: serial("id").primaryKey(),
+  user_id: integer("user_id").references(() => users.id).notNull(),
+  name: text("name").notNull(), // Tool name (must be unique per user)
+  description: text("description").notNull(), // Description for the LLM
+  python_code: text("python_code").notNull(), // Python code to execute
+  parameters_schema: jsonb("parameters_schema").notNull(), // JSON schema for parameters
+  packages: jsonb("packages").default([]), // Python packages to install
+  is_enabled: boolean("is_enabled").default(true), // Whether the tool is active
+  is_shared: boolean("is_shared").default(false), // Whether tool is shared across all users
+  execution_count: integer("execution_count").default(0), // Track usage
+  last_executed_at: timestamp("last_executed_at"), // Last execution time
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
+
+
 // Relations setup
 export const conversationsRelations = relations(conversations, ({ one, many }) => ({
   user: one(users, {
@@ -121,6 +149,15 @@ export const conversationKnowledgeRelations = relations(conversationKnowledge, (
   }),
 }));
 
+export const customToolsRelations = relations(customTools, ({ one }) => ({
+  user: one(users, {
+    fields: [customTools.user_id],
+    references: [users.id],
+  }),
+}));
+
+
+
 // Schemas for form validation
 export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
@@ -134,6 +171,9 @@ export const insertKnowledgeContentSchema = createInsertSchema(knowledgeContent)
 export const selectKnowledgeContentSchema = createSelectSchema(knowledgeContent);
 export const insertConversationKnowledgeSchema = createInsertSchema(conversationKnowledge);
 export const selectConversationKnowledgeSchema = createSelectSchema(conversationKnowledge);
+export const insertCustomToolSchema = createInsertSchema(customTools);
+export const selectCustomToolSchema = createSelectSchema(customTools);
+
 
 // Type definitions for use in the app
 export type InsertUser = typeof users.$inferInsert;
@@ -148,3 +188,5 @@ export type InsertKnowledgeContent = typeof knowledgeContent.$inferInsert;
 export type SelectKnowledgeContent = typeof knowledgeContent.$inferSelect;
 export type InsertConversationKnowledge = typeof conversationKnowledge.$inferInsert;
 export type SelectConversationKnowledge = typeof conversationKnowledge.$inferSelect;
+export type InsertCustomTool = typeof customTools.$inferInsert;
+export type SelectCustomTool = typeof customTools.$inferSelect;

@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { FileText, Image, SendHorizonal, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { estimateTokenCount } from '@/lib/llm/token-counter';
+import type { Message as MessageType } from '@/lib/llm/types';
 
 type Attachment = {
   type: 'document' | 'image';
@@ -18,9 +19,11 @@ interface ChatInputProps {
   isLoading: boolean;
   /** The context length of the current model in tokens (default: 128000) */
   modelContextLength?: number;
+  /** Entire conversation messages to include in token counting */
+  contextMessages?: MessageType[];
 }
 
-export function ChatInput({ onSendMessage, isLoading, modelContextLength = 128000 }: ChatInputProps) {
+export function ChatInput({ onSendMessage, isLoading, modelContextLength = 128000, contextMessages = [] }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
   // Store an array of attachments - all are always sent with the message
@@ -41,10 +44,21 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   // This gives users a better understanding of the model's total capacity
   const userTokenLimit = modelContextLength || 20000;
   
-  // Calculate token count based on message and all document attachments
+  // Calculate token count based on entire conversation, current message, and all document attachments
   const calculateTokenCount = useCallback(() => {
-    const messageTokens = estimateTokenCount(message);
-    let totalTokens = messageTokens;
+    let totalTokens = 0;
+
+    // Include all previous conversation messages
+    if (Array.isArray(contextMessages) && contextMessages.length > 0) {
+      for (const m of contextMessages) {
+        if (typeof m.content === 'string') {
+          totalTokens += estimateTokenCount(m.content);
+        }
+      }
+    }
+
+    // Include current message being typed
+    totalTokens += estimateTokenCount(message);
     
     // Add token count for all document attachments
     for (const attachment of attachments) {
@@ -54,14 +68,14 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
     }
     
     return totalTokens;
-  }, [message, attachments]);
+  }, [message, attachments, contextMessages]);
   
   // Recalculate token limits when relevant values change
   useEffect(() => {
     const totalTokens = calculateTokenCount();
     setTokenCount(totalTokens);
     setIsOverLimit(totalTokens > userTokenLimit);
-  }, [modelContextLength, message, attachments, calculateTokenCount, userTokenLimit]);
+  }, [modelContextLength, message, attachments, calculateTokenCount, userTokenLimit, contextMessages]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();

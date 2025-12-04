@@ -8,6 +8,9 @@ import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { getToolDefinitions, handleToolCalls } from "../../tools";
+import { runAgenticLoop } from "../../agentic-workflow";
+import { getAnthropicModel } from "../../ai-sdk-providers";
+import { CoreMessage } from "ai";
 
 const router = express.Router();
 let client: Anthropic | null = null;
@@ -91,6 +94,57 @@ function createUserMessageContent(message: string, imageAttachments: any[], docu
   } else {
     return textContent;
   }
+}
+
+// Helper to convert Anthropic messages to AI SDK CoreMessage format
+function convertToCoreMessages(messages: any[]): CoreMessage[] {
+  return messages.map(msg => {
+    if (msg.role === 'system') {
+      // System messages are handled separately in AI SDK
+      return null;
+    }
+    
+    if (msg.role === 'user') {
+      // Handle both string and array content
+      if (typeof msg.content === 'string') {
+        return {
+          role: 'user' as const,
+          content: msg.content
+        };
+      } else if (Array.isArray(msg.content)) {
+        // Convert Anthropic content blocks to AI SDK format
+        const textParts = msg.content
+          .filter((block: any) => block.type === 'text')
+          .map((block: any) => block.text)
+          .join('\n');
+        return {
+          role: 'user' as const,
+          content: textParts
+        };
+      }
+    }
+    
+    if (msg.role === 'assistant') {
+      // Handle both string and array content
+      if (typeof msg.content === 'string') {
+        return {
+          role: 'assistant' as const,
+          content: msg.content
+        };
+      } else if (Array.isArray(msg.content)) {
+        const textParts = msg.content
+          .filter((block: any) => block.type === 'text')
+          .map((block: any) => block.text)
+          .join('\n');
+        return {
+          role: 'assistant' as const,
+          content: textParts
+        };
+      }
+    }
+    
+    return null;
+  }).filter((msg): msg is CoreMessage => msg !== null);
 }
 
 // Helper function to execute tools and get response
@@ -255,6 +309,7 @@ router.post("/", async (req: Request, res: Response) => {
       useKnowledge = false,
       pendingKnowledgeSources = [],
       useTools = false,
+      useAgenticMode = false,
     } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -295,10 +350,19 @@ router.post("/", async (req: Request, res: Response) => {
         throw new Error("Failed to create conversation");
       }
 
+      // Save attachment metadata so it's available in future context
+      const messageMetadata: any = {};
+      if (allAttachments && allAttachments.length > 0) {
+        messageMetadata.attachments = allAttachments;
+      } else if (attachment) {
+        messageMetadata.attachments = [attachment];
+      }
+
       await db.insert(messages).values({
         conversation_id: newConversation.id,
         role: "user",
         content: message,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         created_at: timestamp,
       });
 
@@ -334,23 +398,62 @@ router.post("/", async (req: Request, res: Response) => {
         .set({ last_message_at: timestamp })
         .where(eq(conversations.id, conversationIdNum));
 
+      // Save attachment metadata so it's available in future context
+      const messageMetadata: any = {};
+      if (allAttachments && allAttachments.length > 0) {
+        messageMetadata.attachments = allAttachments;
+      } else if (attachment) {
+        messageMetadata.attachments = [attachment];
+      }
+
       await db.insert(messages).values({
         conversation_id: conversationIdNum,
         role: "user",
         content: message,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         created_at: timestamp,
       });
+
+      // Add any pending knowledge sources to existing conversation (allows mid-conversation injection)
+      if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+        console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to existing conversation ${conversationIdNum}`);
+        
+        for (const knowledgeSourceId of pendingKnowledgeSources) {
+          try {
+            await addKnowledgeToConversation(conversationIdNum, knowledgeSourceId);
+          } catch (error) {
+            console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+          }
+        }
+      }
 
       dbConversation = existingConversation;
     }
 
-    // Process context messages
+    // Process context messages and include attachment content from metadata
     const apiMessages = context
       .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-      .map((msg: any) => ({
-        role: msg.role === "user" ? "user" : "assistant",
-        content: msg.content,
-      }));
+      .map((msg: any) => {
+        let content = msg.content;
+        
+        // Include attachment content from metadata for historical messages
+        if (msg.metadata && msg.metadata.attachments) {
+          const attachments = msg.metadata.attachments;
+          const documentTexts = attachments
+            .filter((att: any) => att.type === 'document' && att.text)
+            .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
+            .join('\n');
+          
+          if (documentTexts) {
+            content += documentTexts;
+          }
+        }
+        
+        return {
+          role: msg.role === "user" ? "user" : "assistant",
+          content: content,
+        };
+      });
 
     // Process attachments
     const allAttachmentsToProcess = allAttachments.length > 0 ? allAttachments : (attachment ? [attachment] : []);
@@ -418,11 +521,67 @@ router.post("/", async (req: Request, res: Response) => {
     }, 15000);
 
     let streamedResponse = "";
-    let toolCallsInProgress: { [index: number]: any } = {};
+    const requestStart = Date.now();
+    let ttftMs: number | null = null;
 
-        try {
-      // Create stream
-      const stream = await client.messages.create(requestOptions);
+    try {
+      // Check if using agentic mode
+      if (useAgenticMode && useTools) {
+        console.log('[Anthropic] Using agentic mode with AI SDK');
+        
+        // Get the AI SDK model instance
+        const aiModel = getAnthropicModel(model);
+        
+        // Extract system prompt from apiMessages
+        const systemMessage = apiMessages.find((msg: any) => msg.role === 'system');
+        const systemPrompt = systemMessage?.content || undefined;
+        
+        // Convert messages to CoreMessage format (excluding system messages)
+        const coreMessages = convertToCoreMessages(apiMessages);
+        
+        // Run the agentic loop with AI SDK
+        const finalResponse = await runAgenticLoop(
+          coreMessages,
+          {
+            maxIterations: 10,
+            maxContextMessages: 15,
+            conversationId: dbConversation.id,
+            model: aiModel,
+            systemPrompt,
+            userId: req.user!.id
+          }
+        );
+        
+        // Stream the final response to the user
+        if (finalResponse) {
+          const chunkSize = 50;
+          for (let i = 0; i < finalResponse.length; i += chunkSize) {
+            const chunk = finalResponse.slice(i, i + chunkSize);
+            res.write(`data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`);
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+          
+          streamedResponse = finalResponse;
+          
+          // Save the final response
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "assistant",
+            content: finalResponse,
+            metadata: {
+              agentic_mode: true,
+              ai_sdk: true,
+              ttft_ms: Date.now() - requestStart
+            },
+            created_at: new Date(),
+          });
+        }
+      } else {
+        // Original streaming logic
+        let toolCallsInProgress: { [index: number]: any } = {};
+        
+        // Create stream
+        const stream = await client.messages.create(requestOptions);
 
       // Process stream
       for await (const chunk of stream as any) {
@@ -432,6 +591,9 @@ router.post("/", async (req: Request, res: Response) => {
           if (contentBlock?.type === 'text' && contentBlock.text) {
             const content = contentBlock.text;
             streamedResponse += content;
+            if (ttftMs === null) {
+              ttftMs = Date.now() - requestStart;
+            }
             res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
           } else if (contentBlock?.type === 'tool_use') {
             // Initialize tool call - input will come in delta events
@@ -450,6 +612,9 @@ router.post("/", async (req: Request, res: Response) => {
           if (delta?.text) {
             const content = delta.text;
             streamedResponse += content;
+            if (ttftMs === null) {
+              ttftMs = Date.now() - requestStart;
+            }
             res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
           } else if (delta?.type === 'input_json_delta' && delta?.partial_json) {
             // Accumulate tool input JSON chunks
@@ -548,6 +713,14 @@ router.post("/", async (req: Request, res: Response) => {
             conversation_id: dbConversation.id,
             role: "assistant",
             content: streamedResponse + errorMessage,
+            metadata: {
+              ttft_ms: ttftMs ?? undefined,
+              total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                : undefined,
+              input_tokens: (stream as any)?.usage?.input_tokens,
+              output_tokens: (stream as any)?.usage?.output_tokens,
+            },
             created_at: new Date(),
           });
           
@@ -561,6 +734,14 @@ router.post("/", async (req: Request, res: Response) => {
               conversation_id: dbConversation.id,
               role: "assistant",
               content: streamedResponse,
+              metadata: {
+                ttft_ms: ttftMs ?? undefined,
+                total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                  ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                  : undefined,
+                input_tokens: (stream as any)?.usage?.input_tokens,
+                output_tokens: (stream as any)?.usage?.output_tokens,
+              },
               created_at: new Date(),
             });
           }
@@ -582,7 +763,7 @@ router.post("/", async (req: Request, res: Response) => {
             conversation_id: dbConversation.id,
             role: "assistant",
             content: toolResponse,
-            metadata: { type: 'tool_result_response' },
+            metadata: { type: 'tool_result_response', ttft_ms: ttftMs ?? undefined },
             created_at: new Date(),
           });
           
@@ -595,6 +776,14 @@ router.post("/", async (req: Request, res: Response) => {
             conversation_id: dbConversation.id,
             role: "assistant",
             content: streamedResponse,
+            metadata: {
+              ttft_ms: ttftMs ?? undefined,
+              total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                : undefined,
+              input_tokens: (stream as any)?.usage?.input_tokens,
+              output_tokens: (stream as any)?.usage?.output_tokens,
+            },
             created_at: new Date(),
           });
         } else {
@@ -607,12 +796,21 @@ router.post("/", async (req: Request, res: Response) => {
             conversation_id: dbConversation.id,
             role: "assistant",
             content: streamedResponse,
+            metadata: {
+              ttft_ms: ttftMs ?? undefined,
+              total_tokens: (stream as any)?.usage?.output_tokens != null && (stream as any)?.usage?.input_tokens != null
+                ? (stream as any)?.usage?.output_tokens + (stream as any)?.usage?.input_tokens
+                : undefined,
+              input_tokens: (stream as any)?.usage?.input_tokens,
+              output_tokens: (stream as any)?.usage?.output_tokens,
+            },
             created_at: new Date(),
           });
         }
       }
-
-      // Send completion event
+      }
+      
+      // Send completion event (common for both modes)
       const updatedConversation = await db.query.conversations.findFirst({
         where: eq(conversations.id, dbConversation.id),
         with: {

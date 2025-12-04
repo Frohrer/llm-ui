@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { formatDistanceToNow, isToday, isThisWeek, parseISO } from "date-fns";
-import { Trash2, Search, X } from "lucide-react";
+import { Trash2, Search, X, Mic } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Conversation } from "@/lib/llm/types";
 
@@ -19,8 +20,12 @@ export function ConversationList({
 }: ConversationListProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  
+  // Helper to check if a conversation is a voice chat
+  const isVoiceConversation = (conv: Conversation) => conv.provider === 'openai-realtime';
 
   // Debounce search query
   useEffect(() => {
@@ -214,6 +219,16 @@ export function ConversationList({
     );
   }
 
+  const handleConversationClick = (conv: Conversation) => {
+    if (isVoiceConversation(conv)) {
+      // Navigate to voice chat page for voice conversations
+      setLocation(`/voice-chat/${conv.id}`);
+    } else {
+      // Use the regular conversation selection for text chats
+      onSelectConversation(conv);
+    }
+  };
+
   const renderCategory = (
     title: string,
     conversations: Conversation[] = [],
@@ -226,36 +241,44 @@ export function ConversationList({
           {title}
         </h3>
         <div className="space-y-1">
-          {conversations.map((conv) => (
-            <div key={conv.id} className="group grid grid-cols-[1fr,40px] items-center px-2 w-full">
-              <Button
-                variant={
-                  conv.id === activeConversation?.id ? "secondary" : "ghost"
-                }
-                className="w-full justify-start text-left h-auto py-3 md:py-2 overflow-hidden pr-1"
-                onClick={() => onSelectConversation(conv)}
-              >
-                <div className="flex flex-col items-start w-full overflow-hidden">
-                  <span className="text-sm md:text-base truncate w-full inline-block">
-                    {conv.title}
-                  </span>
-                  <span className="text-xs text-muted-foreground truncate w-full inline-block">
-                    {formatDistanceToNow(parseISO(conv.lastMessageAt), {
-                      addSuffix: true,
-                    })}
-                  </span>
-                </div>
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 justify-self-end"
-                onClick={(e) => handleDelete(conv.id, e)}
-              >
-                <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-              </Button>
-            </div>
-          ))}
+          {conversations.map((conv) => {
+            const isVoice = isVoiceConversation(conv);
+            return (
+              <div key={conv.id} className="group grid grid-cols-[1fr,40px] items-center px-2 w-full">
+                <Button
+                  variant={
+                    conv.id === activeConversation?.id ? "secondary" : "ghost"
+                  }
+                  className="w-full justify-start text-left h-auto py-3 md:py-2 overflow-hidden pr-1"
+                  onClick={() => handleConversationClick(conv)}
+                >
+                  <div className="flex items-start gap-2 w-full overflow-hidden">
+                    {isVoice && (
+                      <Mic className="h-4 w-4 flex-shrink-0 mt-0.5 text-muted-foreground" />
+                    )}
+                    <div className="flex flex-col items-start w-full overflow-hidden">
+                      <span className="text-sm md:text-base truncate w-full inline-block">
+                        {conv.title}
+                      </span>
+                      <span className="text-xs text-muted-foreground truncate w-full inline-block">
+                        {isVoice ? '🎙️ ' : ''}{formatDistanceToNow(parseISO(conv.lastMessageAt), {
+                          addSuffix: true,
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 justify-self-end"
+                  onClick={(e) => handleDelete(conv.id, e)}
+                >
+                  <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                </Button>
+              </div>
+            );
+          })}
         </div>
       </div>
     );

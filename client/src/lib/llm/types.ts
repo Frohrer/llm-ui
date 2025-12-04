@@ -38,6 +38,7 @@ export interface ModelConfig {
   name: string;
   contextLength: number;
   defaultModel: boolean;
+  supportsResponsesAPI?: boolean;
 }
 
 export interface ProviderConfig {
@@ -59,12 +60,92 @@ export interface LLMProvider {
     pendingKnowledgeSources?: number[],
     useTools?: boolean
   ): Promise<string>;
+  sendResponsesAPIMessage?(
+    request: ResponsesAPIRequest
+  ): Promise<ResponsesAPIResponse>;
 }
 
 export interface LLMConfig {
   apiKey?: string;
   model?: string;
   maxTokens?: number;
+}
+
+// GPT-5 Responses API types
+export interface ReasoningConfig {
+  effort: "minimal" | "low" | "medium" | "high";
+}
+
+export interface TextConfig {
+  verbosity: "low" | "medium" | "high";
+}
+
+export interface CustomTool {
+  type: "custom";
+  name: string;
+  description: string;
+  grammar?: string; // Lark grammar for constraining outputs
+}
+
+export interface FunctionTool {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, any>;
+  };
+}
+
+export interface AllowedToolsChoice {
+  type: "allowed_tools";
+  mode: "auto" | "required";
+  tools: Array<{ type: "function"; name: string } | { type: "image_generation" }>;
+}
+
+export interface ResponsesAPIRequest {
+  input: string;
+  model: string;
+  reasoning?: ReasoningConfig;
+  text?: TextConfig;
+  tools?: Array<CustomTool | FunctionTool>;
+  tool_choice?: AllowedToolsChoice | "auto" | "none";
+  previous_response_id?: string;
+  store?: boolean;
+  include?: string[];
+  // Existing chat parameters for compatibility
+  conversationId?: string;
+  context?: Message[];
+  attachment?: Attachment;
+  allAttachments?: Attachment[];
+  useKnowledge?: boolean;
+  pendingKnowledgeSources?: number[];
+  useTools?: boolean;
+}
+
+export interface ResponsesAPIResponse {
+  id: string;
+  object: "response";
+  created: number;
+  model: string;
+  text?: {
+    content: string;
+    reasoning?: any[];
+  };
+  tool_calls?: Array<{
+    id: string;
+    type: "function";
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    reasoning_tokens: number;
+    total_tokens: number;
+  };
+  encrypted_content?: string; // For ZDR mode
 }
 
 // Helper function to transform database response to frontend format

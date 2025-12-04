@@ -81,10 +81,19 @@ router.post("/", async (req: Request, res: Response) => {
         throw new Error("Failed to create conversation");
       }
 
+      // Save attachment metadata so it's available in future context
+      const messageMetadata: any = {};
+      if (allAttachments && allAttachments.length > 0) {
+        messageMetadata.attachments = allAttachments;
+      } else if (attachment) {
+        messageMetadata.attachments = [attachment];
+      }
+
       await db.insert(messages).values({
         conversation_id: newConversation.id,
         role: "user",
         content: message,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         created_at: timestamp,
       });
 
@@ -125,26 +134,65 @@ router.post("/", async (req: Request, res: Response) => {
         .set({ last_message_at: timestamp })
         .where(eq(conversations.id, conversationIdNum));
 
+      // Save attachment metadata so it's available in future context
+      const messageMetadata: any = {};
+      if (allAttachments && allAttachments.length > 0) {
+        messageMetadata.attachments = allAttachments;
+      } else if (attachment) {
+        messageMetadata.attachments = [attachment];
+      }
+
       await db.insert(messages).values({
         conversation_id: conversationIdNum,
         role: "user",
         content: message,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         created_at: timestamp,
       });
+
+      // Add any pending knowledge sources to existing conversation (allows mid-conversation injection)
+      if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+        console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to existing conversation ${conversationIdNum}`);
+        
+        for (const knowledgeSourceId of pendingKnowledgeSources) {
+          try {
+            await addKnowledgeToConversation(conversationIdNum, knowledgeSourceId);
+          } catch (error) {
+            console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+          }
+        }
+      }
 
       dbConversation = existingConversation;
     }
 
-    // Ensure context messages are properly ordered
+    // Ensure context messages are properly ordered and include attachment content
     const apiMessages = context
       .sort(
         (a: any, b: any) =>
           new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       )
-      .map((msg: any) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
+      .map((msg: any) => {
+        let content = msg.content;
+        
+        // Include attachment content from metadata for historical messages
+        if (msg.metadata && msg.metadata.attachments) {
+          const attachments = msg.metadata.attachments;
+          const documentTexts = attachments
+            .filter((att: any) => att.type === 'document' && att.text)
+            .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
+            .join('\n');
+          
+          if (documentTexts) {
+            content += documentTexts;
+          }
+        }
+        
+        return {
+          role: msg.role,
+          content: content,
+        };
+      });
 
     // Process attachments based on type
     let stream;
@@ -248,6 +296,8 @@ router.post("/", async (req: Request, res: Response) => {
     }, 15000); // Send keep-alive every 15 seconds
 
     try {
+      const requestStart = Date.now();
+      let ttftMs: number | null = null;
       let lastChunkTime = Date.now();
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
 
@@ -256,6 +306,9 @@ router.post("/", async (req: Request, res: Response) => {
         if (content) {
           streamedResponse += content;
           lastChunkTime = Date.now();
+          if (ttftMs === null) {
+            ttftMs = lastChunkTime - requestStart;
+          }
           res.write(
             `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
           );
@@ -270,10 +323,31 @@ router.post("/", async (req: Request, res: Response) => {
 
       // Save the complete response only after successful streaming
       const timestamp = new Date();
+      // Approximate input tokens from apiMessages
+      let approxInputTokens = 0;
+      try {
+        const texts: string[] = [];
+        for (const m of apiMessages as any[]) {
+          if (typeof m?.content === 'string') texts.push(m.content);
+        }
+        const EULER = 2.7182818284590;
+        const combined = texts.join('\n');
+        if (combined) {
+          const len = combined.length;
+          approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
+        }
+      } catch {}
       await db.insert(messages).values({
         conversation_id: dbConversation.id,
         role: "assistant",
         content: streamedResponse,
+        metadata: {
+          ttft_ms: ttftMs ?? undefined,
+          total_tokens: (stream as any)?.response?.usage?.total_tokens,
+          input_tokens: (stream as any)?.response?.usage?.prompt_tokens ?? (stream as any)?.response?.usage?.input_tokens,
+          output_tokens: (stream as any)?.response?.usage?.completion_tokens ?? (stream as any)?.response?.usage?.output_tokens,
+          approx_input_tokens: approxInputTokens,
+        },
         created_at: timestamp,
       });
 

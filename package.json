@@ -1,5 +1,5 @@
 {
-  "name": "rest-express",
+  "name": "llm-ui",
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
@@ -11,14 +11,22 @@
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
     "db:generate": "drizzle-kit generate",
-    "test:ai-models": "node tests/ai-model-tests.js"
+    "test:ai-models": "node tests/ai-model-tests.js",
+    "test:agentic": "bash test-agentic.sh",
+    "test:agentic:local": "node test-agentic-mode.mjs"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^1.0.8",
+    "@ai-sdk/google": "^1.0.10",
+    "@ai-sdk/openai": "^1.0.9",
+    "@ai-sdk/xai": "^1.0.4",
     "@anthropic-ai/sdk": "^0.33.1",
     "@fal-ai/client": "^1.3.0",
     "@google/generative-ai": "^0.24.0",
+    "ai": "^4.1.17",
     "@hookform/resolvers": "^3.9.1",
     "@jridgewell/trace-mapping": "^0.3.25",
+    "@modelcontextprotocol/sdk": "^1.17.4",
     "@playwright/test": "^1.54.1",
     "@radix-ui/react-accordion": "^1.2.1",
     "@radix-ui/react-alert-dialog": "^1.1.2",
@@ -84,7 +92,6 @@
     "pdfkit": "^0.16.0",
     "pg": "^8.13.1",
     "pptx-parser": "^1.1.7-beta.9",
-    "puppeteer": "^24.9.0",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",

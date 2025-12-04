@@ -170,10 +170,19 @@ router.post("/", async (req: Request, res: Response) => {
         throw new Error("Failed to create conversation");
       }
 
+      // Save attachment metadata so it's available in future context
+      const messageMetadata: any = {};
+      if (allAttachments && allAttachments.length > 0) {
+        messageMetadata.attachments = allAttachments;
+      } else if (attachment) {
+        messageMetadata.attachments = [attachment];
+      }
+
       await db.insert(messages).values({
         conversation_id: newConversation.id,
         role: "user",
         content: message,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         created_at: timestamp,
       });
 
@@ -209,23 +218,62 @@ router.post("/", async (req: Request, res: Response) => {
         .set({ last_message_at: timestamp })
         .where(eq(conversations.id, conversationIdNum));
 
+      // Save attachment metadata so it's available in future context
+      const messageMetadata: any = {};
+      if (allAttachments && allAttachments.length > 0) {
+        messageMetadata.attachments = allAttachments;
+      } else if (attachment) {
+        messageMetadata.attachments = [attachment];
+      }
+
       await db.insert(messages).values({
         conversation_id: conversationIdNum,
         role: "user",
         content: message,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         created_at: timestamp,
       });
+
+      // Add any pending knowledge sources to existing conversation (allows mid-conversation injection)
+      if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
+        console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to existing conversation ${conversationIdNum}`);
+        
+        for (const knowledgeSourceId of pendingKnowledgeSources) {
+          try {
+            await addKnowledgeToConversation(conversationIdNum, knowledgeSourceId);
+          } catch (error) {
+            console.error(`Failed to add knowledge source ${knowledgeSourceId} to conversation:`, error);
+          }
+        }
+      }
 
       dbConversation = existingConversation;
     }
 
-    // Prepare messages for the models
+    // Prepare messages for the models and include attachment content from metadata
     const apiMessages = context
       .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-      .map((msg: any) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
+      .map((msg: any) => {
+        let content = msg.content;
+        
+        // Include attachment content from metadata for historical messages
+        if (msg.metadata && msg.metadata.attachments) {
+          const attachments = msg.metadata.attachments;
+          const documentTexts = attachments
+            .filter((att: any) => att.type === 'document' && att.text)
+            .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
+            .join('\n');
+          
+          if (documentTexts) {
+            content += documentTexts;
+          }
+        }
+        
+        return {
+          role: msg.role,
+          content: content,
+        };
+      });
 
     // Add knowledge content if enabled
     let knowledgeContent = '';
@@ -261,7 +309,7 @@ router.post("/", async (req: Request, res: Response) => {
 
       // Step 1: Call all three models in parallel
       const modelCalls = [
-        callModel('anthropic', 'claude-sonnet-4-0', apiMessages),
+        callModel('anthropic', 'claude-sonnet-4-5', apiMessages),
         callModel('openai', 'o3', apiMessages),
         callModel('gemini', 'gemini-2.5-pro', apiMessages)
       ];
@@ -308,6 +356,8 @@ Your synthesized response:`;
       streamedResponse = finalResponse;
       
       // Send the entire response as chunks (word by word for streaming effect)
+      const requestStart = Date.now();
+      let ttftCaptured = false;
       const words = finalResponse.split(' ');
       for (let i = 0; i < words.length; i++) {
         const chunk = words[i] + (i < words.length - 1 ? ' ' : '');
@@ -315,6 +365,9 @@ Your synthesized response:`;
         
         // Small delay to simulate streaming
         await new Promise(resolve => setTimeout(resolve, 30));
+        if (!ttftCaptured) {
+          ttftCaptured = true;
+        }
       }
 
       // Save the assistant's response to database
@@ -322,6 +375,7 @@ Your synthesized response:`;
         conversation_id: dbConversation.id,
         role: "assistant",
         content: streamedResponse,
+        metadata: { ttft_ms: 0, total_tokens: streamedResponse.length ? Math.ceil(streamedResponse.length / 2.7182818284590) + 2 : 0 },
         created_at: new Date(),
       });
 

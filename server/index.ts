@@ -1,5 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import path from "path";
+import fs from "fs";
+import https from "https";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
@@ -54,7 +56,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = registerRoutes(app);
+  const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -80,4 +82,50 @@ app.use((req, res, next) => {
     log(`serving on port ${PORT}`);
     log(`Version 3`);
   });
+
+  // Optional: Set up HTTPS server for features requiring secure context (like microphone access)
+  if (process.env.SSL_ENABLED === 'true') {
+    const SSL_PORT = 5443;
+    const sslKeyPath = process.env.SSL_KEY_PATH || './ssl/key.pem';
+    const sslCertPath = process.env.SSL_CERT_PATH || './ssl/cert.pem';
+
+    if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
+      const httpsOptions = {
+        key: fs.readFileSync(sslKeyPath),
+        cert: fs.readFileSync(sslCertPath)
+      };
+
+      const httpsServer = https.createServer(httpsOptions, app);
+      
+      // Copy WebSocket upgrade handler to HTTPS server
+      httpsServer.on('upgrade', server.listeners('upgrade')[0]);
+
+      httpsServer.listen(SSL_PORT, "0.0.0.0", () => {
+        log(`HTTPS server listening on port ${SSL_PORT}`);
+        log(`Access via: https://localhost:${SSL_PORT}`);
+      });
+    } else {
+      log(`SSL enabled but certificate files not found at ${sslKeyPath} and ${sslCertPath}`);
+    }
+  }
+
+  // Graceful shutdown handling
+  const gracefulShutdown = async (signal: string) => {
+    log(`Received ${signal}, shutting down gracefully...`);
+    
+    // Close HTTP server
+    server.close(() => {
+      log("HTTP server closed.");
+      process.exit(0);
+    });
+    
+    // Force exit after 10 seconds
+    setTimeout(() => {
+      log("Forcing exit...");
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 })();

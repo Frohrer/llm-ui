@@ -45,8 +45,10 @@ interface KnowledgeSourceListProps {
   conversationId?: number;
   /** Show attach button, only used in mode="all" */
   showAttachButton?: boolean;
-  /** IDs of sources that are currently selected */
+  /** IDs of sources that are currently selected (pending to be attached) */
   selectedSourceIds?: number[];
+  /** IDs of sources already attached to the conversation */
+  attachedSourceIds?: number[];
   /** The operating mode of the list */
   mode?: KnowledgeSourceListMode;
   /** Whether to show the add knowledge button */
@@ -60,6 +62,7 @@ export function KnowledgeSourceList({
   conversationId,
   showAttachButton = false,
   selectedSourceIds = [],
+  attachedSourceIds = [],
   mode = "all",
   showAddButton = true,
   gridLayout = false,
@@ -235,27 +238,37 @@ export function KnowledgeSourceList({
                       Shared
                     </Badge>
                   )}
-                  <Badge
-                    variant={
-                      selectedSourceIds.includes(source.id)
-                        ? "default"
-                        : "outline"
-                    }
-                    className={
-                      selectedSourceIds.includes(source.id)
-                        ? "bg-green-500"
-                        : "text-gray-400"
-                    }
-                  >
-                    {selectedSourceIds.includes(source.id) ? (
-                      <Check className="h-3.5 w-3.5 mr-1" />
-                    ) : (
-                      <Check className="h-3.5 w-3.5 mr-1" />
-                    )}
-                    {selectedSourceIds.includes(source.id)
-                      ? "Selected"
-                      : "Select"}
-                  </Badge>
+                  {/* Show attached status for sources already in the conversation */}
+                  {attachedSourceIds.includes(source.id) && (
+                    <Badge variant="default" className="bg-blue-500">
+                      <Link className="h-3.5 w-3.5 mr-1" />
+                      Attached
+                    </Badge>
+                  )}
+                  {/* Show selected status for sources pending to be added */}
+                  {!attachedSourceIds.includes(source.id) && (
+                    <Badge
+                      variant={
+                        selectedSourceIds.includes(source.id)
+                          ? "default"
+                          : "outline"
+                      }
+                      className={
+                        selectedSourceIds.includes(source.id)
+                          ? "bg-green-500"
+                          : "text-gray-400"
+                      }
+                    >
+                      {selectedSourceIds.includes(source.id) ? (
+                        <Check className="h-3.5 w-3.5 mr-1" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      {selectedSourceIds.includes(source.id)
+                        ? "Selected"
+                        : "Select"}
+                    </Badge>
+                  )}
                 </div>
               </CardHeader>
 
@@ -338,28 +351,30 @@ export function KnowledgeSourceList({
                     size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (mode === "conversation" && conversationId) {
-                        // Detach in conversation mode
+                      const isAttached = attachedSourceIds.includes(source.id);
+                      
+                      if (isAttached && conversationId) {
+                        // Detach if already attached
                         removeKnowledgeFromConversation({
                           conversationId,
                           knowledgeSourceId: source.id,
                         });
                       } else if (conversationId) {
-                        // Attach in all mode with existing conversation
+                        // Attach to existing conversation
                         addKnowledgeToConversation({
                           conversationId,
                           knowledgeSourceId: source.id,
                         });
                       } else if (onSelectKnowledgeSource) {
-                        // Select for new conversation
+                        // Select for new conversation (toggle pending)
                         onSelectKnowledgeSource(source);
                       }
                     }}
                     disabled={
-                      mode === "conversation" ? isDetaching : isAttaching
+                      attachedSourceIds.includes(source.id) ? isDetaching : isAttaching
                     }
                   >
-                    {mode === "conversation" ? (
+                    {attachedSourceIds.includes(source.id) ? (
                       <>
                         <Unlink className="mr-2 h-4 w-4" />
                         Detach

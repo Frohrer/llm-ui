@@ -175,10 +175,14 @@ export function useCodeExecution() {
       'lxml': 'lxml',
       'html5lib': 'html5lib',
       'jinja2': 'jinja2',
-      'markupsafe': 'markupsafe'
+      'markupsafe': 'markupsafe',
+      'paramiko': 'paramiko',
+      'fabric': 'fabric',
+      'invoke': 'invoke'
     };
 
     const stdLibModules = new Set([
+      // Core modules
       'os', 'sys', 'json', 'time', 'datetime', 'random', 'math', 'collections', 
       'itertools', 'functools', 'operator', 'pathlib', 'glob', 'shutil', 'tempfile', 
       'subprocess', 'threading', 'multiprocessing', 'asyncio', 'concurrent', 'queue', 
@@ -191,7 +195,76 @@ export function useCodeExecution() {
       'pkgutil', 'modulefinder', 'runpy', 'argparse', 'optparse', 'shlex', 'struct', 
       'codecs', 'unicodedata', 'stringprep', 'readline', 'rlcompleter', 'array', 
       'bisect', 'heapq', 'keyword', 'io', 'mmap', 'select', 'selectors', 'signal', 
-      'warnings', 'contextlib', 'abc', 'atexit', 'site', 'builtins', '__main__', '__future__'
+      'warnings', 'contextlib', 'abc', 'atexit', 'site', 'builtins', '__main__', '__future__',
+      
+      // String and text processing
+      'string', 're', 'difflib', 'textwrap', 'unicodedata', 'stringprep',
+      
+      // Data types and structures
+      'decimal', 'fractions', 'numbers', 'cmath', 'statistics',
+      
+      // File and directory access
+      'os.path', 'fileinput', 'stat', 'filecmp', 'tempfile', 'glob', 'fnmatch', 'linecache', 'shutil',
+      
+      // Data persistence
+      'pickle', 'copyreg', 'shelve', 'marshal', 'dbm', 'sqlite3',
+      
+      // Data compression and archiving
+      'zlib', 'gzip', 'bz2', 'lzma', 'zipfile', 'tarfile',
+      
+      // File formats
+      'csv', 'configparser', 'netrc', 'xdrlib', 'plistlib',
+      
+      // Cryptographic services
+      'hashlib', 'hmac', 'secrets',
+      
+      // Generic operating system services
+      'os', 'io', 'time', 'argparse', 'getopt', 'logging', 'getpass', 'curses', 'platform', 'errno', 'ctypes',
+      
+      // Concurrent execution
+      'threading', 'multiprocessing', 'concurrent', 'subprocess', 'sched', 'queue',
+      
+      // Networking and interprocess communication
+      'socket', 'ssl', 'select', 'selectors', 'asyncio', 'asyncore', 'asynchat',
+      
+      // Internet protocols and support
+      'webbrowser', 'cgi', 'cgitb', 'wsgiref', 'urllib', 'http', 'ftplib', 'poplib', 'imaplib', 'nntplib', 'smtplib', 'smtpd', 'telnetlib', 'uuid', 'socketserver', 'xmlrpc',
+      
+      // Multimedia services
+      'audioop', 'aifc', 'sunau', 'wave', 'chunk', 'colorsys', 'imghdr', 'sndhdr', 'ossaudiodev',
+      
+      // Internationalization
+      'gettext', 'locale',
+      
+      // Program frameworks
+      'turtle', 'cmd', 'shlex',
+      
+      // Graphical user interfaces
+      'tkinter', 'tkinter.ttk', 'tkinter.tix', 'tkinter.scrolledtext',
+      
+      // Development tools
+      'typing', 'pydoc', 'doctest', 'unittest', 'test', '2to3', 'lib2to3',
+      
+      // Debugging and profiling
+      'bdb', 'faulthandler', 'pdb', 'timeit', 'trace', 'tracemalloc',
+      
+      // Software packaging and distribution
+      'distutils', 'ensurepip', 'venv', 'zipapp',
+      
+      // Python runtime services
+      'sys', 'sysconfig', 'builtins', '__main__', 'warnings', 'dataclasses', 'contextlib', 'abc', 'atexit', 'traceback', '__future__', 'gc', 'inspect', 'site',
+      
+      // Custom Python interpreters
+      'code', 'codeop',
+      
+      // Importing modules
+      'zipimport', 'pkgutil', 'modulefinder', 'runpy', 'importlib',
+      
+      // Python language services
+      'parser', 'ast', 'symtable', 'symbol', 'token', 'keyword', 'tokenize', 'tabnanny', 'pyclbr', 'py_compile', 'compileall', 'dis', 'pickletools',
+      
+      // Miscellaneous services
+      'formatter'
     ]);
 
     const importPatterns = [

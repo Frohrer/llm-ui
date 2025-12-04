@@ -160,8 +160,8 @@ export function ChatWindow({
   const [selectedModel, setSelectedModel] = useState<string>("");
   // Knowledge is always enabled now, but keeping for API compatibility
   const useKnowledge = true;
-  // Add useTools state for tool calling
-  const [useTools, setUseTools] = useState<boolean>(false);
+  // Add useAgenticMode state for agentic workflow
+  const [useAgenticMode, setUseAgenticMode] = useState<boolean>(false);
   const [showMobileKnowledgePanel, setShowMobileKnowledgePanel] =
     useState<boolean>(false);
   const [showDesktopKnowledgePanel, setShowDesktopKnowledgePanel] =
@@ -200,6 +200,14 @@ export function ChatWindow({
       setSelectedModel(conversation.model);
     }
   }, [conversation]);
+
+  // Auto-scroll when messages change (for final message updates)
+  useEffect(() => {
+    if (messages.length > 0 && isNearBottom()) {
+      // Use a small delay to ensure DOM has rendered
+      setTimeout(scrollToBottom, 50);
+    }
+  }, [messages.length]);
 
   // Set default model when providers are loaded
   useEffect(() => {
@@ -243,14 +251,34 @@ export function ChatWindow({
 
   const scrollToBottom = () => {
     const chatContainer = containerRef.current?.closest('.relative.h-full');
-    const viewport = chatContainer?.querySelector('[data-radix-scroll-area-viewport]');
-    
-    if (viewport) {
-      viewport.scrollTop = viewport.scrollHeight;
-    }
+    const viewport = chatContainer?.querySelector(
+      '[data-radix-scroll-area-viewport]'
+    ) as HTMLElement | null;
+    const bottomAnchor = containerRef.current?.querySelector(
+      '#bottom-anchor'
+    ) as HTMLElement | null;
 
-    setShouldAutoScroll(true);
-    setShowScrollButton(false);
+    // Use rAF to ensure DOM/layout has settled after new message render
+    const doScroll = () => {
+      if (bottomAnchor) {
+        // Use scrollIntoView with block: 'end' to ensure we scroll to the very bottom
+        bottomAnchor.scrollIntoView({ block: 'end', behavior: 'auto' });
+      } else if (viewport) {
+        // Fallback: scroll to the very bottom of the viewport
+        viewport.scrollTop = viewport.scrollHeight;
+      }
+
+      setShouldAutoScroll(true);
+      setShowScrollButton(false);
+    };
+
+    // Triple rAF to ensure all DOM updates and layout changes have completed
+    // This is especially important when messages contain dynamic content
+    requestAnimationFrame(() => 
+      requestAnimationFrame(() => 
+        requestAnimationFrame(doScroll)
+      )
+    );
   };
 
   useEffect(() => {
@@ -440,7 +468,8 @@ export function ChatWindow({
           allAttachments: allAttachments || [], // Send all attachments to be processed together
           useKnowledge: useKnowledge,
           pendingKnowledgeSources: pendingKnowledgeSources,
-          useTools: useTools, // Send useTools state to the API
+          useTools: useAgenticMode, // Enable tools when using agentic mode
+          useAgenticMode: useAgenticMode, // Send agentic mode state to the API
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -572,17 +601,19 @@ export function ChatWindow({
                     if (onConversationUpdate && data.conversation) {
                       onConversationUpdate(data.conversation);
                     }
-                    setStreamedText("");
                     const updatedMessages = transformMessages(
                       data.conversation,
                     );
                     setMessages(updatedMessages);
+                    // Clear streamed text after a brief delay to ensure final message renders first
+                    setTimeout(() => setStreamedText(""), 0);
                     queryClient.invalidateQueries({
                       queryKey: ["/api/conversations"],
                     });
                     // Scroll to bottom to show the complete final message
+                    // Use longer delay to ensure DOM has fully updated with new messages
                     if (isNearBottom()) {
-                      setTimeout(scrollToBottom, 0);
+                      setTimeout(scrollToBottom, 100);
                     }
                     break;
                   case "error":
@@ -731,18 +762,18 @@ export function ChatWindow({
                   variant="outline"
                   size="icon"
                   className="shrink-0 relative"
-                  onClick={() => setUseTools(!useTools)}
-                  aria-label="Toggle tool calling"
+                  onClick={() => setUseAgenticMode(!useAgenticMode)}
+                  aria-label="Toggle agentic mode"
                 >
                   <Wrench className="h-[1.2rem] w-[1.2rem]" />
-                  {useTools && (
+                  {useAgenticMode && (
                     <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-green-500 animate-pulse shadow-sm"></span>
                   )}
-                  <span className="sr-only">Toggle tool calling</span>
+                  <span className="sr-only">Toggle agentic mode</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {useTools ? "Tool calling enabled" : "Tool calling disabled"}
+                {useAgenticMode ? "Agentic mode enabled - AI will use tools autonomously" : "Agentic mode disabled"}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -834,6 +865,7 @@ export function ChatWindow({
                 onSendMessage={handleSendMessage}
                 isLoading={isLoading}
                 modelContextLength={getModelContextLength(selectedModel)}
+                contextMessages={messages}
               />
             </div>
           </ResizablePanel>
@@ -861,8 +893,9 @@ export function ChatWindow({
             </SheetHeader>
             <ScrollArea className="flex-1">
               <div className="py-4">
+                {/* Always show all knowledge sources so users can add new ones mid-conversation */}
                 <KnowledgeSourceList
-                  mode={conversation ? "conversation" : "all"}
+                  mode="all"
                   conversationId={conversation?.id}
                   showAttachButton={true}
                   onSelectKnowledgeSource={(source) => {
@@ -878,6 +911,7 @@ export function ChatWindow({
                     }
                   }}
                   selectedSourceIds={pendingKnowledgeSources}
+                  attachedSourceIds={conversationKnowledgeQuery.data?.map(s => s.id) || []}
                 />
               </div>
             </ScrollArea>

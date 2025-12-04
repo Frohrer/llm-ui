@@ -163,12 +163,29 @@ export function MultiChatWindow({
 
   const scrollToBottom = (modelId: string) => {
     const container = containerRefs.current[modelId];
-    if (container) {
-      const viewport = container.closest('.relative.h-full')?.querySelector('[data-radix-scroll-area-viewport]');
-      if (viewport) {
+    if (!container) return;
+
+    const viewport = container
+      .closest('.relative.h-full')
+      ?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+
+    // Anchor: last rendered element acts as bottom. If absent, fallback to viewport.
+    const bottomAnchor = container.lastElementChild as HTMLElement | null;
+
+    const doScroll = () => {
+      if (bottomAnchor) {
+        bottomAnchor.scrollIntoView({ block: 'end', behavior: 'auto' });
+      } else if (viewport) {
         viewport.scrollTop = viewport.scrollHeight;
       }
-    }
+    };
+
+    // Triple rAF to ensure all DOM updates and layout changes have completed
+    requestAnimationFrame(() => 
+      requestAnimationFrame(() => 
+        requestAnimationFrame(doScroll)
+      )
+    );
   };
 
   const handleSendMessage = async (
@@ -381,8 +398,8 @@ export function MultiChatWindow({
               return prev;
             });
 
-            // Auto-scroll
-            setTimeout(() => scrollToBottom(modelId), 0);
+            // Auto-scroll with delay to ensure DOM updates
+            setTimeout(() => scrollToBottom(modelId), 50);
           } catch (error) {
             console.error("Error processing SSE data:", error);
             isStreamActive = false;
@@ -446,6 +463,22 @@ export function MultiChatWindow({
   const minContextLength = selectedModels.length > 0 
     ? Math.min(...selectedModels.map(getModelContextLength))
     : 128000;
+
+  // Choose a representative conversation context for token counting in the shared input.
+  // Strategy: use the conversation with the highest total content length to best approximate
+  // the longest context that will be sent to any model.
+  const getLongestConversationMessages = (): MessageType[] => {
+    let best: MessageType[] = [];
+    let bestLen = 0;
+    for (const conv of Object.values(conversations)) {
+      const len = conv.messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+      if (len > bestLen) {
+        best = conv.messages;
+        bestLen = len;
+      }
+    }
+    return best;
+  };
 
   const getRandomThinkingMessage = () => {
     const messages = [
@@ -571,6 +604,7 @@ export function MultiChatWindow({
                   onSendMessage={handleSendMessage}
                   isLoading={anyModelLoading}
                   modelContextLength={minContextLength}
+                  contextMessages={getLongestConversationMessages()}
                 />
               </div>
             </ResizablePanel>

@@ -4,6 +4,18 @@
   "icon": "SiX",
   "models": [
     {
+      "id": "grok-4-fast-reasoning",
+      "name": "Grok-4 Fast Reasoning",
+      "contextLength": 2000000,
+      "defaultModel": true
+    },
+    {
+      "id": "grok-4-fast-non-reasoning",
+      "name": "Grok-4 Fast Non-Reasoning",
+      "contextLength": 2000000,
+      "defaultModel": false
+    },
+    {
       "id": "grok-4-latest",
       "name": "Grok-4",
       "contextLength": 131072,

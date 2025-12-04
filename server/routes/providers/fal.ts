@@ -163,7 +163,14 @@ router.post("/", async (req: Request, res: Response) => {
                            model.toLowerCase().includes("stable") ||
                            model.toLowerCase().includes("sd") ||
                            model.toLowerCase().includes("diffusion") ||
-                           model.toLowerCase().includes("flux"); // Add Flux Pro to image models
+                           model.toLowerCase().includes("flux") ||
+                           model.toLowerCase().includes("reve") ||
+                           model.toLowerCase().includes("nano") ||
+                           model.toLowerCase().includes("banana") ||
+                           model.toLowerCase().includes("seedream") ||
+                           model.toLowerCase().includes("dreamina") ||
+                           model.toLowerCase().includes("bytedance") ||
+                           model.toLowerCase().includes("text-to-image"); // Match any text-to-image endpoint
 
       if (isImageRequest) {
         // Send a single initial progress message
@@ -219,10 +226,22 @@ router.post("/", async (req: Request, res: Response) => {
 
           // Insert the assistant message
           const timestamp = new Date();
+          // Approximate input tokens from formattedMessages
+          let approxInputTokens = 0;
+          try {
+            const texts: string[] = formattedMessages.map((m: any) => m.content || '').filter(Boolean);
+            const EULER = 2.7182818284590;
+            const combined = texts.join('\n');
+            if (combined) {
+              const len = combined.length;
+              approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
+            }
+          } catch {}
           await db.insert(messages).values({
             conversation_id: dbConversation.id,
             role: "assistant",
             content: streamedResponse,
+            metadata: { total_tokens: (result as any)?.usage?.total_tokens, approx_input_tokens: approxInputTokens },
             created_at: timestamp,
           });
 

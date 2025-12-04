@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { db } from "@db";
 import { conversations, messages, conversationKnowledge } from "@db/schema";
-import { eq, desc, or, ilike, and } from "drizzle-orm";
+import { eq, desc, or, ilike, and, sql } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { cleanupDocumentFile, cleanupImageFile } from "../file-handler";
 
@@ -26,7 +26,7 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
-// Search conversations by title and message content
+// Search conversations by title and message content using PostgreSQL Full-Text Search
 router.get("/search", async (req: Request, res: Response) => {
   try {
     const { q } = req.query;
@@ -35,19 +35,14 @@ router.get("/search", async (req: Request, res: Response) => {
       return res.json([]);
     }
 
-    const searchTerm = `%${q.trim()}%`;
+    // Prepare search query: split by spaces and join with & for AND search
+    // This allows searching for multiple words (e.g., "hello world" becomes "hello & world")
+    const searchTerms = q.trim().split(/\s+/).filter(term => term.length > 0);
+    const tsquery = searchTerms.join(' & ');
     
-    // Search in conversation titles
-    const titleMatches = await db.query.conversations.findMany({
-      where: and(
-        eq(conversations.user_id, req.user!.id),
-        ilike(conversations.title, searchTerm)
-      ),
-      orderBy: [desc(conversations.last_message_at)],
-    });
-
-    // Search in message content
-    const messageMatches = await db
+    // Search using PostgreSQL full-text search with ranking
+    // Uses the tsvector columns created by the migration for fast indexed search
+    const results = await db
       .selectDistinct({
         id: conversations.id,
         title: conversations.title,
@@ -56,29 +51,37 @@ router.get("/search", async (req: Request, res: Response) => {
         model: conversations.model,
         created_at: conversations.created_at,
         last_message_at: conversations.last_message_at,
+        // Calculate relevance rank (higher = better match)
+        rank: sql<number>`
+          ts_rank(${conversations.title_search}, to_tsquery('english', ${tsquery})) +
+          COALESCE(MAX(ts_rank(${messages.content_search}, to_tsquery('english', ${tsquery}))), 0)
+        `.as('rank'),
       })
       .from(conversations)
-      .innerJoin(messages, eq(messages.conversation_id, conversations.id))
+      .leftJoin(messages, eq(messages.conversation_id, conversations.id))
       .where(
         and(
           eq(conversations.user_id, req.user!.id),
-          ilike(messages.content, searchTerm)
+          // Match in either title or message content
+          sql`(
+            ${conversations.title_search} @@ to_tsquery('english', ${tsquery}) OR
+            ${messages.content_search} @@ to_tsquery('english', ${tsquery})
+          )`
         )
       )
-      .orderBy(desc(conversations.last_message_at));
+      .groupBy(
+        conversations.id,
+        conversations.title,
+        conversations.user_id,
+        conversations.provider,
+        conversations.model,
+        conversations.created_at,
+        conversations.last_message_at,
+        conversations.title_search
+      )
+      .orderBy(sql`rank DESC, ${conversations.last_message_at} DESC`);
 
-    // Combine and deduplicate results
-    const allMatches = [...titleMatches, ...messageMatches];
-    const uniqueMatches = allMatches.filter((conv, index, self) => 
-      index === self.findIndex(c => c.id === conv.id)
-    );
-
-    // Sort by last_message_at
-    uniqueMatches.sort((a, b) => 
-      new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
-    );
-
-    const transformedConversations = uniqueMatches.map(
+    const transformedConversations = results.map(
       transformDatabaseConversation,
     );
 
