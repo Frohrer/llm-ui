@@ -7,6 +7,7 @@ import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
+import { saveGeneratedImage } from "../../file-handler";
 
 const router = express.Router();
 let client: GoogleGenerativeAI | null = null;
@@ -372,10 +373,17 @@ router.post("/", async (req: Request, res: Response) => {
                   if (imageData && imageData.data) {
                     // Handle different mime type property names
                     const mimeType = imageData.mime_type || imageData.mimeType || 'image/png';
-                    // Convert generated image to markdown format
-                    const dataUri = `data:${mimeType};base64,${imageData.data}`;
-                    content += `\n\n![Generated Image](${dataUri})\n\n`;
-                    console.log("Generated image detected and converted to markdown");
+                    // Save generated image to disk instead of embedding base64 in message
+                    try {
+                      const imageUrl = await saveGeneratedImage(imageData.data, mimeType, req);
+                      content += `\n\n![Generated Image](${imageUrl})\n\n`;
+                      console.log("Generated image saved to disk:", imageUrl);
+                    } catch (imgSaveError) {
+                      console.error("Failed to save generated image:", imgSaveError);
+                      // Fallback to base64 if saving fails
+                      const dataUri = `data:${mimeType};base64,${imageData.data}`;
+                      content += `\n\n![Generated Image](${dataUri})\n\n`;
+                    }
                   }
                 }
               }

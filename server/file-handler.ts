@@ -573,6 +573,136 @@ export const uploadSingleMiddleware = upload.single('file');
 // Multiple file upload middleware (max 5 files at once)
 export const uploadMultipleMiddleware = upload.array('files', 5);
 
+// Ensure the generated images directory exists
+try {
+  if (!fs.existsSync('uploads/generated')) {
+    fs.mkdirSync('uploads/generated', { recursive: true });
+  }
+} catch (err) {
+  console.error('Error creating generated images directory:', err);
+}
+
+/**
+ * Save a base64 image to disk and return the URL
+ * This is used for AI-generated images to avoid storing large base64 strings in the database
+ */
+export async function saveGeneratedImage(
+  base64Data: string, 
+  mimeType: string = 'image/png',
+  req?: { headers: { host?: string } }
+): Promise<string> {
+  try {
+    // Generate a unique filename
+    const uniqueId = nanoid();
+    const ext = mimeType === 'image/jpeg' || mimeType === 'image/jpg' ? '.jpg' : '.png';
+    const filename = `${uniqueId}${ext}`;
+    const filePath = path.join(process.cwd(), 'uploads', 'generated', filename);
+    
+    // Remove data URI prefix if present
+    let cleanBase64 = base64Data;
+    if (base64Data.startsWith('data:')) {
+      const commaIndex = base64Data.indexOf(',');
+      if (commaIndex !== -1) {
+        cleanBase64 = base64Data.substring(commaIndex + 1);
+      }
+    }
+    
+    // Write the file
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    fs.writeFileSync(filePath, buffer);
+    
+    console.log(`Saved generated image: ${filePath} (${buffer.length} bytes)`);
+    
+    // Build the URL
+    const baseUrl = process.env.BASE_URL || (req?.headers?.host ? `http://${req.headers.host}` : 'http://localhost:5000');
+    let url = `${baseUrl}/uploads/generated/${filename}`;
+    
+    // Transform URL to use proxy domain if available
+    url = transformUrlToProxy(url);
+    
+    return url;
+  } catch (error) {
+    console.error('Error saving generated image:', error);
+    throw error;
+  }
+}
+
+/**
+ * Download an image from an external URL and save it locally
+ * This is used to store images from third-party CDNs locally
+ */
+export async function downloadAndSaveImage(
+  externalUrl: string,
+  req?: { headers: { host?: string } }
+): Promise<string> {
+  try {
+    console.log(`Downloading image from external URL: ${externalUrl}`);
+    
+    // Fetch the image
+    const response = await fetch(externalUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+    }
+    
+    // Get the content type to determine extension
+    const contentType = response.headers.get('content-type') || 'image/png';
+    let ext = '.png';
+    if (contentType.includes('jpeg') || contentType.includes('jpg')) {
+      ext = '.jpg';
+    } else if (contentType.includes('gif')) {
+      ext = '.gif';
+    } else if (contentType.includes('webp')) {
+      ext = '.webp';
+    }
+    
+    // Generate a unique filename
+    const uniqueId = nanoid();
+    const filename = `${uniqueId}${ext}`;
+    const filePath = path.join(process.cwd(), 'uploads', 'generated', filename);
+    
+    // Get the image data as buffer
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    
+    // Write the file
+    fs.writeFileSync(filePath, buffer);
+    
+    console.log(`Downloaded and saved image: ${filePath} (${buffer.length} bytes)`);
+    
+    // Build the URL
+    const baseUrl = process.env.BASE_URL || (req?.headers?.host ? `http://${req.headers.host}` : 'http://localhost:5000');
+    let url = `${baseUrl}/uploads/generated/${filename}`;
+    
+    // Transform URL to use proxy domain if available
+    url = transformUrlToProxy(url);
+    
+    return url;
+  } catch (error) {
+    console.error('Error downloading and saving image:', error);
+    throw error;
+  }
+}
+
+/**
+ * Clean up a generated image file
+ */
+export function cleanupGeneratedImage(url: string): void {
+  try {
+    if (!url) return;
+    
+    const fileName = url.split('/').pop();
+    if (!fileName) return;
+    
+    const imagePath = path.join(process.cwd(), 'uploads', 'generated', fileName);
+    if (fs.existsSync(imagePath)) {
+      fs.unlinkSync(imagePath);
+      console.log(`Deleted generated image: ${imagePath}`);
+    }
+  } catch (deleteError) {
+    console.error('Error deleting generated image file:', deleteError);
+  }
+}
+
 // Function to transform URLs to use proxy domain/hostname
 export function transformUrlToProxy(url: string): string {
   // Get the proxy domain/hostname from environment variable

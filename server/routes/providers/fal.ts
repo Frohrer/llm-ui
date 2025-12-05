@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import * as falConfig from "../../config/providers/falai.json";
+import { downloadAndSaveImage, saveGeneratedImage } from "../../file-handler";
 
 // Define types for fal.ai responses
 interface FalQueueUpdate {
@@ -205,24 +206,30 @@ router.post("/", async (req: Request, res: Response) => {
           }
 
           const falResponse = result.data as FalResponse;
-          if (model.toLowerCase().includes("flux")) {
-            // For Flux Pro model, the image is returned directly in base64
-            if (falResponse.images?.[0]?.url) {
-              console.log("Base64 image received from Flux Pro");
-              streamedResponse = `![Generated Image](${falResponse.images[0].url})`;
-            } else {
-              console.error("No image data in Flux Pro response:", falResponse);
-              throw new Error("No image data received from Flux Pro model");
-            }
-          } else {
-            // For other models (like HiDream)
-            if (!falResponse.images?.[0]?.url) {
-              console.error("No image URL in response:", falResponse);
-              throw new Error("No image URL received in response");
-            }
-            console.log("Image URL received:", falResponse.images[0]);
-            streamedResponse = `![Generated Image](${falResponse.images[0].url})`;
+          const imageData = falResponse.images?.[0];
+          
+          if (!imageData?.url) {
+            console.error("No image data in response:", falResponse);
+            throw new Error("No image data received from Fal AI model");
           }
+          
+          console.log("Image received from Fal AI:", imageData.url.substring(0, 100) + "...");
+          
+          // Check if it's a base64 data URI or an external URL
+          let localImageUrl: string;
+          if (imageData.url.startsWith('data:')) {
+            // It's a base64 image, save it directly
+            const mimeMatch = imageData.url.match(/^data:([^;]+);base64,/);
+            const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+            localImageUrl = await saveGeneratedImage(imageData.url, mimeType, req);
+            console.log("Base64 image saved locally:", localImageUrl);
+          } else {
+            // It's an external URL, download and save locally
+            localImageUrl = await downloadAndSaveImage(imageData.url, req);
+            console.log("External image downloaded and saved locally:", localImageUrl);
+          }
+          
+          streamedResponse = `![Generated Image](${localImageUrl})`;
 
           // Insert the assistant message
           const timestamp = new Date();

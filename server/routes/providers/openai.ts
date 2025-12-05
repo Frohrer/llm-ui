@@ -11,6 +11,7 @@ import { getToolDefinitions, handleToolCalls } from "../../tools";
 import { runAgenticLoop } from "../../agentic-workflow";
 import { getOpenAIModel } from "../../ai-sdk-providers";
 import { CoreMessage } from "ai";
+import { saveGeneratedImage } from "../../file-handler";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -397,9 +398,13 @@ router.post("/", async (req: Request, res: Response) => {
           throw new Error("No image data received from OpenAI");
         }
 
-        // Convert base64 to data URI
-        const editedImageDataUri = `data:${imageAttachmentContent.mimeType};base64,${result.data[0].b64_json}`;
-        streamedResponse = `![Edited Image](${editedImageDataUri})`;
+        // Save generated image to disk instead of embedding base64 in message
+        const imageUrl = await saveGeneratedImage(
+          result.data[0].b64_json,
+          imageAttachmentContent.mimeType,
+          req
+        );
+        streamedResponse = `![Edited Image](${imageUrl})`;
 
         // Insert the assistant message
         const timestamp = new Date();
