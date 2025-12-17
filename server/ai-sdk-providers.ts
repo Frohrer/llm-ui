@@ -37,7 +37,7 @@ export function getAnthropicModel(modelName: string, apiKey?: string): LanguageM
  */
 export function getGoogleModel(modelName: string, apiKey?: string): LanguageModel {
   const google = createGoogleGenerativeAI({
-    apiKey: apiKey || process.env.GOOGLE_API_KEY,
+    apiKey: apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
   });
   
   return google(modelName);

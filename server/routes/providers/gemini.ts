@@ -8,6 +8,10 @@ import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { saveGeneratedImage } from "../../file-handler";
+import { getToolDefinitions, handleToolCalls } from "../../tools";
+import { runAgenticLoop } from "../../agentic-workflow";
+import { getGoogleModel } from "../../ai-sdk-providers";
+import { CoreMessage, generateText, jsonSchema, CoreTool } from "ai";
 
 const router = express.Router();
 let client: GoogleGenerativeAI | null = null;
@@ -26,6 +30,93 @@ export function getGeminiClient() {
   return client;
 }
 
+// Helper to convert messages to CoreMessage format for AI SDK
+function convertToCoreMessages(messages: any[]): CoreMessage[] {
+  return messages.map(msg => {
+    if (msg.role === 'system') {
+      return null;
+    }
+    
+    if (msg.role === 'user') {
+      if (typeof msg.content === 'string') {
+        return {
+          role: 'user' as const,
+          content: msg.content
+        };
+      } else if (Array.isArray(msg.content)) {
+        const textParts = msg.content
+          .filter((block: any) => block.type === 'text')
+          .map((block: any) => block.text)
+          .join('\n');
+        return {
+          role: 'user' as const,
+          content: textParts
+        };
+      }
+    }
+    
+    if (msg.role === 'assistant' || msg.role === 'model') {
+      if (typeof msg.content === 'string') {
+        return {
+          role: 'assistant' as const,
+          content: msg.content
+        };
+      } else if (Array.isArray(msg.content)) {
+        const textParts = msg.content
+          .filter((block: any) => block.type === 'text')
+          .map((block: any) => block.text)
+          .join('\n');
+        return {
+          role: 'assistant' as const,
+          content: textParts
+        };
+      }
+    }
+    
+    return null;
+  }).filter((msg): msg is CoreMessage => msg !== null);
+}
+
+// Get AI SDK tools from tool definitions
+async function getAISDKTools(userId?: number): Promise<Record<string, CoreTool>> {
+  const { executeTool } = await import('../../tools');
+  const toolDefinitions = await getToolDefinitions();
+  const tools: Record<string, CoreTool> = {};
+
+  for (const toolDef of toolDefinitions) {
+    const func = toolDef.function;
+    const properties = func.parameters.properties || {};
+    const allPropertyKeys = Object.keys(properties);
+    const strictRequired = allPropertyKeys.length > 0 ? allPropertyKeys : (func.parameters.required || []);
+    
+    const schema = {
+      type: 'object',
+      properties,
+      required: strictRequired,
+      additionalProperties: false
+    };
+    
+    tools[func.name] = {
+      description: func.description,
+      parameters: jsonSchema(schema),
+      execute: async (params: any) => {
+        try {
+          const result = await executeTool(func.name, params, userId);
+          return result;
+        } catch (error) {
+          console.error(`Error executing tool ${func.name}:`, error);
+          return {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            success: false
+          };
+        }
+      }
+    };
+  }
+
+  return tools;
+}
+
 // Create or continue a Gemini chat conversation
 router.post("/", async (req: Request, res: Response) => {
   try {
@@ -38,6 +129,8 @@ router.post("/", async (req: Request, res: Response) => {
       allAttachments = [],
       useKnowledge = false,
       pendingKnowledgeSources = [],
+      useTools = false,
+      useAgenticMode = false,
     } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -314,148 +407,294 @@ router.post("/", async (req: Request, res: Response) => {
       res.write(": keep-alive\n\n");
     }, 15000); // Send keep-alive every 15 seconds
 
+    const requestStart = Date.now();
+    let ttftMs: number | null = null;
+
     try {
-      // Send the message with or without images
-      let result;
-      
-      while (retryCount < maxRetries) {
-        try {
-          if (hasImageAttachment && imageParts.length > 0) {
-            // For image + text
-            const parts = [{ text: userText }, ...imageParts];
-            result = await chat.sendMessageStream(parts);
-            console.log("Gemini stream created with text and images");
-          } else {
-            // For text only
-            result = await chat.sendMessageStream(userText);
-            console.log("Gemini stream created with text only");
+      // Check if using agentic mode or tools mode with AI SDK
+      if (useAgenticMode && useTools) {
+        console.log('[Gemini] Using agentic mode with AI SDK');
+        
+        // Get the AI SDK model instance
+        const aiModel = getGoogleModel(model);
+        
+        // Build messages for AI SDK
+        const apiMessages = history.map((h: any) => ({
+          role: h.role === 'model' ? 'assistant' : h.role,
+          content: h.parts.map((p: any) => p.text).join('')
+        }));
+        apiMessages.push({ role: 'user', content: userText });
+        
+        // Convert to CoreMessage format
+        const coreMessages = convertToCoreMessages(apiMessages);
+        
+        // Run the agentic loop with AI SDK
+        const finalResponse = await runAgenticLoop(
+          coreMessages,
+          {
+            maxIterations: 10,
+            conversationId: dbConversation.id,
+            model: aiModel,
+            userId: req.user!.id
           }
-          break;
-        } catch (error) {
-          retryCount++;
-          if (retryCount === maxRetries) throw error;
-          await new Promise((resolve) =>
-            setTimeout(resolve, 1000 * retryCount),
-          ); // Exponential backoff
-        }
-      }
-
-      const requestStart = Date.now();
-      let ttftMs: number | null = null;
-      let lastChunkTime = Date.now();
-      const chunkTimeout = 30000; // 30 seconds timeout between chunks
-
-      if (result && result.stream) {
-        for await (const chunk of result.stream) {
-          // Debug log the chunk structure
-          console.log("Gemini chunk received:", typeof chunk, chunk);
+        );
+        
+        // Stream the final response to the user
+        if (finalResponse) {
+          ttftMs = Date.now() - requestStart;
+          const chunkSize = 50;
+          for (let i = 0; i < finalResponse.length; i += chunkSize) {
+            const chunk = finalResponse.slice(i, i + chunkSize);
+            res.write(`data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`);
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
           
-          // Extract text content properly from Gemini's response format
-          if (chunk) {
-            // Handle different chunk formats from Gemini
-            let content = '';
+          streamedResponse = finalResponse;
+          
+          // Save the final response
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "assistant",
+            content: finalResponse,
+            metadata: {
+              agentic_mode: true,
+              ai_sdk: true,
+              ttft_ms: ttftMs
+            },
+            created_at: new Date(),
+          });
+        }
+      } else if (useTools) {
+        console.log('[Gemini] Using tools mode with AI SDK');
+        
+        // Get the AI SDK model instance
+        const aiModel = getGoogleModel(model);
+        
+        // Build messages for AI SDK
+        const apiMessages = history.map((h: any) => ({
+          role: h.role === 'model' ? 'assistant' : h.role,
+          content: h.parts.map((p: any) => p.text).join('')
+        }));
+        apiMessages.push({ role: 'user', content: userText });
+        
+        // Convert to CoreMessage format
+        const coreMessages = convertToCoreMessages(apiMessages);
+        
+        // Get tools
+        const tools = await getAISDKTools(req.user!.id);
+        console.log(`[Gemini] Loaded ${Object.keys(tools).length} tools:`, Object.keys(tools).join(', '));
+        
+        // Use AI SDK generateText with tools
+        const result = await generateText({
+          model: aiModel,
+          messages: coreMessages,
+          tools,
+          maxSteps: 5, // Allow up to 5 tool calling rounds
+        });
+        
+        ttftMs = Date.now() - requestStart;
+        
+        // Stream the response
+        if (result.text) {
+          const chunkSize = 50;
+          for (let i = 0; i < result.text.length; i += chunkSize) {
+            const chunk = result.text.slice(i, i + chunkSize);
+            res.write(`data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`);
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+          
+          streamedResponse = result.text;
+        }
+        
+        // Log tool usage if any
+        if (result.toolCalls && result.toolCalls.length > 0) {
+          console.log(`[Gemini] Used ${result.toolCalls.length} tools:`, result.toolCalls.map(tc => tc.toolName).join(', '));
+          
+          // Store tool calls as internal messages
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "tool",
+            content: JSON.stringify(result.toolCalls.map(tc => ({
+              id: tc.toolCallId,
+              name: tc.toolName,
+              arguments: tc.args
+            }))),
+            metadata: { type: 'tool_calls' },
+            created_at: new Date(),
+          });
+          
+          // Store tool results
+          if (result.toolResults && result.toolResults.length > 0) {
+            await db.insert(messages).values({
+              conversation_id: dbConversation.id,
+              role: "tool",
+              content: JSON.stringify(result.toolResults.map((r, i) => ({
+                toolCallId: result.toolCalls![i].toolCallId,
+                toolName: result.toolCalls![i].toolName,
+                result: r
+              }))),
+              metadata: { type: 'tool_results' },
+              created_at: new Date(),
+            });
+          }
+        }
+        
+        // Save the response
+        await db.insert(messages).values({
+          conversation_id: dbConversation.id,
+          role: "assistant",
+          content: streamedResponse,
+          metadata: {
+            tools_used: result.toolCalls?.length || 0,
+            ai_sdk: true,
+            ttft_ms: ttftMs
+          },
+          created_at: new Date(),
+        });
+      } else {
+        // Original non-tool streaming logic
+        let result;
+        
+        while (retryCount < maxRetries) {
+          try {
+            if (hasImageAttachment && imageParts.length > 0) {
+              // For image + text
+              const parts = [{ text: userText }, ...imageParts];
+              result = await chat.sendMessageStream(parts);
+              console.log("Gemini stream created with text and images");
+            } else {
+              // For text only
+              result = await chat.sendMessageStream(userText);
+              console.log("Gemini stream created with text only");
+            }
+            break;
+          } catch (error) {
+            retryCount++;
+            if (retryCount === maxRetries) throw error;
+            await new Promise((resolve) =>
+              setTimeout(resolve, 1000 * retryCount),
+            ); // Exponential backoff
+          }
+        }
+
+        let lastChunkTime = Date.now();
+        const chunkTimeout = 30000; // 30 seconds timeout between chunks
+
+        if (result && result.stream) {
+          for await (const chunk of result.stream) {
+            // Debug log the chunk structure
+            console.log("Gemini chunk received:", typeof chunk, chunk);
             
-            if (typeof chunk.text === 'string') {
-              content = chunk.text;
-            } else if (chunk.candidates && chunk.candidates.length > 0 && chunk.candidates[0].content && 
-                      chunk.candidates[0].content.parts && chunk.candidates[0].content.parts.length > 0) {
+            // Extract text content properly from Gemini's response format
+            if (chunk) {
+              // Handle different chunk formats from Gemini
+              let content = '';
               
-              // Process all parts in the response
-              const parts = chunk.candidates[0].content.parts;
-              for (const part of parts) {
-                // Handle text parts
-                if (part.text) {
-                  content += part.text;
-                }
-                // Handle image parts (inline_data)
-                else if (part.inline_data || part.inlineData) {
-                  const imageData = part.inline_data || part.inlineData;
-                  if (imageData && imageData.data) {
-                    // Handle different mime type property names
-                    const mimeType = imageData.mime_type || imageData.mimeType || 'image/png';
-                    // Save generated image to disk instead of embedding base64 in message
-                    try {
-                      const imageUrl = await saveGeneratedImage(imageData.data, mimeType, req);
-                      content += `\n\n![Generated Image](${imageUrl})\n\n`;
-                      console.log("Generated image saved to disk:", imageUrl);
-                    } catch (imgSaveError) {
-                      console.error("Failed to save generated image:", imgSaveError);
-                      // Fallback to base64 if saving fails
-                      const dataUri = `data:${mimeType};base64,${imageData.data}`;
-                      content += `\n\n![Generated Image](${dataUri})\n\n`;
+              if (typeof chunk.text === 'string') {
+                content = chunk.text;
+              } else if (chunk.candidates && chunk.candidates.length > 0 && chunk.candidates[0].content && 
+                        chunk.candidates[0].content.parts && chunk.candidates[0].content.parts.length > 0) {
+                
+                // Process all parts in the response
+                const parts = chunk.candidates[0].content.parts;
+                for (const part of parts) {
+                  // Handle text parts
+                  if (part.text) {
+                    content += part.text;
+                  }
+                  // Handle image parts (inline_data)
+                  else if (part.inline_data || part.inlineData) {
+                    const imageData = part.inline_data || part.inlineData;
+                    if (imageData && imageData.data) {
+                      // Handle different mime type property names
+                      const mimeType = imageData.mime_type || imageData.mimeType || 'image/png';
+                      // Save generated image to disk instead of embedding base64 in message
+                      try {
+                        const imageUrl = await saveGeneratedImage(imageData.data, mimeType, req);
+                        content += `\n\n![Generated Image](${imageUrl})\n\n`;
+                        console.log("Generated image saved to disk:", imageUrl);
+                      } catch (imgSaveError) {
+                        console.error("Failed to save generated image:", imgSaveError);
+                        // Fallback to base64 if saving fails
+                        const dataUri = `data:${mimeType};base64,${imageData.data}`;
+                        content += `\n\n![Generated Image](${dataUri})\n\n`;
+                      }
                     }
                   }
                 }
               }
-            }
-            
-            // Process non-empty content
-            if (content && content.trim()) {
-              streamedResponse += content;
-              lastChunkTime = Date.now();
-              if (ttftMs === null) {
-                ttftMs = lastChunkTime - requestStart;
-              }
               
-              // Send formatted chunk to client
-              res.write(
-                `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
-              );
-              if (res.flush) res.flush();
+              // Process non-empty content
+              if (content && content.trim()) {
+                streamedResponse += content;
+                lastChunkTime = Date.now();
+                if (ttftMs === null) {
+                  ttftMs = lastChunkTime - requestStart;
+                }
+                
+                // Send formatted chunk to client
+                res.write(
+                  `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
+                );
+                if (res.flush) res.flush();
+              }
+            }
+    
+            // Check for timeout between chunks
+            if (Date.now() - lastChunkTime > chunkTimeout) {
+              throw new Error("Stream timeout - no data received for 30 seconds");
             }
           }
-  
-          // Check for timeout between chunks
-          if (Date.now() - lastChunkTime > chunkTimeout) {
-            throw new Error("Stream timeout - no data received for 30 seconds");
-          }
+        } else {
+          throw new Error("Failed to create Gemini stream");
         }
-      } else {
-        throw new Error("Failed to create Gemini stream");
-      }
 
-      // Save the complete response only after successful streaming
-      const timestamp = new Date();
-      // Try to extract Gemini usage if available on the result
-      let exactInputTokens: number | undefined;
-      let exactOutputTokens: number | undefined;
-      let exactTotalTokens: number | undefined;
-      try {
-        const usage = (result as any)?.usage || (result as any)?.responseMetadata?.tokenCount || (result as any)?.responseMetadata?.usage;
-        if (usage) {
-          exactInputTokens = usage.inputTokens ?? usage.input_tokens ?? usage.input ?? usage.promptTokens;
-          exactOutputTokens = usage.outputTokens ?? usage.output_tokens ?? usage.output ?? usage.candidatesTokens;
-          const total = usage.totalTokens ?? usage.total_tokens ?? usage.total;
-          if (typeof total === 'number') exactTotalTokens = total;
-        }
-      } catch {}
-      // Approximate input tokens from apiMessages
-      let approxInputTokens = 0;
-      try {
-        const texts: string[] = [];
-        for (const m of apiMessages as any[]) {
-          if (typeof m?.content === 'string') texts.push(m.content);
-        }
-        const EULER = 2.7182818284590;
-        const combined = texts.join('\n');
-        if (combined) {
-          const len = combined.length;
-          approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
-        }
-      } catch {}
-      await db.insert(messages).values({
-        conversation_id: dbConversation.id,
-        role: "assistant",
-        content: streamedResponse,
-        metadata: {
-          ttft_ms: ttftMs ?? undefined,
-          total_tokens: exactTotalTokens ?? (result as any)?.usage?.total_tokens,
-          input_tokens: exactInputTokens,
-          output_tokens: exactOutputTokens,
-          approx_input_tokens: approxInputTokens,
-        },
-        created_at: timestamp,
-      });
+        // Save the complete response only after successful streaming
+        const timestamp = new Date();
+        // Try to extract Gemini usage if available on the result
+        let exactInputTokens: number | undefined;
+        let exactOutputTokens: number | undefined;
+        let exactTotalTokens: number | undefined;
+        try {
+          const usage = (result as any)?.usage || (result as any)?.responseMetadata?.tokenCount || (result as any)?.responseMetadata?.usage;
+          if (usage) {
+            exactInputTokens = usage.inputTokens ?? usage.input_tokens ?? usage.input ?? usage.promptTokens;
+            exactOutputTokens = usage.outputTokens ?? usage.output_tokens ?? usage.output ?? usage.candidatesTokens;
+            const total = usage.totalTokens ?? usage.total_tokens ?? usage.total;
+            if (typeof total === 'number') exactTotalTokens = total;
+          }
+        } catch {}
+        // Approximate input tokens from history
+        let approxInputTokens = 0;
+        try {
+          const texts: string[] = [];
+          for (const h of history) {
+            for (const p of h.parts) {
+              if (typeof p?.text === 'string') texts.push(p.text);
+            }
+          }
+          texts.push(userText);
+          const EULER = 2.7182818284590;
+          const combined = texts.join('\n');
+          if (combined) {
+            const len = combined.length;
+            approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
+          }
+        } catch {}
+        await db.insert(messages).values({
+          conversation_id: dbConversation.id,
+          role: "assistant",
+          content: streamedResponse,
+          metadata: {
+            ttft_ms: ttftMs ?? undefined,
+            total_tokens: exactTotalTokens ?? (result as any)?.usage?.total_tokens,
+            input_tokens: exactInputTokens,
+            output_tokens: exactOutputTokens,
+            approx_input_tokens: approxInputTokens,
+          },
+          created_at: timestamp,
+        });
+      }
 
       // Send completion event after successful save
       const updatedConversation = await db.query.conversations.findFirst({

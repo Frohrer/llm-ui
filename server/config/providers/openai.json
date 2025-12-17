@@ -55,6 +55,12 @@
       "defaultModel": false
     },
     {
+      "id": "gpt-image-1.5",
+      "name": "GPT Image 1.5",
+      "contextLength": 32000,
+      "defaultModel": false
+    },
+    {
       "id": "gpt-4.1",
       "name": "GPT-4.1",
       "contextLength": 128000,

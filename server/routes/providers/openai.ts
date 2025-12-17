@@ -308,6 +308,9 @@ router.post("/", async (req: Request, res: Response) => {
     // Check if this is an image edit request
     const isImageEditRequest = model === "gpt-image-1-edit";
     
+    // Check if this is an image generation request with gpt-image-1.5
+    const isImageGenerationRequest = model === "gpt-image-1.5";
+    
     // Process each attachment
     for (const att of allAttachmentsToProcess) {
       // Handle image attachments
@@ -443,6 +446,115 @@ router.post("/", async (req: Request, res: Response) => {
           `data: ${JSON.stringify({
             type: "error",
             error: error instanceof Error ? error.message : "Failed to edit image",
+          })}\n\n`,
+        );
+      }
+
+      res.end();
+      return;
+    }
+
+    // Handle image generation request with gpt-image-1.5
+    if (isImageGenerationRequest) {
+      // Send initial conversation data
+      res.write(
+        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
+      );
+
+      // Send a single initial progress message
+      res.write(`data: ${JSON.stringify({ type: "chunk", content: "Generating image with GPT Image 1.5...\n" })}\n\n`);
+
+      try {
+        // If we have an image attachment, do an image edit; otherwise, generate from scratch
+        if (hasImageAttachment && imageAttachmentContent) {
+          // Image edit mode (with reference image)
+          const imageFile = await toFile(
+            fs.createReadStream(path.join(process.cwd(), 'uploads', 'images', imageAttachmentContent.fileName)),
+            null,
+            {
+              type: imageAttachmentContent.mimeType
+            }
+          );
+
+          const result = await client.images.edit({
+            model: "gpt-image-1",
+            image: imageFile,
+            prompt: message,
+            n: 1,
+            size: "1024x1024"
+          });
+
+          if (!result?.data?.[0]?.b64_json) {
+            throw new Error("No image data received from OpenAI");
+          }
+
+          // Save generated image to disk
+          const imageUrl = await saveGeneratedImage(
+            result.data[0].b64_json,
+            'image/png',
+            req
+          );
+          streamedResponse = `![Generated Image](${imageUrl})`;
+        } else {
+          // Pure image generation from text prompt
+          const result = await client.images.generate({
+            model: "gpt-image-1",
+            prompt: message,
+            n: 1,
+            size: "1024x1024",
+            response_format: "b64_json"
+          });
+
+          if (!result?.data?.[0]?.b64_json) {
+            throw new Error("No image data received from OpenAI");
+          }
+
+          // Save generated image to disk
+          const imageUrl = await saveGeneratedImage(
+            result.data[0].b64_json,
+            'image/png',
+            req
+          );
+          streamedResponse = `![Generated Image](${imageUrl})`;
+        }
+
+        // Insert the assistant message
+        const timestamp = new Date();
+        await db.insert(messages).values({
+          conversation_id: dbConversation.id,
+          role: "assistant",
+          content: streamedResponse,
+          created_at: timestamp,
+        });
+
+        // Get updated conversation data
+        const updatedConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, dbConversation.id),
+          with: {
+            messages: {
+              orderBy: (messages: any, { asc }: { asc: any }) => [asc(messages.created_at)],
+            },
+          },
+        });
+
+        if (!updatedConversation) {
+          throw new Error("Failed to retrieve conversation");
+        }
+
+        // Send the final response
+        res.write(
+          `data: ${JSON.stringify({
+            type: "end",
+            conversation: transformDatabaseConversation(updatedConversation),
+          })}\n\n`,
+        );
+
+      } catch (error) {
+        console.error("Image generation error:", error);
+        res.write(
+          `data: ${JSON.stringify({
+            type: "error",
+            error: error instanceof Error ? error.message : "Failed to generate image",
           })}\n\n`,
         );
       }
