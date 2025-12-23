@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useParams, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Mic, MicOff, Loader2, Wrench, Signal, SignalMedium, SignalLow, ArrowLeft } from 'lucide-react';
+import { Mic, MicOff, Loader2, Wrench, Signal, SignalMedium, SignalLow, ArrowLeft, Hand, Volume2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { Link } from 'wouter';
@@ -53,6 +53,7 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
     packetsSent: 0
   });
   const [voiceActivity, setVoiceActivity] = useState<number>(0);
+  const [isAISpeaking, setIsAISpeaking] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -66,6 +67,8 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
   const latencyCheckRef = useRef<{ timestamp: number; messageId: string } | null>(null);
   const lastPingRef = useRef<number>(Date.now());
   const audioWorkletLoadedRef = useRef(false);
+  const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const isAIRespondingRef = useRef(false);
 
   // Fetch previous messages if resuming a conversation
   const { data: previousMessages } = useQuery({
@@ -177,8 +180,16 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
         throw new Error('Your browser or environment does not support audio capture. This may occur when using Remote Desktop (RDP) or in unsupported browsers.');
       }
 
-      // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Request microphone access with echo cancellation to reduce feedback on mobile
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          // Lower sample rate can help reduce feedback sensitivity
+          sampleRate: { ideal: 24000 }
+        } 
+      });
       mediaStreamRef.current = stream;
 
       // Create WebSocket connection with conversation ID if resuming
@@ -340,6 +351,13 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
           
           // Update voice activity indicator
           setVoiceActivity(event.data.hasVoice ? event.data.energy * 100 : 0);
+          
+          // Check if this is a voice interruption (user speaking over AI)
+          if (event.data.isInterruption && isAIRespondingRef.current) {
+            console.log('[Voice Chat] Voice interruption detected - user speaking over AI');
+            // The audio will be sent to OpenAI which will trigger speech_started
+            // and our handler will call handleInterrupt()
+          }
 
           // Convert to base64 and send
           const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
@@ -381,6 +399,11 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
       const processor = audioContext.createScriptProcessor(2048, 1, 1);
       let audioChunksSent = 0;
 
+      // Fallback VAD state for ScriptProcessorNode
+      let fallbackSmoothedEnergy = 0;
+      const fallbackBaseThreshold = 0.01;
+      const fallbackAISpeakingThreshold = 0.08;
+      
       processor.onaudioprocess = (e) => {
         // Ignore if this isn't the current processor
         if (processor !== audioWorkletNodeRef.current) return;
@@ -390,7 +413,7 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
         const inputData = e.inputBuffer.getChannelData(0);
         const pcm16 = new Int16Array(inputData.length);
         
-        // Calculate energy for voice activity (UI feedback only)
+        // Calculate energy for voice activity
         let sum = 0;
         for (let i = 0; i < inputData.length; i++) {
           const s = Math.max(-1, Math.min(1, inputData[i]));
@@ -399,10 +422,23 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
         }
         const energy = Math.sqrt(sum / inputData.length);
         
-        // Update voice activity indicator (UI only - always send audio)
-        setVoiceActivity(energy > 0.01 ? energy * 100 : 0);
+        // Smooth energy for more stable detection
+        fallbackSmoothedEnergy = (0.3 * energy) + (0.7 * fallbackSmoothedEnergy);
+        
+        // Use higher threshold when AI is speaking to filter echo
+        const currentThreshold = isAIRespondingRef.current ? fallbackAISpeakingThreshold : fallbackBaseThreshold;
+        const hasVoice = fallbackSmoothedEnergy > currentThreshold;
+        
+        // Update voice activity indicator
+        setVoiceActivity(hasVoice ? fallbackSmoothedEnergy * 100 : 0);
 
-        // Always send audio - let OpenAI's server-side VAD handle turn detection
+        // When AI is speaking, only send audio if it exceeds the higher threshold
+        // This filters out echo while still allowing user interruption
+        if (isAIRespondingRef.current && !hasVoice) {
+          return; // Don't send echo audio
+        }
+
+        // Send audio
         const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
         wsRef.current.send(JSON.stringify({
           type: 'input_audio_buffer.append',
@@ -469,6 +505,62 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
     console.log('[Voice Chat] Recording stopped');
   };
 
+  // Handle user interruption - stops all AI audio and cancels response
+  const handleInterrupt = () => {
+    console.log('[Voice Chat] Handling interrupt - clearing audio queue and canceling response');
+    
+    // 1. Stop all scheduled audio sources immediately
+    scheduledSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+        source.disconnect();
+      } catch (e) {
+        // Source may have already ended
+      }
+    });
+    scheduledSourcesRef.current = [];
+    
+    // 2. Clear the audio queue
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    nextPlayTimeRef.current = 0;
+    
+    // 3. Mark AI as no longer responding and lower VAD threshold
+    isAIRespondingRef.current = false;
+    setIsAISpeaking(false);
+    if (audioWorkletNodeRef.current && 'port' in audioWorkletNodeRef.current) {
+      audioWorkletNodeRef.current.port.postMessage({ type: 'setAISpeaking', value: false });
+    }
+    
+    // 4. Send cancel message to OpenAI to stop generating response
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'response.cancel'
+      }));
+      console.log('[Voice Chat] Sent response.cancel to OpenAI');
+    }
+  };
+
+  // Manual interrupt button handler - for users to tap and interrupt on mobile
+  // This is a fallback for cases where voice interruption doesn't work well
+  const handleManualInterrupt = () => {
+    console.log('[Voice Chat] Manual interrupt triggered');
+    handleInterrupt();
+  };
+
+  // Handle AI response completion - lower VAD threshold back to normal
+  const handleAIResponseComplete = () => {
+    console.log('[Voice Chat] AI response complete');
+    isAIRespondingRef.current = false;
+    setIsAISpeaking(false);
+    
+    // Signal to audio processor to lower VAD threshold back to normal
+    if (audioWorkletNodeRef.current && 'port' in audioWorkletNodeRef.current) {
+      console.log('[Voice Chat] AI done speaking - lowering VAD threshold');
+      audioWorkletNodeRef.current.port.postMessage({ type: 'setAISpeaking', value: false });
+    }
+  };
+
   // Update mute state in AudioWorklet (if using AudioWorklet)
   useEffect(() => {
     if (audioWorkletNodeRef.current && 'port' in audioWorkletNodeRef.current) {
@@ -510,6 +602,11 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
 
       case 'input_audio_buffer.speech_started':
         console.log('[Voice Chat] User started speaking');
+        // If AI was responding, this is an interruption
+        if (isAIRespondingRef.current) {
+          console.log('[Voice Chat] User interrupted AI response');
+          handleInterrupt();
+        }
         // Start latency measurement and mark response as not complete
         latencyCheckRef.current = { timestamp: Date.now(), messageId: 'speech' };
         responseCompleteRef.current = false;
@@ -594,6 +691,18 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
             latencyCheckRef.current = null;
           }
           
+          // Mark AI as responding - signal to audio processor to use higher VAD threshold
+          // This filters out echo while still allowing voice interruption
+          if (!isAIRespondingRef.current) {
+            isAIRespondingRef.current = true;
+            setIsAISpeaking(true);
+            // Signal to audio processor to raise VAD threshold (filter echo, allow loud speech)
+            if (audioWorkletNodeRef.current && 'port' in audioWorkletNodeRef.current) {
+              console.log('[Voice Chat] AI speaking - raising VAD threshold to filter echo');
+              audioWorkletNodeRef.current.port.postMessage({ type: 'setAISpeaking', value: true });
+            }
+          }
+          
           await playAudioChunk(message.delta);
         }
         break;
@@ -634,6 +743,12 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
             playNextChunk();
           }
         }, 500);
+        // Schedule auto-unmute after audio finishes playing
+        setTimeout(() => {
+          if (audioQueueRef.current.length === 0 && !isPlayingRef.current) {
+            handleAIResponseComplete();
+          }
+        }, 1000);
         break;
 
       case 'error':
@@ -681,6 +796,10 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
   const playNextChunk = async () => {
     if (!audioContextRef.current || audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
+      // Check if this was the final chunk and AI response is complete
+      if (responseCompleteRef.current) {
+        handleAIResponseComplete();
+      }
       return;
     }
 
@@ -701,6 +820,17 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
 
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
+    
+    // Track this source so we can stop it on interrupt
+    scheduledSourcesRef.current.push(source);
+    
+    // Clean up ended sources from tracking array
+    source.onended = () => {
+      const index = scheduledSourcesRef.current.indexOf(source);
+      if (index > -1) {
+        scheduledSourcesRef.current.splice(index, 1);
+      }
+    };
     
     // Add low-pass filter to remove high-frequency noise/artifacts
     const lowpassFilter = audioContext.createBiquadFilter();
@@ -747,6 +877,10 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
             isPlayingRef.current = false;
             nextPlayTimeRef.current = 0;
             console.log('[Voice Chat] Playback finished, queue empty after', retryCount, 'retries');
+            // Check if AI response is complete and unmute
+            if (responseCompleteRef.current) {
+              handleAIResponseComplete();
+            }
           }
         };
         
@@ -945,31 +1079,48 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
         {status === 'connected' && (
           <div className="flex-none border-t bg-background z-10 touch-none">
             <div className="p-3 md:p-4">
-              <div className="flex items-center justify-between gap-3 p-3 bg-muted rounded-lg">
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  {isRecording && !isMuted && (
-                    <>
-                      <div className="flex items-center gap-2 text-xs md:text-sm flex-shrink-0">
-                        <Mic className={`h-4 w-4 ${voiceActivity > 0 ? 'text-red-500 animate-pulse' : 'text-muted-foreground'}`} />
-                        <span className="hidden sm:inline">{voiceActivity > 0 ? 'Speaking...' : 'Listening...'}</span>
+              {/* Show interrupt button when AI is speaking - tap as fallback, or speak to interrupt */}
+              {isAISpeaking ? (
+                <button
+                  onClick={handleManualInterrupt}
+                  className="w-full flex flex-col items-center justify-center gap-2 p-4 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:from-orange-700 active:to-amber-700 text-white rounded-lg transition-colors touch-manipulation"
+                >
+                  <div className="flex items-center gap-3">
+                    <Volume2 className="h-6 w-6 animate-pulse" />
+                    <span className="text-lg font-medium">AI Speaking</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm opacity-90">
+                    <Mic className="h-4 w-4" />
+                    <span>Speak or tap to interrupt</span>
+                  </div>
+                </button>
+              ) : (
+                <div className="flex items-center justify-between gap-3 p-3 bg-muted rounded-lg">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {isRecording && !isMuted && (
+                      <>
+                        <div className="flex items-center gap-2 text-xs md:text-sm flex-shrink-0">
+                          <Mic className={`h-4 w-4 ${voiceActivity > 0 ? 'text-red-500 animate-pulse' : 'text-muted-foreground'}`} />
+                          <span className="hidden sm:inline">{voiceActivity > 0 ? 'Speaking...' : 'Listening...'}</span>
+                        </div>
+                        <div className="flex-1 max-w-xs hidden sm:block">
+                          <Progress value={Math.min(voiceActivity, 100)} className="h-2" />
+                        </div>
+                      </>
+                    )}
+                    {isMuted && (
+                      <div className="flex items-center gap-2 text-xs md:text-sm text-muted-foreground">
+                        <MicOff className="h-4 w-4" />
+                        <span>Microphone muted</span>
                       </div>
-                      <div className="flex-1 max-w-xs hidden sm:block">
-                        <Progress value={Math.min(voiceActivity, 100)} className="h-2" />
-                      </div>
-                    </>
-                  )}
-                  {isMuted && (
-                    <div className="flex items-center gap-2 text-xs md:text-sm text-muted-foreground">
-                      <MicOff className="h-4 w-4" />
-                      <span>Microphone muted</span>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground text-right flex-shrink-0 hidden md:block">
+                    <div>↑ {connectionQuality.packetsSent}</div>
+                    <div>↓ {connectionQuality.packetsReceived}</div>
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground text-right flex-shrink-0 hidden md:block">
-                  <div>↑ {connectionQuality.packetsSent}</div>
-                  <div>↓ {connectionQuality.packetsReceived}</div>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         )}
