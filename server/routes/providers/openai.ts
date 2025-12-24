@@ -10,7 +10,6 @@ import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } fr
 import { getToolDefinitions, handleToolCalls } from "../../tools";
 import { runAgenticLoop } from "../../agentic-workflow";
 import { getOpenAIModel } from "../../ai-sdk-providers";
-import { CoreMessage } from "ai";
 import { saveGeneratedImage } from "../../file-handler";
 
 const router = express.Router();
@@ -66,30 +65,14 @@ export function getOpenAIClient() {
   return client;
 }
 
-// Helper to convert OpenAI messages to AI SDK CoreMessage format
-function convertToCoreMessages(messages: any[]): CoreMessage[] {
-  return messages.map(msg => {
-    if (msg.role === 'system') {
-      // System messages are handled separately in AI SDK
-      return null;
-    }
-    
-    if (msg.role === 'user') {
-      return {
-        role: 'user' as const,
-        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-      };
-    }
-    
-    if (msg.role === 'assistant') {
-      return {
-        role: 'assistant' as const,
-        content: msg.content || ''
-      };
-    }
-    
-    return null;
-  }).filter((msg): msg is CoreMessage => msg !== null);
+// Helper to convert OpenAI messages to simple format for agent
+function convertToAgentMessages(messages: any[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return messages
+    .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+    .map(msg => ({
+      role: msg.role as 'user' | 'assistant',
+      content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+    }));
 }
 
 // Create or continue an OpenAI chat conversation
@@ -702,15 +685,14 @@ router.post("/", async (req: Request, res: Response) => {
         const systemMessage = apiMessages.find((msg: any) => msg.role === 'system');
         const systemPrompt = systemMessage?.content || undefined;
         
-        // Convert messages to CoreMessage format (excluding system messages)
-        const coreMessages = convertToCoreMessages(apiMessages);
+        // Convert messages to simple format for agent
+        const agentMessages = convertToAgentMessages(apiMessages);
         
-        // Run the agentic loop with AI SDK
+        // Run the agentic loop with AI SDK v6 ToolLoopAgent
         const finalResponse = await runAgenticLoop(
-          coreMessages,
+          agentMessages,
           {
-            maxIterations: 10,
-            maxContextMessages: 15,
+            maxIterations: 20,
             conversationId: dbConversation.id,
             model: aiModel,
             systemPrompt,

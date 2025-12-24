@@ -487,7 +487,13 @@ export function MultiChatWindow({
       "Being lazy",
       "Hopefully we don't hit rate limits",
       "You should be working/sleeping/going outside",
-      "Sponsored by Sam Altman"
+      "Sponsored by Sam Altman",
+      "If you're reading this, you're probably not a duck",
+      "I'm not a duck",
+      "This chat exists in a quantum superposition of all possible conversations",
+      "Doing a lot of math really fast",
+      "Reticulating splines",
+      "Please tip your system administrator"
     ];
     return messages[Math.floor(Math.random() * messages.length)];
   };

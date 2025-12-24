@@ -7,7 +7,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createXai } from '@ai-sdk/xai';
-import { LanguageModel } from 'ai';
+import type { LanguageModel } from 'ai';
 
 /**
  * Get an AI SDK model instance for OpenAI

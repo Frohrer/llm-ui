@@ -11,7 +11,8 @@ import { saveGeneratedImage } from "../../file-handler";
 import { getToolDefinitions, handleToolCalls } from "../../tools";
 import { runAgenticLoop } from "../../agentic-workflow";
 import { getGoogleModel } from "../../ai-sdk-providers";
-import { CoreMessage, generateText, jsonSchema, CoreTool } from "ai";
+import { generateText, tool } from "ai";
+import { z, ZodTypeAny, ZodObject, ZodRawShape } from "zod";
 
 const router = express.Router();
 let client: GoogleGenerativeAI | null = null;
@@ -30,75 +31,117 @@ export function getGeminiClient() {
   return client;
 }
 
-// Helper to convert messages to CoreMessage format for AI SDK
-function convertToCoreMessages(messages: any[]): CoreMessage[] {
-  return messages.map(msg => {
-    if (msg.role === 'system') {
-      return null;
-    }
-    
-    if (msg.role === 'user') {
+// Helper to convert messages to simple format for agent
+function convertToAgentMessages(messages: any[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return messages
+    .filter(msg => msg.role === 'user' || msg.role === 'assistant' || msg.role === 'model')
+    .map(msg => {
+      let content = '';
       if (typeof msg.content === 'string') {
-        return {
-          role: 'user' as const,
-          content: msg.content
-        };
+        content = msg.content;
       } else if (Array.isArray(msg.content)) {
-        const textParts = msg.content
+        content = msg.content
           .filter((block: any) => block.type === 'text')
           .map((block: any) => block.text)
           .join('\n');
-        return {
-          role: 'user' as const,
-          content: textParts
-        };
       }
+      return {
+        role: (msg.role === 'model' ? 'assistant' : msg.role) as 'user' | 'assistant',
+        content
+      };
+    });
+}
+
+/**
+ * Convert a JSON Schema property to a Zod type
+ */
+function jsonSchemaPropertyToZod(prop: any): ZodTypeAny {
+  if (!prop || !prop.type) {
+    return z.any();
+  }
+
+  let zodType: ZodTypeAny;
+
+  switch (prop.type) {
+    case 'string':
+      if (prop.enum && Array.isArray(prop.enum)) {
+        zodType = z.enum(prop.enum as [string, ...string[]]);
+      } else {
+        zodType = z.string();
+      }
+      break;
+    case 'number':
+    case 'integer':
+      zodType = z.number();
+      break;
+    case 'boolean':
+      zodType = z.boolean();
+      break;
+    case 'array':
+      if (prop.items) {
+        zodType = z.array(jsonSchemaPropertyToZod(prop.items));
+      } else {
+        zodType = z.array(z.any());
+      }
+      break;
+    case 'object':
+      if (prop.properties) {
+        const shape: ZodRawShape = {};
+        for (const [key, value] of Object.entries(prop.properties)) {
+          shape[key] = jsonSchemaPropertyToZod(value);
+        }
+        zodType = z.object(shape);
+      } else {
+        zodType = z.record(z.any());
+      }
+      break;
+    default:
+      zodType = z.any();
+  }
+
+  if (prop.description) {
+    zodType = zodType.describe(prop.description);
+  }
+
+  return zodType;
+}
+
+/**
+ * Convert a JSON Schema object to a Zod schema
+ */
+function jsonSchemaToZod(schema: any): ZodObject<ZodRawShape> {
+  const shape: ZodRawShape = {};
+  const properties = schema.properties || {};
+  const required = schema.required || [];
+
+  for (const [key, prop] of Object.entries(properties)) {
+    let zodProp = jsonSchemaPropertyToZod(prop);
+    
+    if (!required.includes(key)) {
+      zodProp = zodProp.optional();
     }
     
-    if (msg.role === 'assistant' || msg.role === 'model') {
-      if (typeof msg.content === 'string') {
-        return {
-          role: 'assistant' as const,
-          content: msg.content
-        };
-      } else if (Array.isArray(msg.content)) {
-        const textParts = msg.content
-          .filter((block: any) => block.type === 'text')
-          .map((block: any) => block.text)
-          .join('\n');
-        return {
-          role: 'assistant' as const,
-          content: textParts
-        };
-      }
-    }
-    
-    return null;
-  }).filter((msg): msg is CoreMessage => msg !== null);
+    shape[key] = zodProp;
+  }
+
+  return z.object(shape);
 }
 
 // Get AI SDK tools from tool definitions
-async function getAISDKTools(userId?: number): Promise<Record<string, CoreTool>> {
+async function getAISDKTools(userId?: number): Promise<Record<string, any>> {
   const { executeTool } = await import('../../tools');
   const toolDefinitions = await getToolDefinitions();
-  const tools: Record<string, CoreTool> = {};
+  const tools: Record<string, any> = {};
 
   for (const toolDef of toolDefinitions) {
     const func = toolDef.function;
-    const properties = func.parameters.properties || {};
-    const allPropertyKeys = Object.keys(properties);
-    const strictRequired = allPropertyKeys.length > 0 ? allPropertyKeys : (func.parameters.required || []);
     
-    const schema = {
-      type: 'object',
-      properties,
-      required: strictRequired,
-      additionalProperties: false
-    };
+    // Convert JSON Schema to Zod schema
+    const zodSchema = jsonSchemaToZod(func.parameters);
     
-    tools[func.name] = {
+    tools[func.name] = tool({
       description: func.description,
-      parameters: jsonSchema(schema),
+      inputSchema: zodSchema,
       execute: async (params: any) => {
         try {
           const result = await executeTool(func.name, params, userId);
@@ -111,7 +154,7 @@ async function getAISDKTools(userId?: number): Promise<Record<string, CoreTool>>
           };
         }
       }
-    };
+    });
   }
 
   return tools;
@@ -425,14 +468,14 @@ router.post("/", async (req: Request, res: Response) => {
         }));
         apiMessages.push({ role: 'user', content: userText });
         
-        // Convert to CoreMessage format
-        const coreMessages = convertToCoreMessages(apiMessages);
+        // Convert to simple format for agent
+        const agentMessages = convertToAgentMessages(apiMessages);
         
-        // Run the agentic loop with AI SDK
+        // Run the agentic loop with AI SDK v6 ToolLoopAgent
         const finalResponse = await runAgenticLoop(
-          coreMessages,
+          agentMessages,
           {
-            maxIterations: 10,
+            maxIterations: 20,
             conversationId: dbConversation.id,
             model: aiModel,
             userId: req.user!.id
@@ -477,8 +520,8 @@ router.post("/", async (req: Request, res: Response) => {
         }));
         apiMessages.push({ role: 'user', content: userText });
         
-        // Convert to CoreMessage format
-        const coreMessages = convertToCoreMessages(apiMessages);
+        // Convert to agent message format
+        const agentMessages = convertToAgentMessages(apiMessages);
         
         // Get tools
         const tools = await getAISDKTools(req.user!.id);
@@ -487,7 +530,7 @@ router.post("/", async (req: Request, res: Response) => {
         // Use AI SDK generateText with tools
         const result = await generateText({
           model: aiModel,
-          messages: coreMessages,
+          messages: agentMessages,
           tools,
           maxSteps: 5, // Allow up to 5 tool calling rounds
         });

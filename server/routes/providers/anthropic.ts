@@ -10,7 +10,6 @@ import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } fr
 import { getToolDefinitions, handleToolCalls } from "../../tools";
 import { runAgenticLoop } from "../../agentic-workflow";
 import { getAnthropicModel } from "../../ai-sdk-providers";
-import { CoreMessage } from "ai";
 
 const router = express.Router();
 let client: Anthropic | null = null;
@@ -96,55 +95,26 @@ function createUserMessageContent(message: string, imageAttachments: any[], docu
   }
 }
 
-// Helper to convert Anthropic messages to AI SDK CoreMessage format
-function convertToCoreMessages(messages: any[]): CoreMessage[] {
-  return messages.map(msg => {
-    if (msg.role === 'system') {
-      // System messages are handled separately in AI SDK
-      return null;
-    }
-    
-    if (msg.role === 'user') {
-      // Handle both string and array content
+// Helper to convert Anthropic messages to simple format for agent
+function convertToAgentMessages(messages: any[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return messages
+    .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+    .map(msg => {
+      let content = '';
       if (typeof msg.content === 'string') {
-        return {
-          role: 'user' as const,
-          content: msg.content
-        };
+        content = msg.content;
       } else if (Array.isArray(msg.content)) {
-        // Convert Anthropic content blocks to AI SDK format
-        const textParts = msg.content
+        // Extract text from content blocks
+        content = msg.content
           .filter((block: any) => block.type === 'text')
           .map((block: any) => block.text)
           .join('\n');
-        return {
-          role: 'user' as const,
-          content: textParts
-        };
       }
-    }
-    
-    if (msg.role === 'assistant') {
-      // Handle both string and array content
-      if (typeof msg.content === 'string') {
-        return {
-          role: 'assistant' as const,
-          content: msg.content
-        };
-      } else if (Array.isArray(msg.content)) {
-        const textParts = msg.content
-          .filter((block: any) => block.type === 'text')
-          .map((block: any) => block.text)
-          .join('\n');
-        return {
-          role: 'assistant' as const,
-          content: textParts
-        };
-      }
-    }
-    
-    return null;
-  }).filter((msg): msg is CoreMessage => msg !== null);
+      return {
+        role: msg.role as 'user' | 'assistant',
+        content
+      };
+    });
 }
 
 // Helper function to execute tools and get response
@@ -536,15 +506,14 @@ router.post("/", async (req: Request, res: Response) => {
         const systemMessage = apiMessages.find((msg: any) => msg.role === 'system');
         const systemPrompt = systemMessage?.content || undefined;
         
-        // Convert messages to CoreMessage format (excluding system messages)
-        const coreMessages = convertToCoreMessages(apiMessages);
+        // Convert messages to simple format for agent
+        const agentMessages = convertToAgentMessages(apiMessages);
         
-        // Run the agentic loop with AI SDK
+        // Run the agentic loop with AI SDK v6 ToolLoopAgent
         const finalResponse = await runAgenticLoop(
-          coreMessages,
+          agentMessages,
           {
-            maxIterations: 10,
-            maxContextMessages: 15,
+            maxIterations: 20,
             conversationId: dbConversation.id,
             model: aiModel,
             systemPrompt,
