@@ -111,7 +111,21 @@ const componentSchemas = {
 
 export const generateUITool: Tool = {
   name: 'generate_ui',
-  description: `Generate a custom UI component to display rich, interactive content in the chat.
+  description: `Generate rich, interactive UI components instead of plain text. STRONGLY PREFER using this tool whenever displaying:
+- Weather/forecast data → use weather-card
+- Tabular data, lists, or structured records → use data-table
+- Statistics, metrics, KPIs → use stats-card
+- Progress, completion, or percentage data → use progress-card
+- Warnings, errors, success messages, or important notices → use alert-card
+- Code snippets or examples → use code-block
+- Multiple images or media → use image-gallery
+- Quotations or cited text → use quote-card
+- Sequential events, steps, or history → use timeline-card
+- Feature comparisons, pros/cons, or options → use comparison-table
+- User choices or actions to take → use action-buttons
+- Confirmations or decisions → use confirm-dialog
+
+Using UI components provides a MUCH better user experience than plain text. When in doubt, USE A UI COMPONENT.
 
 Available components:
 ${Object.entries(componentSchemas).map(([name, schema]) => `
