@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -13,6 +13,7 @@ import { useSpeech } from "@/hooks/use-speech";
 import { Badge } from "@/components/ui/badge";
 import { useCodeExecution } from "@/hooks/use-code-execution";
 import { TerminalOutput } from "@/components/ui/terminal-output";
+import { UIRenderer } from "@/components/generative-ui";
 
 interface MessageProps {
   message: MessageType;
@@ -193,8 +194,23 @@ export function Message({ message }: MessageProps) {
     return content;
   };
 
+  // Check if content contains generative UI markers
+  const hasGenerativeUI = typeof message.content === "string" && message.content.includes("<!--UI:");
+  
+  // Handle UI action events from generative components
+  const handleUIAction = useCallback((action: string) => {
+    console.log("[Generative UI] Action triggered:", action);
+    // You can dispatch custom events or handle actions here
+  }, []);
+
   const messageContent =
     message.role === "assistant" ? (
+      // Check for Generative UI components first
+      hasGenerativeUI ? (
+        <div className="prose dark:prose-invert max-w-none break-words [&_*]:break-words chat-message-content">
+          <UIRenderer content={message.content} onAction={handleUIAction} />
+        </div>
+      ) : 
       // Check if the message contains tool call markers
       typeof message.content === "string" && 
       (message.content.includes("Calling tool:") || 
