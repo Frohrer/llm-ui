@@ -7,6 +7,7 @@ import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
+import { prepareContext, isContextLengthError } from "../../context-manager";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -260,11 +261,20 @@ router.post("/", async (req: Request, res: Response) => {
       console.log("Plain text message added for DeepSeek");
     }
 
+    // Pre-emptively manage context to avoid exceeding model limits (DeepSeek doesn't use tools)
+    const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
+      apiMessages,
+      model,
+      { 
+        reserveForTools: 0,  // DeepSeek doesn't support tool calling
+      }
+    );
+
     // Stream the completion with retries
     while (retryCount < maxRetries) {
       try {
         stream = await client.chat.completions.create({
-          messages: apiMessages,
+          messages: contextManagedMessages,
           model,
           stream: true,
           max_tokens: 4096,
@@ -272,7 +282,29 @@ router.post("/", async (req: Request, res: Response) => {
         });
         console.log("Stream created with model:", model);
         break;
-      } catch (error) {
+      } catch (error: any) {
+        // Check if this is a context length error
+        if (isContextLengthError(error)) {
+          console.log(`[DeepSeek] Context length error detected, attempting to truncate further`);
+          
+          // Try with more aggressive truncation
+          const { messages: retriedMessages, info: retryInfo } = prepareContext(
+            contextManagedMessages,
+            model,
+            { 
+              reserveForTools: 0,
+              safetyBuffer: 10000, // Larger safety buffer for retry
+            }
+          );
+          
+          if (retryInfo.wasTruncated && retryInfo.finalMessageCount >= 2) {
+            contextManagedMessages.length = 0;
+            contextManagedMessages.push(...retriedMessages);
+            retryCount++;
+            continue;
+          }
+        }
+        
         retryCount++;
         if (retryCount === maxRetries) throw error;
         await new Promise((resolve) =>
@@ -289,6 +321,15 @@ router.post("/", async (req: Request, res: Response) => {
     res.write(
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
     );
+    
+    // Notify if context was truncated
+    if (contextInfo.wasTruncated) {
+      console.log(`[DeepSeek] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      res.write(`data: ${JSON.stringify({
+        type: "chunk",
+        content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
+      })}\n\n`);
+    }
 
     // Set up keep-alive interval
     const keepAliveInterval = setInterval(() => {

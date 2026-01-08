@@ -10,6 +10,7 @@ import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } fr
 import { getToolDefinitions, handleToolCalls } from "../../tools";
 import { runAgenticLoop } from "../../agentic-workflow";
 import { getAnthropicModel } from "../../ai-sdk-providers";
+import { prepareContext, isContextLengthError, truncateToolResult } from "../../context-manager";
 
 const router = express.Router();
 let client: Anthropic | null = null;
@@ -478,12 +479,29 @@ router.post("/", async (req: Request, res: Response) => {
     // Create user message content
     const userMessageContent = createUserMessageContent(message, imageAttachments, documentTexts, knowledgeContent);
     apiMessages.push({ role: "user", content: userMessageContent });
-    requestOptions.messages = apiMessages;
-
-
+    
+    // Pre-emptively manage context to avoid exceeding model limits
+    const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
+      apiMessages,
+      model,
+      { 
+        reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
+      }
+    );
+    
+    requestOptions.messages = contextManagedMessages;
 
     // Send initial conversation data
     res.write(`data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`);
+    
+    // Notify if context was truncated
+    if (contextInfo.wasTruncated) {
+      console.log(`[Anthropic] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      res.write(`data: ${JSON.stringify({
+        type: "chunk",
+        content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
+      })}\n\n`);
+    }
 
     // Set up keep-alive
     const keepAliveInterval = setInterval(() => {
@@ -502,12 +520,12 @@ router.post("/", async (req: Request, res: Response) => {
         // Get the AI SDK model instance
         const aiModel = getAnthropicModel(model);
         
-        // Extract system prompt from apiMessages
-        const systemMessage = apiMessages.find((msg: any) => msg.role === 'system');
+        // Extract system prompt from contextManagedMessages (which has been truncated if needed)
+        const systemMessage = contextManagedMessages.find((msg: any) => msg.role === 'system');
         const systemPrompt = systemMessage?.content || undefined;
         
-        // Convert messages to simple format for agent
-        const agentMessages = convertToAgentMessages(apiMessages);
+        // Convert messages to simple format for agent - use contextManagedMessages which has been truncated
+        const agentMessages = convertToAgentMessages(contextManagedMessages);
         
         // Run the agentic loop with AI SDK v6 ToolLoopAgent
         const finalResponse = await runAgenticLoop(

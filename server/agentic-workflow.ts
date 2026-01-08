@@ -3,6 +3,12 @@ import { z, ZodTypeAny, ZodObject, ZodRawShape } from "zod";
 import { getToolDefinitions, executeTool, refreshTools } from "./tools";
 import { db } from "@db";
 import { messages } from "@db/schema";
+import { truncateToolResult } from "./context-manager";
+
+// Maximum tokens per tool result to prevent context overflow during agentic loops
+// With 20 iterations max and ~2000 tokens each, worst case is ~40K tokens for tool results
+// Plus initial context and system prompts, this keeps us well under most model limits
+const MAX_TOOL_RESULT_TOKENS = 2000;
 
 // Configuration for the agentic loop
 export interface AgenticConfig {
@@ -121,6 +127,22 @@ async function buildAgentTools(forceReload: boolean = false, userId?: number): P
       execute: async (params: any) => {
         try {
           const result = await executeTool(func.name, params, userId);
+          
+          // CRITICAL: Truncate tool results to prevent context overflow
+          // The AI SDK ToolLoopAgent accumulates all tool results in context
+          const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+          const estimatedTokens = Math.ceil(resultStr.length / 3.2);
+          
+          if (estimatedTokens > MAX_TOOL_RESULT_TOKENS) {
+            console.log(`[Agent] Truncating tool result from ${func.name}: ~${estimatedTokens} -> ~${MAX_TOOL_RESULT_TOKENS} tokens`);
+            const truncated = truncateToolResult(result, MAX_TOOL_RESULT_TOKENS);
+            try {
+              return JSON.parse(truncated);
+            } catch {
+              return truncated;
+            }
+          }
+          
           return result;
         } catch (error) {
           console.error(`Error executing tool ${func.name}:`, error);

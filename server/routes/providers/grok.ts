@@ -8,6 +8,7 @@ import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import OpenAI from "openai";
 import { getToolDefinitions, getTools, handleToolCalls } from "../../tools";
+import { prepareContext, isContextLengthError } from "../../context-manager";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -326,10 +327,28 @@ router.post("/", async (req: Request, res: Response) => {
       console.log("Plain text message added for Grok");
     }
 
+    // Pre-emptively manage context to avoid exceeding model limits
+    const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
+      apiMessages,
+      model,
+      { 
+        reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
+      }
+    );
+
     // Send initial conversation data
     res.write(
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
     );
+    
+    // Notify if context was truncated
+    if (contextInfo.wasTruncated) {
+      console.log(`[Grok] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      res.write(`data: ${JSON.stringify({
+        type: "chunk",
+        content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
+      })}\n\n`);
+    }
 
     // Set up keep-alive interval
     const keepAliveInterval = setInterval(() => {
@@ -340,7 +359,7 @@ router.post("/", async (req: Request, res: Response) => {
       // Set up the base request options
       const requestOptions: any = {
         model: model,
-        messages: apiMessages,
+        messages: contextManagedMessages,
         stream: true,
         temperature: 0.7,
         max_tokens: 4096,

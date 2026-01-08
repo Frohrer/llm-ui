@@ -64,14 +64,31 @@ export const browseWebsiteTool: Tool = {
       // Get final URL (in case of redirects)
       const finalUrl = response.url;
       
+      // Truncate content to prevent context overflow (max ~8000 chars ≈ 2500 tokens)
+      const MAX_CONTENT_LENGTH = 8000;
+      let truncatedContent = content;
+      let wasTruncated = false;
+      
+      if (typeof content === 'string' && content.length > MAX_CONTENT_LENGTH) {
+        truncatedContent = content.substring(0, MAX_CONTENT_LENGTH) + '\n\n[Content truncated - showing first 8000 characters]';
+        wasTruncated = true;
+      } else if (typeof content === 'object') {
+        const jsonStr = JSON.stringify(content);
+        if (jsonStr.length > MAX_CONTENT_LENGTH) {
+          truncatedContent = jsonStr.substring(0, MAX_CONTENT_LENGTH) + '\n\n[JSON truncated - showing first 8000 characters]';
+          wasTruncated = true;
+        }
+      }
+      
       return {
         success: true,
         url: finalUrl,
         originalUrl: params.url,
         statusCode: response.status,
         contentType: contentType,
-        headers: Object.fromEntries(response.headers.entries()),
-        content: content
+        contentLength: typeof content === 'string' ? content.length : JSON.stringify(content).length,
+        wasTruncated,
+        content: truncatedContent
       };
     } catch (error) {
       return {

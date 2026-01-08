@@ -6,6 +6,7 @@ import { db } from '@db';
 import { customTools } from '@db/schema';
 import { eq } from 'drizzle-orm';
 import { runPythonTool } from './manual/run-python.js';
+import { truncateToolResult } from '../context-manager.js';
 
 
 // Define the interface for a tool
@@ -342,8 +343,10 @@ export async function executeTool(toolName: string, params: any, userId?: number
 
 /**
  * Helper to handle tool calling responses from LLMs
+ * Includes automatic truncation of large tool results to prevent context overflow
  */
-export async function handleToolCalls(toolCalls: any[]): Promise<any[]> {
+export async function handleToolCalls(toolCalls: any[], options: { maxResultTokens?: number } = {}): Promise<any[]> {
+  const { maxResultTokens = 8000 } = options; // Default 8K tokens per tool result
   const results = [];
   
   for (const toolCall of toolCalls) {
@@ -354,10 +357,28 @@ export async function handleToolCalls(toolCalls: any[]): Promise<any[]> {
         JSON.parse(toolCall.function.arguments) : toolCall.arguments;
       
       const result = await executeTool(toolName, toolArgs);
+      
+      // Truncate large results to prevent context overflow
+      let processedResult = result;
+      const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+      
+      // Check if result is too large (roughly estimate tokens as chars / 2.7)
+      const estimatedTokens = Math.ceil(resultStr.length / 2.7);
+      if (estimatedTokens > maxResultTokens) {
+        console.log(`[Tools] Truncating large tool result from ${toolName}: ~${estimatedTokens} tokens -> ~${maxResultTokens} tokens`);
+        const truncatedStr = truncateToolResult(result, maxResultTokens);
+        try {
+          // Try to parse back to object if it was JSON
+          processedResult = JSON.parse(truncatedStr);
+        } catch {
+          processedResult = truncatedStr;
+        }
+      }
+      
       results.push({
         toolCallId: toolCall.id,
         toolName,
-        result
+        result: processedResult
       });
     } catch (error) {
       results.push({

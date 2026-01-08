@@ -10,6 +10,7 @@ import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } fr
 import { getToolDefinitions, handleToolCalls } from "../../tools";
 import { runAgenticLoop } from "../../agentic-workflow";
 import { getOpenAIModel } from "../../ai-sdk-providers";
+import { prepareContext, isContextLengthError, truncateToolResult, estimateTotalTokens } from "../../context-manager";
 import { saveGeneratedImage } from "../../file-handler";
 
 const router = express.Router();
@@ -615,6 +616,24 @@ router.post("/", async (req: Request, res: Response) => {
       console.log("Plain text message added for OpenAI");
     }
 
+    // Pre-emptively manage context to avoid exceeding model limits
+    const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
+      apiMessages,
+      effectiveModel,
+      { 
+        reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
+      }
+    );
+    
+    if (contextInfo.wasTruncated) {
+      console.log(`[OpenAI] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      // Notify the client that context was truncated
+      res.write(`data: ${JSON.stringify({
+        type: "chunk",
+        content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
+      })}\n\n`);
+    }
+
     // Stream the completion with retries
     while (retryCount < maxRetries) {
       try {
@@ -622,7 +641,7 @@ router.post("/", async (req: Request, res: Response) => {
         const isReasoningModelStream = effectiveModel.includes('o1') || effectiveModel.includes('o3') || effectiveModel.includes('gpt-4o') || effectiveModel.includes('gpt-5');
         
         const streamOptions: any = {
-          messages: apiMessages,
+          messages: contextManagedMessages,
           model: effectiveModel,
           stream: true,
           max_completion_tokens: 4096,
@@ -648,7 +667,35 @@ router.post("/", async (req: Request, res: Response) => {
         stream = await client.chat.completions.create(streamOptions);
         console.log("Stream created with model:", model);
         break;
-      } catch (error) {
+      } catch (error: any) {
+        // Check if this is a context length error
+        if (isContextLengthError(error)) {
+          console.log(`[OpenAI] Context length error detected, attempting to truncate further`);
+          
+          // Try with more aggressive truncation (reduce available space by 30%)
+          const { messages: retriedMessages, info: retryInfo } = prepareContext(
+            contextManagedMessages,
+            effectiveModel,
+            { 
+              reserveForTools: useTools ? 8000 : 0,
+              safetyBuffer: 10000, // Larger safety buffer for retry
+            }
+          );
+          
+          if (retryInfo.wasTruncated && retryInfo.finalMessageCount >= 2) {
+            contextManagedMessages.length = 0;
+            contextManagedMessages.push(...retriedMessages);
+            
+            res.write(`data: ${JSON.stringify({
+              type: "chunk",
+              content: `[Additional context trimming applied. ${retryInfo.removedMessages} more messages removed.]\n\n`
+            })}\n\n`);
+            
+            retryCount++;
+            continue;
+          }
+        }
+        
         retryCount++;
         if (retryCount === maxRetries) throw error;
         await new Promise((resolve) =>
@@ -681,12 +728,12 @@ router.post("/", async (req: Request, res: Response) => {
         // Get the AI SDK model instance
         const aiModel = getOpenAIModel(effectiveModel);
         
-        // Extract system prompt from apiMessages
-        const systemMessage = apiMessages.find((msg: any) => msg.role === 'system');
+        // Extract system prompt from contextManagedMessages (which has been truncated if needed)
+        const systemMessage = contextManagedMessages.find((msg: any) => msg.role === 'system');
         const systemPrompt = systemMessage?.content || undefined;
         
-        // Convert messages to simple format for agent
-        const agentMessages = convertToAgentMessages(apiMessages);
+        // Convert messages to simple format for agent - use contextManagedMessages which has been truncated
+        const agentMessages = convertToAgentMessages(contextManagedMessages);
         
         // Run the agentic loop with AI SDK v6 ToolLoopAgent
         const finalResponse = await runAgenticLoop(

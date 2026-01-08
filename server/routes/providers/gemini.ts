@@ -13,6 +13,7 @@ import { runAgenticLoop } from "../../agentic-workflow";
 import { getGoogleModel } from "../../ai-sdk-providers";
 import { generateText, tool } from "ai";
 import { z, ZodTypeAny, ZodObject, ZodRawShape } from "zod";
+import { prepareContext, isContextLengthError, truncateToolResult } from "../../context-manager";
 
 const router = express.Router();
 let client: GoogleGenerativeAI | null = null;
@@ -418,18 +419,39 @@ router.post("/", async (req: Request, res: Response) => {
     // Initialize the model with the specified model name
     const genModel = client.getGenerativeModel({ model });
     
+    // Convert Gemini history format to standard format for context management
+    const standardHistory = history.map((h: any) => ({
+      role: h.role === 'model' ? 'assistant' : h.role,
+      content: h.parts.map((p: any) => p.text).join('\n')
+    }));
+    
+    // Pre-emptively manage context to avoid exceeding model limits
+    const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
+      standardHistory,
+      model,
+      { 
+        reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
+      }
+    );
+    
+    // Convert back to Gemini history format
+    const contextManagedHistory = contextManagedMessages.map((msg: any) => ({
+      role: msg.role === 'assistant' ? 'model' : msg.role,
+      parts: [{ text: msg.content }]
+    }));
+    
     // Prepare for chat
     let chat;
     
-    if (history.length > 0) {
+    if (contextManagedHistory.length > 0) {
       chat = genModel.startChat({
-        history,
+        history: contextManagedHistory,
         generationConfig: {
           maxOutputTokens: 4096,
           temperature: 0.7,
         },
       });
-      console.log("Gemini chat created with model:", model, "and history length:", history.length);
+      console.log("Gemini chat created with model:", model, "and history length:", contextManagedHistory.length);
     } else {
       chat = genModel.startChat({
         generationConfig: {
@@ -444,6 +466,15 @@ router.post("/", async (req: Request, res: Response) => {
     res.write(
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
     );
+    
+    // Notify if context was truncated
+    if (contextInfo.wasTruncated) {
+      console.log(`[Gemini] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      res.write(`data: ${JSON.stringify({
+        type: "chunk",
+        content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
+      })}\n\n`);
+    }
 
     // Set up keep-alive interval
     const keepAliveInterval = setInterval(() => {
@@ -461,15 +492,13 @@ router.post("/", async (req: Request, res: Response) => {
         // Get the AI SDK model instance
         const aiModel = getGoogleModel(model);
         
-        // Build messages for AI SDK
-        const apiMessages = history.map((h: any) => ({
-          role: h.role === 'model' ? 'assistant' : h.role,
-          content: h.parts.map((p: any) => p.text).join('')
-        }));
-        apiMessages.push({ role: 'user', content: userText });
+        // Use context-managed messages which have already been truncated if needed
+        // contextManagedMessages is in standard format, add current user message
+        const agentApiMessages = [...contextManagedMessages];
+        agentApiMessages.push({ role: 'user', content: userText });
         
         // Convert to simple format for agent
-        const agentMessages = convertToAgentMessages(apiMessages);
+        const agentMessages = convertToAgentMessages(agentApiMessages);
         
         // Run the agentic loop with AI SDK v6 ToolLoopAgent
         const finalResponse = await runAgenticLoop(
@@ -513,15 +542,12 @@ router.post("/", async (req: Request, res: Response) => {
         // Get the AI SDK model instance
         const aiModel = getGoogleModel(model);
         
-        // Build messages for AI SDK
-        const apiMessages = history.map((h: any) => ({
-          role: h.role === 'model' ? 'assistant' : h.role,
-          content: h.parts.map((p: any) => p.text).join('')
-        }));
-        apiMessages.push({ role: 'user', content: userText });
+        // Use context-managed messages which have already been truncated if needed
+        const toolsApiMessages = [...contextManagedMessages];
+        toolsApiMessages.push({ role: 'user', content: userText });
         
         // Convert to agent message format
-        const agentMessages = convertToAgentMessages(apiMessages);
+        const agentMessages = convertToAgentMessages(toolsApiMessages);
         
         // Get tools
         const tools = await getAISDKTools(req.user!.id);
