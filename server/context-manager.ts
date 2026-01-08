@@ -17,6 +17,7 @@ const CHARS_PER_TOKEN = 3.2;
 const SAFETY_BUFFER_PERCENT = 0.05; // 5% buffer
 
 // Default model context limits (conservative estimates)
+// These are fallbacks - the actual contextLength from provider config is preferred
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // OpenAI
   'gpt-4o': 128000,
@@ -31,28 +32,20 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'o3-mini': 200000,
   'gpt-5': 400000,
   
-  // Anthropic
-  'claude-3-5-sonnet': 200000,
-  'claude-3-opus': 200000,
-  'claude-3-sonnet': 200000,
-  'claude-3-haiku': 200000,
-  'claude-sonnet-4': 200000,
+  // Anthropic - use generous default, all Claude 3+ models have 200k
+  'claude': 200000,
   
-  // Google
-  'gemini-2.0-flash': 1048576,
-  'gemini-1.5-pro': 2000000,
-  'gemini-1.5-flash': 1048576,
+  // Google - all Gemini models have large context
+  'gemini': 1000000,
   
   // Grok
-  'grok-2': 131072,
-  'grok-3': 2000000,
+  'grok': 131072,
   
   // DeepSeek
-  'deepseek-chat': 64000,
-  'deepseek-reasoner': 64000,
+  'deepseek': 64000,
   
-  // Default fallback
-  'default': 8000,
+  // Default fallback - generous to avoid over-truncation
+  'default': 128000,
 };
 
 /**
@@ -258,11 +251,24 @@ export function truncateContext(
   
   // Calculate available tokens with all reserves
   const totalReserved = reserveForResponse + reserveForSystem + reserveForTools + safetyBuffer;
-  const availableTokens = maxTokens - totalReserved;
+  const availableTokens = Math.max(1000, maxTokens - totalReserved); // Ensure at least 1000 tokens available
   const originalMessageCount = messages.length;
   const originalTokens = estimateTotalTokens(messages);
   
-  console.log(`[Context Manager] Checking context: ${originalTokens} tokens, limit: ${availableTokens} (model: ${model})`);
+  // Skip context management until we're close to the limit
+  // Use 90% of available tokens as threshold - reserves already account for response/tools/safety
+  const skipThreshold = Math.max(1000, availableTokens * 0.9);
+  if (originalTokens < skipThreshold) {
+    return {
+      messages,
+      wasTruncated: false,
+      originalMessageCount,
+      finalMessageCount: messages.length,
+      originalTokens,
+      finalTokens: originalTokens,
+      removedMessages: 0,
+    };
+  }
   
   // First pass: truncate any oversized tool results
   let truncatedMessages = messages.map(msg => {
@@ -314,6 +320,7 @@ export function truncateContext(
   // Separate system messages and conversation messages
   const systemMessages = truncatedMessages.filter(m => m.role === 'system');
   const conversationMessages = truncatedMessages.filter(m => m.role !== 'system');
+  const originalConversationCount = conversationMessages.length;
   
   // Always keep the last user message and any immediately related messages
   const lastUserMsgIndex = conversationMessages.findLastIndex((m: any) => m.role === 'user');
@@ -321,16 +328,18 @@ export function truncateContext(
   // Messages to definitely keep (recent context)
   const keepEndCount = Math.min(
     conversationMessages.length,
-    Math.max(minMessages, conversationMessages.length - lastUserMsgIndex + 2)
+    Math.max(minMessages, lastUserMsgIndex >= 0 ? conversationMessages.length - lastUserMsgIndex + 2 : conversationMessages.length)
   );
   
   const messagesToKeep = conversationMessages.slice(-keepEndCount);
   let messagesToConsider = conversationMessages.slice(0, -keepEndCount);
+  let actuallyRemovedCount = 0;
   
   // Progressive removal: remove oldest messages first, but try to keep pairs
   while (currentTokens > availableTokens && messagesToConsider.length > 0) {
     // Remove from the beginning (oldest messages)
     const removed = messagesToConsider.shift();
+    actuallyRemovedCount++;
     console.log(`[Context Manager] Removing message: ${removed?.role} (${estimateMessageTokens(removed)} tokens)`);
     
     const remainingMessages = [...systemMessages, ...messagesToConsider, ...messagesToKeep];
@@ -340,16 +349,19 @@ export function truncateContext(
   const finalMessages = [...systemMessages, ...messagesToConsider, ...messagesToKeep];
   const finalTokens = estimateTotalTokens(finalMessages);
   
-  console.log(`[Context Manager] Truncation complete: ${originalMessageCount} -> ${finalMessages.length} messages, ${originalTokens} -> ${finalTokens} tokens`);
+  // Only log if we actually removed messages
+  if (actuallyRemovedCount > 0) {
+    console.log(`[Context Manager] Truncation complete: removed ${actuallyRemovedCount} messages, ${originalTokens} -> ${finalTokens} tokens`);
+  }
   
   return {
     messages: finalMessages,
-    wasTruncated: true,
+    wasTruncated: actuallyRemovedCount > 0 || currentTokens !== originalTokens,
     originalMessageCount,
     finalMessageCount: finalMessages.length,
     originalTokens,
     finalTokens,
-    removedMessages: originalMessageCount - finalMessages.length,
+    removedMessages: actuallyRemovedCount, // Use actual count, not calculated difference
   };
 }
 

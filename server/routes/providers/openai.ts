@@ -84,6 +84,7 @@ router.post("/", async (req: Request, res: Response) => {
       conversationId,
       context = [],
       model = "gpt-4",
+      modelContextLength = 128000, // Default for GPT-4 models
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
@@ -621,13 +622,14 @@ router.post("/", async (req: Request, res: Response) => {
       apiMessages,
       effectiveModel,
       { 
+        maxTokens: modelContextLength, // Use context length from model config
         reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
       }
     );
     
-    if (contextInfo.wasTruncated) {
+    // Only notify user if messages were actually removed (not just tool results truncated)
+    if (contextInfo.removedMessages > 0) {
       console.log(`[OpenAI] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
-      // Notify the client that context was truncated
       res.write(`data: ${JSON.stringify({
         type: "chunk",
         content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`

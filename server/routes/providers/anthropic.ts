@@ -275,6 +275,7 @@ router.post("/", async (req: Request, res: Response) => {
       conversationId,
       context = [],
       model = "claude-3-5-sonnet-latest",
+      modelContextLength = 200000, // Default for Claude models
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
@@ -485,6 +486,7 @@ router.post("/", async (req: Request, res: Response) => {
       apiMessages,
       model,
       { 
+        maxTokens: modelContextLength, // Use context length from model config
         reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
       }
     );
@@ -494,8 +496,8 @@ router.post("/", async (req: Request, res: Response) => {
     // Send initial conversation data
     res.write(`data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`);
     
-    // Notify if context was truncated
-    if (contextInfo.wasTruncated) {
+    // Only notify user if messages were actually removed (not just tool results truncated)
+    if (contextInfo.removedMessages > 0) {
       console.log(`[Anthropic] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
       res.write(`data: ${JSON.stringify({
         type: "chunk",

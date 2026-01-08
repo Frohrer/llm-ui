@@ -464,6 +464,7 @@ export function ChatWindow({
           conversationId: conversation?.id,
           context: messages,
           model: selectedModel,
+          modelContextLength: getModelContextLength(selectedModel), // Pass context limit from config
           attachment: attachment,
           allAttachments: allAttachments || [], // Send all attachments to be processed together
           useKnowledge: useKnowledge,

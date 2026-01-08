@@ -169,6 +169,7 @@ router.post("/", async (req: Request, res: Response) => {
       conversationId,
       context = [],
       model = "gemini-2.5-flash",
+      modelContextLength = 1000000, // Default for Gemini models
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
@@ -430,6 +431,7 @@ router.post("/", async (req: Request, res: Response) => {
       standardHistory,
       model,
       { 
+        maxTokens: modelContextLength, // Use context length from model config
         reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
       }
     );
@@ -467,8 +469,8 @@ router.post("/", async (req: Request, res: Response) => {
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
     );
     
-    // Notify if context was truncated
-    if (contextInfo.wasTruncated) {
+    // Only notify user if messages were actually removed (not just tool results truncated)
+    if (contextInfo.removedMessages > 0) {
       console.log(`[Gemini] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
       res.write(`data: ${JSON.stringify({
         type: "chunk",
