@@ -392,7 +392,26 @@ export function MultiChatWindow({
                   }
                   break;
                 case "error":
-                  throw new Error(data.error);
+                  isStreamActive = false;
+                  // Display the error as an assistant message so user can see it
+                  const errorContent = data.error || "An error occurred";
+                  const existingMessages = current.messages || [];
+                  const errorMessage = {
+                    id: `error-${Date.now()}`,
+                    role: "assistant" as const,
+                    content: errorContent,
+                    timestamp: Date.now(),
+                  };
+                  return {
+                    ...prev,
+                    [modelId]: {
+                      ...current,
+                      messages: [...existingMessages, errorMessage],
+                      isLoading: false,
+                      streamedText: "",
+                      abortController: undefined,
+                    }
+                  };
               }
 
               return prev;

@@ -59,9 +59,8 @@
         "contextLength": 1024,
         "defaultModel": false,
         "parameters": {
-          "image_size": "square_hd",
+          "aspect_ratio": "1:1",
           "num_images": 1,
-          "enable_safety_checker": false,
           "output_format": "png",
           "sync_mode": true
         }
@@ -72,9 +71,9 @@
         "contextLength": 1024,
         "defaultModel": false,
         "parameters": {
-          "image_size": "square_hd",
+          "aspect_ratio": "1:1",
+          "resolution": "1K",
           "num_images": 1,
-          "enable_safety_checker": false,
           "output_format": "png",
           "sync_mode": true
         }

@@ -618,13 +618,25 @@ export function ChatWindow({
                     }
                     break;
                   case "error":
-                    throw new Error(data.error);
+                    isStreamActive = false;
+                    // Display error as assistant message so user can see it in chat
+                    const errorContent = data.error || "An error occurred";
+                    const errorMessage: MessageType = {
+                      id: `error-${Date.now()}`,
+                      role: "assistant",
+                      content: errorContent,
+                      timestamp: new Date(),
+                    };
+                    setMessages(prev => [...prev, errorMessage]);
+                    setStreamedText("");
+                    break;
                 }
               }
             } catch (error) {
               console.error("Error processing SSE data:", error);
               isStreamActive = false;
               if (error instanceof Error) {
+                // Display parsing errors as toast (these are actual bugs, not user-facing errors)
                 toast({
                   variant: "destructive",
                   title: "Error",
