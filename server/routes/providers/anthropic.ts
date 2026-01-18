@@ -11,6 +11,7 @@ import { getToolDefinitions, handleToolCalls } from "../../tools";
 import { runAgenticLoop } from "../../agentic-workflow";
 import { getAnthropicModel } from "../../ai-sdk-providers";
 import { prepareContext, isContextLengthError, truncateToolResult } from "../../context-manager";
+import { buildSystemPrompt } from "../../user-preferences-service";
 
 const router = express.Router();
 let client: Anthropic | null = null;
@@ -480,18 +481,25 @@ router.post("/", async (req: Request, res: Response) => {
     // Create user message content
     const userMessageContent = createUserMessageContent(message, imageAttachments, documentTexts, knowledgeContent);
     apiMessages.push({ role: "user", content: userMessageContent });
-    
+
     // Pre-emptively manage context to avoid exceeding model limits
     const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
       apiMessages,
       model,
-      { 
+      {
         maxTokens: modelContextLength, // Use context length from model config
         reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
       }
     );
-    
+
     requestOptions.messages = contextManagedMessages;
+
+    // Build system prompt with user custom prompt
+    const baseSystemPrompt = "You are a helpful AI assistant.";
+    const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
+    if (systemPrompt) {
+      requestOptions.system = systemPrompt;
+    }
 
     // Send initial conversation data
     res.write(`data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`);

@@ -12,6 +12,7 @@ import { runAgenticLoop } from "../../agentic-workflow";
 import { getOpenAIModel } from "../../ai-sdk-providers";
 import { prepareContext, isContextLengthError, truncateToolResult, estimateTotalTokens } from "../../context-manager";
 import { saveGeneratedImage } from "../../file-handler";
+import { buildSystemPrompt } from "../../user-preferences-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -617,16 +618,23 @@ router.post("/", async (req: Request, res: Response) => {
       console.log("Plain text message added for OpenAI");
     }
 
+    // Build and add system prompt with user custom prompt
+    const baseSystemPrompt = "You are a helpful AI assistant.";
+    const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
+    if (systemPrompt) {
+      apiMessages.unshift({ role: "system", content: systemPrompt });
+    }
+
     // Pre-emptively manage context to avoid exceeding model limits
     const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
       apiMessages,
       effectiveModel,
-      { 
+      {
         maxTokens: modelContextLength, // Use context length from model config
         reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
       }
     );
-    
+
     // Only notify user if messages were actually removed (not just tool results truncated)
     if (contextInfo.removedMessages > 0) {
       console.log(`[OpenAI] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);

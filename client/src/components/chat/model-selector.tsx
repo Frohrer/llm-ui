@@ -70,7 +70,7 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
   // If disabled (existing conversation), show just the model name
   if (disabled) {
     return (
-      <div className="text-sm text-muted-foreground truncate max-w-[280px]">Using {modelName}</div>
+      <div className="text-xs sm:text-sm text-muted-foreground truncate max-w-[140px] sm:max-w-[280px]">Using {modelName}</div>
     );
   }
 
@@ -90,12 +90,12 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-[280px] justify-between"
+          className="w-[160px] sm:w-[280px] justify-between text-xs sm:text-sm"
         >
           <span className="truncate">
             {selectedModel ? modelName : 'Select a model...'}
           </span>
-          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <ChevronDown className="ml-1 sm:ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[380px] p-0">
@@ -103,7 +103,7 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
           <span className="text-sm font-medium">Select Provider</span>
         </div>
         <div className="p-3">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
             {providers.map((provider) => {
               const Icon = provider.icon ? (SiIcons as any)[provider.icon] : null;
               const isExpanded = provider.id === expandedProviderId;
@@ -112,10 +112,10 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
                   key={provider.id}
                   type="button"
                   onClick={() => setExpandedProviderId(prev => prev === provider.id ? null : provider.id)}
-                  className={`flex flex-col items-center justify-center aspect-square rounded-md border transition-colors hover:bg-accent hover:text-accent-foreground ${isExpanded ? 'border-primary ring-1 ring-primary' : 'border-border'}`}
+                  className={`flex flex-col items-center justify-center aspect-square rounded-lg border-2 transition-all duration-200 hover:bg-accent hover:text-accent-foreground hover:shadow-md min-h-[80px] sm:min-h-0 ${isExpanded ? 'border-primary bg-primary/5 shadow-lg shadow-primary/20' : 'border-border hover:border-primary/30'}`}
                 >
-                  {Icon && <Icon className="h-8 w-8 md:h-10 md:w-10" />}
-                  <span className="mt-2 text-xs truncate max-w-[8rem] text-muted-foreground">{provider.name}</span>
+                  {Icon && <Icon className="h-8 w-8 sm:h-10 sm:w-10" />}
+                  <span className="mt-2 text-xs truncate max-w-full px-1 text-muted-foreground">{provider.name}</span>
                 </button>
               );
             })}
@@ -136,12 +136,15 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
                       key={model.id}
                       type="button"
                       onClick={() => { onModelChange(model.id); setOpen(false); }}
-                      className="w-full flex items-center gap-3 rounded-md p-2 text-left hover:bg-accent hover:text-accent-foreground"
+                      className={`w-full flex items-center gap-3 rounded-lg p-3 text-left transition-all duration-200 hover:bg-accent hover:text-accent-foreground hover:shadow-sm ${selectedModel === model.id ? 'bg-primary/10 border border-primary/20' : ''}`}
                     >
-                      <div className="flex flex-col">
+                      <div className="flex flex-col flex-1">
                         <span className="text-sm font-medium">{model.name}</span>
                         <span className="text-xs text-muted-foreground">{model.contextLength.toLocaleString()} tokens{model.defaultModel ? ' • default' : ''}</span>
                       </div>
+                      {selectedModel === model.id && (
+                        <div className="w-2 h-2 rounded-full bg-primary"></div>
+                      )}
                     </button>
                   ))}
                 </div>

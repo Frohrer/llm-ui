@@ -519,14 +519,14 @@ export function MultiChatWindow({
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      <div className="p-4 border-b flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="p-2 md:p-4 border-b flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 md:gap-2 min-w-0">
           {mobileMenuTrigger}
-          <h2 className="font-semibold text-base md:text-lg hidden md:block">
+          <h2 className="font-semibold text-sm md:text-lg hidden md:block truncate">
             Multi-Model Chat
           </h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2 shrink-0">
           <MultiModelSelector
             selectedModels={selectedModels}
             onModelChange={setSelectedModels}
@@ -599,15 +599,18 @@ export function MultiChatWindow({
                     {renderModelChat(selectedModels[0])}
                   </div>
                 ) : (
-                  // Grid for multiple models
-                  <div 
+                  // Grid for multiple models - stack on mobile
+                  <div
                     className="h-full grid gap-2 p-2"
                     style={{
-                      gridTemplateColumns: selectedModels.length === 2 
-                        ? "1fr 1fr" 
-                        : selectedModels.length === 3 
-                        ? "1fr 1fr 1fr" 
-                        : "repeat(auto-fit, minmax(300px, 1fr))"
+                      gridTemplateColumns:
+                        window.innerWidth < 768
+                          ? "1fr" // Stack on mobile
+                          : selectedModels.length === 2
+                          ? "1fr 1fr"
+                          : selectedModels.length === 3
+                          ? "1fr 1fr 1fr"
+                          : "repeat(auto-fit, minmax(300px, 1fr))"
                     }}
                   >
                     {selectedModels.map(modelId => (
@@ -624,7 +627,7 @@ export function MultiChatWindow({
 
             {/* Input area */}
             <ResizablePanel defaultSize={25} minSize={15}>
-              <div className="p-4 h-full border-t">
+              <div className="p-2 md:p-4 h-full border-t">
                 <ChatInput
                   onSendMessage={handleSendMessage}
                   isLoading={anyModelLoading}

@@ -10,6 +10,7 @@ import { useEffect } from "react";
 import { ConversationList } from "./conversation-list";
 import { Conversation } from "@/lib/llm/types";
 import { KnowledgeSheet } from "@/components/knowledge";
+import { UserProfileSheet } from "@/components/user-profile-sheet";
 
 interface MainSidebarProps {
   activeConversation?: Conversation;
@@ -40,20 +41,24 @@ export function MainSidebar({
   };
 
   return (
-    <div className="flex flex-col h-full bg-background border-r">
-      <div className="px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center">
-          <h1 className="text-xl font-bold">
-            AI Chat{process.env.NEXT_PUBLIC_CUSTOMER_NAME ? ` - ${process.env.NEXT_PUBLIC_CUSTOMER_NAME}` : ''}
-          </h1>
+    <div className="flex flex-col h-full bg-background/95 backdrop-blur-xl border-r border-border/50 shadow-lg">
+      <div className="px-3 md:px-4 py-4 md:py-5 flex items-center justify-between bg-gradient-to-br from-primary/5 via-transparent to-transparent">
+        <div className="flex items-center min-w-0">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg shadow-primary/20">
+              <MessageCircle className="h-4 w-4 text-primary-foreground" />
+            </div>
+            <h1 className="text-lg md:text-xl font-bold truncate bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+              AI Chat{process.env.NEXT_PUBLIC_CUSTOMER_NAME ? ` - ${process.env.NEXT_PUBLIC_CUSTOMER_NAME}` : ''}
+            </h1>
+          </div>
         </div>
       </div>
-      <Separator />
+      <Separator className="bg-border/50" />
 
-      <div className="py-2 px-4 flex">
+      <div className="py-3 px-3 md:px-4 flex">
         <Button
-          className="w-full gap-2 text-xs md:text-sm z-10"
-          variant="outline"
+          className="w-full gap-2 text-sm h-11 z-10 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-md hover:shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all duration-200"
           size="sm"
           onClick={() => onSelectConversation(undefined)}
         >
@@ -68,8 +73,10 @@ export function MainSidebar({
             <div className="px-2">
               <Link href="/">
                 <a
-                  className={`flex items-center py-2 px-3 rounded-md text-sm font-medium ${
-                    isActive("/") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  className={`flex items-center py-2.5 px-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    isActive("/")
+                      ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary border border-primary/20 shadow-sm"
+                      : "hover:bg-accent/50 hover:translate-x-0.5"
                   }`}
                 >
                   <MessageCircle className="mr-2 h-4 w-4" />
@@ -78,8 +85,10 @@ export function MainSidebar({
               </Link>
               <Link href="/stats">
                 <a
-                  className={`mt-1 flex items-center py-2 px-3 rounded-md text-sm font-medium ${
-                    isActive("/stats") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  className={`mt-1.5 flex items-center py-2.5 px-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    isActive("/stats")
+                      ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary border border-primary/20 shadow-sm"
+                      : "hover:bg-accent/50 hover:translate-x-0.5"
                   }`}
                 >
                   <BarChart3 className="mr-2 h-4 w-4" />
@@ -88,8 +97,10 @@ export function MainSidebar({
               </Link>
               <Link href="/custom-tools">
                 <a
-                  className={`mt-1 flex items-center py-2 px-3 rounded-md text-sm font-medium ${
-                    isActive("/custom-tools") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  className={`mt-1.5 flex items-center py-2.5 px-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    isActive("/custom-tools")
+                      ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary border border-primary/20 shadow-sm"
+                      : "hover:bg-accent/50 hover:translate-x-0.5"
                   }`}
                 >
                   <Wrench className="mr-2 h-4 w-4" />
@@ -98,27 +109,29 @@ export function MainSidebar({
               </Link>
               <Link href="/voice-chat">
                 <a
-                  className={`mt-1 flex items-center py-2 px-3 rounded-md text-sm font-medium ${
-                    isActive("/voice-chat") ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  className={`mt-1.5 flex items-center py-2.5 px-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    isActive("/voice-chat")
+                      ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary border border-primary/20 shadow-sm"
+                      : "hover:bg-accent/50 hover:translate-x-0.5"
                   }`}
                 >
                   <Mic className="mr-2 h-4 w-4" />
                   Voice Chat
-                  <Badge variant="secondary" className="ml-2 text-xs">
+                  <Badge variant="secondary" className="ml-2 text-xs bg-primary/10 text-primary border-primary/20">
                     Beta
                   </Badge>
                 </a>
               </Link>
-              <KnowledgeSheet 
+              <KnowledgeSheet
                 trigger={
-                  <Button 
-                    variant="ghost" 
-                    className="w-full justify-start flex items-center py-2 px-3 rounded-md text-sm font-medium hover:bg-accent/50"
+                  <Button
+                    variant="ghost"
+                    className="mt-1.5 w-full justify-start flex items-center py-2.5 px-3 rounded-lg text-sm font-medium hover:bg-accent/50 hover:translate-x-0.5 transition-all duration-200"
                   >
                     <BookOpen className="mr-2 h-4 w-4" />
                     Knowledge
                   </Button>
-                } 
+                }
               />
             </div>
           </div>
@@ -140,17 +153,22 @@ export function MainSidebar({
         </div>
       </ScrollArea>
 
-      <div className="p-3 mt-auto border-t">
-        <div className="flex items-center">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary mr-2">
-            {user?.email?.charAt(0).toUpperCase()}
-          </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-medium truncate max-w-[230px]">
-              {user?.email}
-            </span>
-          </div>
-        </div>
+      <div className="p-4 mt-auto border-t border-border/50 bg-gradient-to-br from-background/80 to-background backdrop-blur-sm">
+        <UserProfileSheet
+          trigger={
+            <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent/30 transition-all duration-200 cursor-pointer">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center text-primary-foreground shadow-md shadow-primary/20 font-semibold">
+                {user?.email?.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="text-sm font-medium truncate">
+                  {user?.email}
+                </span>
+                <span className="text-xs text-muted-foreground">View profile</span>
+              </div>
+            </div>
+          }
+        />
       </div>
     </div>
   );

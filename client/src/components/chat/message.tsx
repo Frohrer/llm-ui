@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -19,7 +19,7 @@ interface MessageProps {
   message: MessageType;
 }
 
-export function Message({ message }: MessageProps) {
+const MessageComponent = ({ message }: MessageProps) => {
   const { toast } = useToast();
   const { speak, isSpeaking } = useSpeech();
   const [localIsSpeaking, setLocalIsSpeaking] = useState(false);
@@ -203,18 +203,18 @@ export function Message({ message }: MessageProps) {
     // You can dispatch custom events or handle actions here
   }, []);
 
-  const messageContent =
+  const messageContent = useMemo(() =>
     message.role === "assistant" ? (
       // Check for Generative UI components first
       hasGenerativeUI ? (
         <div className="prose dark:prose-invert max-w-none break-words [&_*]:break-words chat-message-content">
           <UIRenderer content={message.content} onAction={handleUIAction} />
         </div>
-      ) : 
+      ) :
       // Check if the message contains tool call markers
-      typeof message.content === "string" && 
-      (message.content.includes("Calling tool:") || 
-       message.content.includes("Tool Call:") || 
+      typeof message.content === "string" &&
+      (message.content.includes("Calling tool:") ||
+       message.content.includes("Tool Call:") ||
        message.content.includes("Tool:") && message.content.includes("Result:")) ? (
         <div className="prose dark:prose-invert max-w-none break-words [&_*]:break-words chat-message-content">
           {formatToolCalls(message.content)}
@@ -389,7 +389,7 @@ export function Message({ message }: MessageProps) {
       )
     ) : (
                   <div className="text-base whitespace-pre-wrap break-words chat-message-content">{message.content}</div>
-    );
+    ), [message.content, message.role, hasGenerativeUI, handleUIAction]);
 
   // Render attachments if present
   const [imageLoading, setImageLoading] = useState(true);
@@ -485,15 +485,15 @@ export function Message({ message }: MessageProps) {
         <div key={`doc-${attachment.url}-${index}`} className="mt-3 mb-2">
           <Badge
             variant="outline"
-            className="flex items-center gap-2 py-1.5 px-3"
+            className="flex items-center gap-2 py-1.5 px-3 max-w-full"
           >
-            <FileText className="h-4 w-4" />
-            <span className="truncate max-w-[200px]">{attachment.name}</span>
+            <FileText className="h-4 w-4 shrink-0" />
+            <span className="truncate max-w-[120px] sm:max-w-[200px]">{attachment.name}</span>
             <a
               href={attachment.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="ml-2 hover:text-primary"
+              className="ml-auto hover:text-primary shrink-0"
             >
               <ExternalLink className="h-3 w-3" />
             </a>
@@ -542,42 +542,42 @@ export function Message({ message }: MessageProps) {
   };
 
   return (
-    <div className="mb-6 w-full max-w-full min-w-0">
+    <div className="mb-4 md:mb-6 w-full max-w-full min-w-0">
       <Card
         className={cn(
-          "p-4 relative w-full max-w-full min-w-0 overflow-hidden",
+          "p-4 md:p-5 relative w-full max-w-full min-w-0 overflow-hidden",
           message.role === "assistant"
-            ? "bg-secondary"
-            : "bg-primary/10 dark:bg-primary/20",
+            ? "bg-gradient-to-br from-secondary via-secondary to-secondary/95 border-l-2 border-l-primary/30"
+            : "bg-gradient-to-br from-primary/10 via-primary/8 to-primary/5 dark:from-primary/20 dark:via-primary/15 dark:to-primary/10 border-l-2 border-l-primary/50 shadow-sm shadow-primary/10",
         )}
       >
         <div className="group w-full max-w-full min-w-0 break-words">
-          <div className="w-full max-w-full min-w-0 overflow-hidden">
+          <div className="w-full max-w-full min-w-0 overflow-hidden text-sm md:text-base">
             {messageContent}
           </div>
           {renderAttachments()}
         </div>
       </Card>
-      
+
       {message.role === 'assistant' && (
-        <div className="flex items-center mt-1 text-xs text-muted-foreground">
-          <span>{formatTimestamp()}</span>
+        <div className="flex items-center mt-1 text-xs text-muted-foreground gap-2">
+          <span className="truncate">{formatTimestamp()}</span>
           <div className="flex-1"></div>
           <Button
             size="sm"
             variant="outline"
-            className="h-7 px-2 flex items-center gap-1"
+            className="h-8 md:h-7 px-2 md:px-2 flex items-center gap-1 shrink-0"
             onClick={handleCopyMessage}
           >
             {isCopied ? (
               <>
                 <Check className="h-3.5 w-3.5" />
-                <span>Copied</span>
+                <span className="hidden sm:inline">Copied</span>
               </>
             ) : (
               <>
                 <Copy className="h-3.5 w-3.5" />
-                <span>Copy</span>
+                <span className="hidden sm:inline">Copy</span>
               </>
             )}
           </Button>
@@ -585,4 +585,13 @@ export function Message({ message }: MessageProps) {
       )}
     </div>
   );
-}
+};
+
+// Memoize the component to prevent unnecessary re-renders
+export const Message = memo(MessageComponent, (prevProps, nextProps) => {
+  // Only re-render if the content or id has changed
+  return (
+    prevProps.message.id === nextProps.message.id &&
+    prevProps.message.content === nextProps.message.content
+  );
+});

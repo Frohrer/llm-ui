@@ -8,6 +8,7 @@ import knowledgeRoutes from "./routes/knowledge";
 import conversationsRoutes from "./routes/conversations";
 import toolsRoutes from "./routes/tools";
 import customToolsRoutes from "./routes/custom-tools";
+import userPreferencesRoutes from "./routes/user-preferences";
 import {
   openaiRouter,
   anthropicRouter,
@@ -163,7 +164,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register custom tools routes
   app.use(customToolsRoutes);
 
-
+  // Register user preferences routes
+  app.use('/api/user', userPreferencesRoutes);
 
   // Statistics endpoint: latency per model and token counts
   app.get('/api/stats', async (req: Request, res: Response) => {
