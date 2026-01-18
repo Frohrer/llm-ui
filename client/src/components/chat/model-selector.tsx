@@ -112,10 +112,10 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
                   key={provider.id}
                   type="button"
                   onClick={() => setExpandedProviderId(prev => prev === provider.id ? null : provider.id)}
-                  className={`flex flex-col items-center justify-center aspect-square rounded-lg border-2 transition-all duration-200 hover:bg-accent hover:text-accent-foreground hover:shadow-md min-h-[80px] sm:min-h-0 ${isExpanded ? 'border-primary bg-primary/5 shadow-lg shadow-primary/20' : 'border-border hover:border-primary/30'}`}
+                  className={`flex flex-col items-center justify-center aspect-square rounded-lg border-2 transition-all duration-200 hover:bg-accent hover:text-accent-foreground hover:shadow-md min-h-[50px] sm:min-h-0 ${isExpanded ? 'border-primary bg-primary/5 shadow-lg shadow-primary/20' : 'border-border hover:border-primary/30'}`}
                 >
-                  {Icon && <Icon className="h-8 w-8 sm:h-10 sm:w-10" />}
-                  <span className="mt-2 text-xs truncate max-w-full px-1 text-muted-foreground">{provider.name}</span>
+                  {Icon && <Icon className="h-5 w-5 sm:h-10 sm:w-10" />}
+                  <span className="mt-1 text-[10px] sm:text-xs truncate max-w-full px-1 text-muted-foreground">{provider.name}</span>
                 </button>
               );
             })}
