@@ -25,14 +25,26 @@ interface UserPreferences {
 }
 
 const PRESET_COLORS = [
+  // Row 1 - Blues & Purples
   { name: "Purple", value: "hsl(250 100% 60%)" },
-  { name: "Blue", value: "hsl(217 91% 60%)" },
-  { name: "Cyan", value: "hsl(189 94% 43%)" },
-  { name: "Green", value: "hsl(142 71% 45%)" },
-  { name: "Orange", value: "hsl(25 95% 53%)" },
-  { name: "Red", value: "hsl(0 84% 60%)" },
-  { name: "Pink", value: "hsl(330 81% 60%)" },
   { name: "Indigo", value: "hsl(239 84% 67%)" },
+  { name: "Blue", value: "hsl(217 91% 60%)" },
+  { name: "Sky", value: "hsl(199 89% 48%)" },
+  // Row 2 - Cyans & Greens
+  { name: "Cyan", value: "hsl(189 94% 43%)" },
+  { name: "Teal", value: "hsl(168 76% 42%)" },
+  { name: "Green", value: "hsl(142 71% 45%)" },
+  { name: "Emerald", value: "hsl(160 84% 39%)" },
+  // Row 3 - Yellows & Oranges
+  { name: "Lime", value: "hsl(84 81% 44%)" },
+  { name: "Yellow", value: "hsl(48 96% 53%)" },
+  { name: "Amber", value: "hsl(38 92% 50%)" },
+  { name: "Orange", value: "hsl(25 95% 53%)" },
+  // Row 4 - Reds & Pinks
+  { name: "Red", value: "hsl(0 84% 60%)" },
+  { name: "Rose", value: "hsl(350 89% 60%)" },
+  { name: "Pink", value: "hsl(330 81% 60%)" },
+  { name: "Fuchsia", value: "hsl(292 84% 61%)" },
 ];
 
 export function UserProfileSheet({ trigger }: UserProfileSheetProps) {

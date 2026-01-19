@@ -1236,8 +1236,36 @@ async function handleResponsesAPI(req: Request, res: Response) {
       include
     };
 
+    // Build conversation history from context
+    const conversationMessages: any[] = context
+      .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .map((msg: any) => {
+        let content = msg.content;
+
+        // Include attachment content from metadata for historical messages
+        if (msg.metadata && msg.metadata.attachments) {
+          const attachments = msg.metadata.attachments;
+          const historicalDocTexts = attachments
+            .filter((att: any) => att.type === 'document' && att.text)
+            .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
+            .join('\n');
+
+          if (historicalDocTexts) {
+            content += historicalDocTexts;
+          }
+        }
+
+        return {
+          role: msg.role,
+          content: content,
+        };
+      });
+
     // Build structured input when we have images/documents/knowledge
     const hasRichInput = imageDataUris.length > 0 || documentTexts.length > 0 || !!knowledgeContent;
+
+    // Build the current user message
+    let currentUserMessage: any;
     if (hasRichInput) {
       let textContent = input;
       if (documentTexts.length > 0) {
@@ -1254,15 +1282,23 @@ async function handleResponsesAPI(req: Request, res: Response) {
       for (const uri of imageDataUris) {
         contentParts.push({ type: 'input_image', image_url: uri });
       }
-      responsesPayload.input = [
-        {
-          role: 'user',
-          content: contentParts
-        }
-      ];
+      currentUserMessage = {
+        role: 'user',
+        content: contentParts
+      };
     } else {
-      // Simple text input
-      responsesPayload.input = input;
+      currentUserMessage = {
+        role: 'user',
+        content: input
+      };
+    }
+
+    // Combine conversation history with current message
+    // If there's conversation history, include it; otherwise just send the current message
+    if (conversationMessages.length > 0) {
+      responsesPayload.input = [...conversationMessages, currentUserMessage];
+    } else {
+      responsesPayload.input = [currentUserMessage];
     }
 
     // Add previous response ID if provided
