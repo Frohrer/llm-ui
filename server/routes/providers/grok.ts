@@ -8,6 +8,7 @@ import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import OpenAI from "openai";
 import { getToolDefinitions, getTools, handleToolCalls } from "../../tools";
+import { prepareContext, isContextLengthError } from "../../context-manager";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -38,6 +39,7 @@ router.post("/", async (req: Request, res: Response) => {
       conversationId,
       context = [],
       model = "grok-3",
+      modelContextLength = 131072, // Default for Grok models
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
@@ -177,7 +179,13 @@ router.post("/", async (req: Request, res: Response) => {
       )
       .map((msg: any) => {
         let content = msg.content;
-        
+
+        // Add timestamp so LLM understands time passage between messages
+        if (msg.timestamp) {
+          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+          content = `[${msgTime}] ${content}`;
+        }
+
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -185,12 +193,12 @@ router.post("/", async (req: Request, res: Response) => {
             .filter((att: any) => att.type === 'document' && att.text)
             .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
             .join('\n');
-          
+
           if (documentTexts) {
             content += documentTexts;
           }
         }
-        
+
         return {
           role: msg.role === "user" ? "user" : "assistant",
           content: content,
@@ -276,10 +284,13 @@ router.post("/", async (req: Request, res: Response) => {
     const isVisionModel = model === "grok-2-vision" || model === "grok-2-image";
     const useVisionModel = hasImageAttachment && isVisionModel;
 
+    // Add current timestamp to the user message so LLM understands time passage
+    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+
     // Create the message based on what we have
     if (hasImageAttachment && useVisionModel) {
       // For Grok with images, create a message with text and image attachments
-      let textContent = message;
+      let textContent = currentTimeStr + message;
       
       // Add document content
       if (documentTexts.length > 0) {
@@ -307,29 +318,48 @@ router.post("/", async (req: Request, res: Response) => {
     } 
     else if (documentTexts.length > 0 || knowledgeContent) {
       // Text-only message with documents or knowledge
-      let userContent = message;
-      
+      let userContent = currentTimeStr + message;
+
       if (documentTexts.length > 0) {
         userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
       }
-      
+
       if (knowledgeContent) {
         userContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
       }
-      
+
       apiMessages.push({ role: "user", content: userContent });
       console.log("Message with document/knowledge content added for Grok");
-    } 
+    }
     else {
       // Regular text message without attachments or knowledge
-      apiMessages.push({ role: "user", content: message });
+      apiMessages.push({ role: "user", content: currentTimeStr + message });
       console.log("Plain text message added for Grok");
     }
+
+    // Pre-emptively manage context to avoid exceeding model limits
+    const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
+      apiMessages,
+      model,
+      { 
+        maxTokens: modelContextLength, // Use context length from model config
+        reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
+      }
+    );
 
     // Send initial conversation data
     res.write(
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
     );
+    
+    // Only notify user if messages were actually removed (not just tool results truncated)
+    if (contextInfo.removedMessages > 0) {
+      console.log(`[Grok] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      res.write(`data: ${JSON.stringify({
+        type: "chunk",
+        content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
+      })}\n\n`);
+    }
 
     // Set up keep-alive interval
     const keepAliveInterval = setInterval(() => {
@@ -340,7 +370,7 @@ router.post("/", async (req: Request, res: Response) => {
       // Set up the base request options
       const requestOptions: any = {
         model: model,
-        messages: apiMessages,
+        messages: contextManagedMessages,
         stream: true,
         temperature: 0.7,
         max_tokens: 4096,

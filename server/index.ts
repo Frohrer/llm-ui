@@ -11,6 +11,7 @@ const app = express();
 app.use("/uploads/images", express.static(path.join(process.cwd(), "uploads/images")));
 app.use("/uploads/documents", express.static(path.join(process.cwd(), "uploads/documents")));
 app.use("/uploads/screenshots", express.static(path.join(process.cwd(), "uploads/screenshots")));
+app.use("/uploads/generated", express.static(path.join(process.cwd(), "uploads/generated")));
 // Increase JSON body size limit for all routes
 app.use(
   express.json({

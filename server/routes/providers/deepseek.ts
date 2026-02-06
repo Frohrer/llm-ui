@@ -7,6 +7,7 @@ import { conversations, messages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
+import { prepareContext, isContextLengthError } from "../../context-manager";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -36,6 +37,7 @@ router.post("/", async (req: Request, res: Response) => {
       conversationId,
       context = [],
       model = "deepseek-chat",
+      modelContextLength = 64000, // Default for DeepSeek models
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
@@ -174,7 +176,13 @@ router.post("/", async (req: Request, res: Response) => {
       )
       .map((msg: any) => {
         let content = msg.content;
-        
+
+        // Add timestamp so LLM understands time passage between messages
+        if (msg.timestamp) {
+          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+          content = `[${msgTime}] ${content}`;
+        }
+
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -182,12 +190,12 @@ router.post("/", async (req: Request, res: Response) => {
             .filter((att: any) => att.type === 'document' && att.text)
             .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
             .join('\n');
-          
+
           if (documentTexts) {
             content += documentTexts;
           }
         }
-        
+
         return {
           role: msg.role,
           content: content,
@@ -238,10 +246,13 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
+    // Add current timestamp to the user message so LLM understands time passage
+    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+
     // Create the message content based on what we have
     if (documentTexts.length > 0 || knowledgeContent) {
       // Text-only message with documents or knowledge
-      let userContent = message;
+      let userContent = currentTimeStr + message;
       
       if (documentTexts.length > 0) {
         userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
@@ -256,15 +267,25 @@ router.post("/", async (req: Request, res: Response) => {
     } 
     else {
       // Regular text message without attachments or knowledge
-      apiMessages.push({ role: "user", content: message });
+      apiMessages.push({ role: "user", content: currentTimeStr + message });
       console.log("Plain text message added for DeepSeek");
     }
+
+    // Pre-emptively manage context to avoid exceeding model limits (DeepSeek doesn't use tools)
+    const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
+      apiMessages,
+      model,
+      { 
+        maxTokens: modelContextLength, // Use context length from model config
+        reserveForTools: 0,  // DeepSeek doesn't support tool calling
+      }
+    );
 
     // Stream the completion with retries
     while (retryCount < maxRetries) {
       try {
         stream = await client.chat.completions.create({
-          messages: apiMessages,
+          messages: contextManagedMessages,
           model,
           stream: true,
           max_tokens: 4096,
@@ -272,7 +293,29 @@ router.post("/", async (req: Request, res: Response) => {
         });
         console.log("Stream created with model:", model);
         break;
-      } catch (error) {
+      } catch (error: any) {
+        // Check if this is a context length error
+        if (isContextLengthError(error)) {
+          console.log(`[DeepSeek] Context length error detected, attempting to truncate further`);
+          
+          // Try with more aggressive truncation
+          const { messages: retriedMessages, info: retryInfo } = prepareContext(
+            contextManagedMessages,
+            model,
+            { 
+              reserveForTools: 0,
+              safetyBuffer: 10000, // Larger safety buffer for retry
+            }
+          );
+          
+          if (retryInfo.wasTruncated && retryInfo.finalMessageCount >= 2) {
+            contextManagedMessages.length = 0;
+            contextManagedMessages.push(...retriedMessages);
+            retryCount++;
+            continue;
+          }
+        }
+        
         retryCount++;
         if (retryCount === maxRetries) throw error;
         await new Promise((resolve) =>
@@ -289,6 +332,15 @@ router.post("/", async (req: Request, res: Response) => {
     res.write(
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
     );
+    
+    // Only notify user if messages were actually removed (not just tool results truncated)
+    if (contextInfo.removedMessages > 0) {
+      console.log(`[DeepSeek] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      res.write(`data: ${JSON.stringify({
+        type: "chunk",
+        content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
+      })}\n\n`);
+    }
 
     // Set up keep-alive interval
     const keepAliveInterval = setInterval(() => {

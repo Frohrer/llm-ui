@@ -9,6 +9,7 @@ import { ghostBlogTool } from './ghost-blog';
 import { knowledgeSourceTool } from './knowledge-source';
 import { screenshotTool } from './screenshot';
 import { createCustomToolTool } from './create-custom-tool';
+import { generateUITool } from './generate-ui';
 
 export const manualTools = [
   calculatorTool,
@@ -21,5 +22,6 @@ export const manualTools = [
   ghostBlogTool,
   knowledgeSourceTool,
   screenshotTool,
-  createCustomToolTool
+  createCustomToolTool,
+  generateUITool
 ]; 

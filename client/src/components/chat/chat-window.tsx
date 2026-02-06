@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { nanoid } from "nanoid";
 import { Message } from "@/components/chat/message";
 import { ChatInput } from "@/components/chat/chat-input";
@@ -464,6 +464,7 @@ export function ChatWindow({
           conversationId: conversation?.id,
           context: messages,
           model: selectedModel,
+          modelContextLength: getModelContextLength(selectedModel), // Pass context limit from config
           attachment: attachment,
           allAttachments: allAttachments || [], // Send all attachments to be processed together
           useKnowledge: useKnowledge,
@@ -617,13 +618,25 @@ export function ChatWindow({
                     }
                     break;
                   case "error":
-                    throw new Error(data.error);
+                    isStreamActive = false;
+                    // Display error as assistant message so user can see it in chat
+                    const errorContent = data.error || "An error occurred";
+                    const errorMessage: MessageType = {
+                      id: `error-${Date.now()}`,
+                      role: "assistant",
+                      content: errorContent,
+                      timestamp: new Date(),
+                    };
+                    setMessages(prev => [...prev, errorMessage]);
+                    setStreamedText("");
+                    break;
                 }
               }
             } catch (error) {
               console.error("Error processing SSE data:", error);
               isStreamActive = false;
               if (error instanceof Error) {
+                // Display parsing errors as toast (these are actual bugs, not user-facing errors)
                 toast({
                   variant: "destructive",
                   title: "Error",
@@ -695,21 +708,27 @@ export function ChatWindow({
       "Being lazy",
       "Hopefully we don't hit rate limits",
       "You should be working/sleeping/going outside",
-      "Sponsored by Sam Altman"
+      "Sponsored by Sam Altman",
+      "If you're reading this, you're probably not a duck",
+      "I'm not a duck",
+      "This chat exists in a quantum superposition of all possible conversations",
+      "Doing a lot of math really fast",
+      "Reticulating splines",
+      "Please tip your system administrator"
     ];
     return messages[Math.floor(Math.random() * messages.length)];
   };
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      <div className="p-4 border-b flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="p-3 md:p-5 border-b border-border/50 bg-gradient-to-r from-background/80 via-background to-background/80 backdrop-blur-sm flex items-center justify-between gap-2 shadow-sm">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
           {mobileMenuTrigger}
-          <h2 className="font-semibold text-base md:text-lg hidden md:block">
+          <h2 className="font-semibold text-sm md:text-lg hidden md:block truncate bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
             {conversation?.title || "New Conversation"}
           </h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2 shrink-0">
           <ModelSelector
             selectedModel={selectedModel}
             onModelChange={(modelId) => {
@@ -819,8 +838,9 @@ export function ChatWindow({
                   ))}
                   {streamedText && (
                     <Message
+                      key="streaming"
                       message={{
-                        id: "streaming",
+                        id: streamIdRef.current,
                         role: "assistant",
                         content: streamedText,
                         timestamp: Date.now(),
@@ -860,7 +880,7 @@ export function ChatWindow({
 
           {/* Input area */}
           <ResizablePanel defaultSize={25} minSize={15}>
-            <div className="p-4 h-full border-t">
+            <div className="p-2 md:p-4 h-full border-t">
               <ChatInput
                 onSendMessage={handleSendMessage}
                 isLoading={isLoading}

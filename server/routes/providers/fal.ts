@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import * as falConfig from "../../config/providers/falai.json";
+import { downloadAndSaveImage, saveGeneratedImage } from "../../file-handler";
 
 // Define types for fal.ai responses
 interface FalQueueUpdate {
@@ -183,12 +184,16 @@ router.post("/", async (req: Request, res: Response) => {
             throw new Error(`Model configuration not found for ${model}`);
           }
 
+          const inputParams = {
+            prompt: userMessage,
+            ...modelConfig.parameters
+          };
+          
+          console.log(`Calling FAL model ${model} with parameters:`, JSON.stringify(inputParams, null, 2));
+
           // Handle image generation request
           const result = await fal.subscribe(model, {
-            input: {
-              prompt: userMessage,
-              ...modelConfig.parameters
-            },
+            input: inputParams,
             logs: true,
             onQueueUpdate: (update: FalQueueUpdate) => {
               if (update.status === "IN_PROGRESS" && update.logs.length > 0) {
@@ -205,24 +210,30 @@ router.post("/", async (req: Request, res: Response) => {
           }
 
           const falResponse = result.data as FalResponse;
-          if (model.toLowerCase().includes("flux")) {
-            // For Flux Pro model, the image is returned directly in base64
-            if (falResponse.images?.[0]?.url) {
-              console.log("Base64 image received from Flux Pro");
-              streamedResponse = `![Generated Image](${falResponse.images[0].url})`;
-            } else {
-              console.error("No image data in Flux Pro response:", falResponse);
-              throw new Error("No image data received from Flux Pro model");
-            }
-          } else {
-            // For other models (like HiDream)
-            if (!falResponse.images?.[0]?.url) {
-              console.error("No image URL in response:", falResponse);
-              throw new Error("No image URL received in response");
-            }
-            console.log("Image URL received:", falResponse.images[0]);
-            streamedResponse = `![Generated Image](${falResponse.images[0].url})`;
+          const imageData = falResponse.images?.[0];
+          
+          if (!imageData?.url) {
+            console.error("No image data in response:", falResponse);
+            throw new Error("No image data received from Fal AI model");
           }
+          
+          console.log("Image received from Fal AI:", imageData.url.substring(0, 100) + "...");
+          
+          // Check if it's a base64 data URI or an external URL
+          let localImageUrl: string;
+          if (imageData.url.startsWith('data:')) {
+            // It's a base64 image, save it directly
+            const mimeMatch = imageData.url.match(/^data:([^;]+);base64,/);
+            const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+            localImageUrl = await saveGeneratedImage(imageData.url, mimeType, req);
+            console.log("Base64 image saved locally:", localImageUrl);
+          } else {
+            // It's an external URL, download and save locally
+            localImageUrl = await downloadAndSaveImage(imageData.url, req);
+            console.log("External image downloaded and saved locally:", localImageUrl);
+          }
+          
+          streamedResponse = `![Generated Image](${localImageUrl})`;
 
           // Insert the assistant message
           const timestamp = new Date();
@@ -268,11 +279,69 @@ router.post("/", async (req: Request, res: Response) => {
           );
 
         } catch (error) {
-          console.error("Image generation error:", error);
+          // Extract detailed error information for FAL AI validation errors
+          let errorMessage = "Failed to generate image";
+          let isContentPolicyViolation = false;
+          let logMessage = "";
+          
+          if (error && typeof error === 'object') {
+            const err = error as any;
+            
+            // Check for content policy violation
+            if (err.body && err.body.detail && Array.isArray(err.body.detail)) {
+              const detail = err.body.detail[0];
+              
+              if (detail && detail.type === 'content_policy_violation') {
+                isContentPolicyViolation = true;
+                errorMessage = `⚠️ Content Policy Violation\n\nYour prompt was flagged by the content safety checker and cannot be processed.\n\nPlease modify your prompt to comply with content policies and try again.\n\n[Learn more about content policies](${detail.url || 'https://docs.fal.ai/errors#content_policy_violation'})`;
+                logMessage = `Content policy violation for model ${model}: ${detail.msg}`;
+                console.log(logMessage);
+              } else if (detail && detail.msg) {
+                // Other validation errors
+                errorMessage = `❌ Validation Error: ${detail.msg}`;
+                logMessage = `Validation error for model ${model}: ${detail.msg} (type: ${detail.type})`;
+                console.error(logMessage);
+                if (detail.input) {
+                  console.error(`Input parameters:`, JSON.stringify(detail.input, null, 2));
+                }
+              } else {
+                // Generic detail error
+                errorMessage = `Model ${model} validation error: ${JSON.stringify(err.body.detail)}`;
+                logMessage = `Full FAL AI error for model ${model}`;
+                console.error(logMessage, JSON.stringify(err.body.detail, null, 2));
+              }
+            } else if (err.status === 422) {
+              // 422 without detailed body
+              errorMessage = `❌ Invalid request parameters for model ${model}. Please check the model configuration.`;
+              logMessage = `422 error for model ${model} - Status: ${err.status}, Message: ${err.message || 'Unknown'}`;
+              console.error(logMessage);
+            } else if (err.status === 429) {
+              // Rate limiting
+              errorMessage = `⏱️ Rate limit exceeded. Please wait a moment and try again.`;
+              logMessage = `Rate limit error for model ${model}`;
+              console.error(logMessage);
+            } else if (err.status === 503) {
+              // Service unavailable
+              errorMessage = `🔧 The ${model} service is temporarily unavailable. Please try again later.`;
+              logMessage = `Service unavailable for model ${model}`;
+              console.error(logMessage);
+            } else if (error instanceof Error) {
+              errorMessage = `Model ${model}: ${error.message}`;
+              logMessage = `Error for model ${model}: ${error.message}`;
+              console.error(logMessage);
+            } else {
+              logMessage = `Unknown error for model ${model}`;
+              console.error(logMessage, error);
+            }
+          } else {
+            logMessage = `Unknown error type for model ${model}`;
+            console.error(logMessage, error);
+          }
+          
           res.write(
             `data: ${JSON.stringify({
               type: "error",
-              error: error instanceof Error ? error.message : "Failed to generate image",
+              error: errorMessage,
             })}\n\n`,
           );
         }
@@ -362,11 +431,54 @@ router.post("/", async (req: Request, res: Response) => {
           );
 
         } catch (error) {
-          console.error("Chat completion error:", error);
+          let errorMessage = "Failed to process message";
+          let logMessage = "";
+          
+          if (error && typeof error === 'object') {
+            const err = error as any;
+            
+            // Check for content policy violation
+            if (err.body && err.body.detail && Array.isArray(err.body.detail)) {
+              const detail = err.body.detail[0];
+              
+              if (detail && detail.type === 'content_policy_violation') {
+                errorMessage = `⚠️ Content Policy Violation\n\nYour message was flagged by the content safety checker.\n\nPlease modify your message and try again.`;
+                logMessage = `Content policy violation for chat model ${model}: ${detail.msg}`;
+                console.log(logMessage);
+              } else if (detail && detail.msg) {
+                errorMessage = `❌ Error: ${detail.msg}`;
+                logMessage = `Chat error for model ${model}: ${detail.msg} (type: ${detail.type})`;
+                console.error(logMessage);
+              }
+            } else if (err.status === 422) {
+              errorMessage = `❌ Invalid request parameters. Please check your input.`;
+              logMessage = `422 error for chat model ${model}`;
+              console.error(logMessage);
+            } else if (err.status === 429) {
+              errorMessage = `⏱️ Rate limit exceeded. Please wait a moment and try again.`;
+              logMessage = `Rate limit error for chat model ${model}`;
+              console.error(logMessage);
+            } else if (err.status === 503) {
+              errorMessage = `🔧 Service temporarily unavailable. Please try again later.`;
+              logMessage = `Service unavailable for chat model ${model}`;
+              console.error(logMessage);
+            } else if (error instanceof Error) {
+              errorMessage = error.message;
+              logMessage = `Chat error for model ${model}: ${error.message}`;
+              console.error(logMessage);
+            } else {
+              logMessage = `Unknown chat error for model ${model}`;
+              console.error(logMessage, error);
+            }
+          } else {
+            logMessage = `Unknown error type for chat model ${model}`;
+            console.error(logMessage, error);
+          }
+          
           res.write(
             `data: ${JSON.stringify({
               type: "error",
-              error: error instanceof Error ? error.message : "Failed to process message",
+              error: errorMessage,
             })}\n\n`,
           );
         }
@@ -377,16 +489,97 @@ router.post("/", async (req: Request, res: Response) => {
       res.end();
 
     } catch (error) {
-      console.error("Error:", error);
-      res.status(500).json({
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      let errorMessage = "Unknown error";
+      let statusCode = 500;
+      let logMessage = "";
+      
+      if (error && typeof error === 'object') {
+        const err = error as any;
+        
+        // Check for content policy violation
+        if (err.body && err.body.detail && Array.isArray(err.body.detail)) {
+          const detail = err.body.detail[0];
+          
+          if (detail && detail.type === 'content_policy_violation') {
+            errorMessage = "Content policy violation: Your request was flagged by the content safety checker.";
+            statusCode = 400;
+            logMessage = `Content policy violation: ${detail.msg}`;
+            console.log(logMessage);
+          } else if (detail && detail.msg) {
+            errorMessage = detail.msg;
+            statusCode = err.status || 400;
+            logMessage = `FAL AI error (${detail.type}): ${detail.msg}`;
+            console.error(logMessage);
+          }
+        } else if (err.status) {
+          statusCode = err.status;
+          if (error instanceof Error) {
+            errorMessage = error.message;
+            logMessage = `HTTP ${statusCode} error: ${errorMessage}`;
+          } else {
+            logMessage = `HTTP ${statusCode} error`;
+          }
+          console.error(logMessage);
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+          logMessage = `Error: ${errorMessage}`;
+          console.error(logMessage);
+        } else {
+          logMessage = "Unknown error type";
+          console.error(logMessage, error);
+        }
+      } else {
+        logMessage = "Error (not an object)";
+        console.error(logMessage, error);
+      }
+      
+      res.status(statusCode).json({ error: errorMessage });
     }
   } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
+    let errorMessage = "Unknown error";
+    let statusCode = 500;
+    let logMessage = "";
+    
+    if (error && typeof error === 'object') {
+      const err = error as any;
+      
+      if (err.body && err.body.detail && Array.isArray(err.body.detail)) {
+        const detail = err.body.detail[0];
+        
+        if (detail && detail.type === 'content_policy_violation') {
+          errorMessage = "Content policy violation: Your request was flagged by the content safety checker.";
+          statusCode = 400;
+          logMessage = `Content policy violation: ${detail.msg}`;
+          console.log(logMessage);
+        } else if (detail && detail.msg) {
+          errorMessage = detail.msg;
+          statusCode = err.status || 400;
+          logMessage = `FAL AI error (${detail.type}): ${detail.msg}`;
+          console.error(logMessage);
+        }
+      } else if (err.status) {
+        statusCode = err.status;
+        if (error instanceof Error) {
+          errorMessage = error.message;
+          logMessage = `HTTP ${statusCode} error: ${errorMessage}`;
+        } else {
+          logMessage = `HTTP ${statusCode} error`;
+        }
+        console.error(logMessage);
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+        logMessage = `Error: ${errorMessage}`;
+        console.error(logMessage);
+      } else {
+        logMessage = "Unknown error type";
+        console.error(logMessage, error);
+      }
+    } else {
+      logMessage = "Error (not an object)";
+      console.error(logMessage, error);
+    }
+    
+    res.status(statusCode).json({ error: errorMessage });
   }
 });
 

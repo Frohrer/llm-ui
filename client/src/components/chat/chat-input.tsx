@@ -333,21 +333,21 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       {attachments.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 p-2 mb-2 bg-muted rounded">
           {attachments.map((attachment, index) => (
-            <Badge 
+            <Badge
               key={`${attachment.url}-${index}`}
-              variant="outline" 
-              className="flex items-center gap-1 py-1.5"
+              variant="outline"
+              className="flex items-center gap-1 py-1.5 max-w-full"
             >
               {attachment.type === 'image' ? (
-                <Image className="h-4 w-4" />
+                <Image className="h-4 w-4 shrink-0" />
               ) : (
-                <FileText className="h-4 w-4" />
+                <FileText className="h-4 w-4 shrink-0" />
               )}
-              <span className="truncate max-w-[200px]">{attachment.name}</span>
-              <Button 
-                size="icon" 
-                variant="ghost" 
-                className="h-5 w-5 rounded-full ml-1" 
+              <span className="truncate max-w-[120px] sm:max-w-[200px]">{attachment.name}</span>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-5 w-5 rounded-full ml-1 shrink-0"
                 onClick={(e) => {
                   e.stopPropagation();
                   removeAttachment(index);
@@ -376,7 +376,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
             value={message}
             onChange={handleTextChange}
             placeholder="Type your message..."
-            className={`min-h-[60px] h-full resize-none ${isDragging ? 'border-primary border-2' : ''}`}
+            className={`min-h-[60px] h-full resize-none transition-all duration-200 ${isDragging ? 'border-primary border-2 shadow-lg shadow-primary/20' : 'focus:shadow-md'}`}
             onKeyDown={handleKeyDown}
             style={{ height: '100%' }}
             onDragEnter={handleDragEnter}
@@ -399,13 +399,15 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         </div>
         
         <div className="flex flex-row gap-2 items-center justify-end">
-          <div className="text-xs text-muted-foreground mr-2">
+          <div className="text-xs text-muted-foreground mr-auto sm:mr-2">
             <span className={isOverLimit ? "text-destructive font-medium" : ""}>
               {tokenCount.toLocaleString()}
             </span>
-            <span> / </span>
-            <span>{userTokenLimit.toLocaleString()}</span>
-            <span> tokens</span>
+            <span className="hidden sm:inline"> / </span>
+            <span className="sm:hidden">/</span>
+            <span className="hidden sm:inline">{userTokenLimit.toLocaleString()}</span>
+            <span className="sm:hidden">{(userTokenLimit / 1000).toFixed(0)}k</span>
+            <span className="hidden sm:inline"> tokens</span>
           </div>
           {renderUploadButton()}
           {renderSendButton()}

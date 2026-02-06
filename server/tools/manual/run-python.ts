@@ -122,15 +122,30 @@ export const runPythonTool: Tool = {
       // Parse the response
       const result = response.data;
       
+      // Truncate output to prevent context overflow (max ~4000 chars ≈ 1250 tokens)
+      const MAX_OUTPUT_LENGTH = 4000;
+      let output = result.output || result.stdout || '';
+      let outputTruncated = false;
+      
+      if (typeof output === 'string' && output.length > MAX_OUTPUT_LENGTH) {
+        output = output.substring(0, MAX_OUTPUT_LENGTH) + '\n\n[Output truncated - showing first 4000 characters]';
+        outputTruncated = true;
+      }
+      
+      let errorOutput = result.error || result.stderr || null;
+      if (typeof errorOutput === 'string' && errorOutput.length > MAX_OUTPUT_LENGTH) {
+        errorOutput = errorOutput.substring(0, MAX_OUTPUT_LENGTH) + '\n\n[Error output truncated]';
+      }
+      
       return {
         success: true,
-        output: result.output || result.stdout || '',
-        error: result.error || result.stderr || null,
+        output,
+        error: errorOutput,
+        outputTruncated,
         execution_time: result.execution_time || null,
         container_id: result.container_id || container_id || null,
         status: result.status || 'completed',
-        packages_installed: container_id ? null : packages, // Only show packages if we created a new container
-        code_executed: code,
+        // Don't include code_executed to save tokens
         used_existing_container: !!container_id
       };
 

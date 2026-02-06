@@ -3,7 +3,7 @@ import { db } from "@db";
 import { conversations, messages, conversationKnowledge } from "@db/schema";
 import { eq, desc, or, ilike, and, sql } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
-import { cleanupDocumentFile, cleanupImageFile } from "../file-handler";
+import { cleanupDocumentFile, cleanupImageFile, cleanupGeneratedImage } from "../file-handler";
 
 const router = express.Router();
 
@@ -145,6 +145,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 
     // Clean up any files associated with the messages
     for (const message of conversationMessages) {
+      // Clean up attachments from metadata
       const metadata = message.metadata as { attachments?: Array<{ type: string; url: string }> } | null;
       if (metadata?.attachments) {
         for (const attachment of metadata.attachments) {
@@ -154,6 +155,14 @@ router.delete("/:id", async (req: Request, res: Response) => {
             cleanupDocumentFile(attachment.url);
           }
         }
+      }
+      
+      // Clean up generated images from message content (markdown image URLs)
+      // Match URLs like /uploads/generated/xxx.png or full URLs with uploads/generated/
+      const generatedImageRegex = /!\[.*?\]\((.*?\/uploads\/generated\/[^)]+)\)/g;
+      let match;
+      while ((match = generatedImageRegex.exec(message.content)) !== null) {
+        cleanupGeneratedImage(match[1]);
       }
     }
 

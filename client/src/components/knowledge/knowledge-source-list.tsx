@@ -35,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { KnowledgeSheet } from "./knowledge-sheet";
 import { KnowledgeSourceUpload } from "./knowledge-source-upload";
 import { useUser } from "@/hooks/use-user";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export type KnowledgeSourceListMode = "all" | "conversation";
 
@@ -70,6 +71,7 @@ export function KnowledgeSourceList({
   const [editingSource, setEditingSource] = useState<KnowledgeSource | null>(null);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const { user } = useUser();
+  const isMobile = useIsMobile();
   const {
     knowledgeSources,
     getConversationKnowledgeSources,
@@ -103,20 +105,20 @@ export function KnowledgeSourceList({
     return (
       <div
         className={
-          gridLayout ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-4"
+          gridLayout ? "grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4" : "space-y-3 md:space-y-4"
         }
       >
         {Array.from({ length: gridLayout ? 4 : 3 }).map((_, index) => (
           <Card key={index} className="w-full">
-            <CardHeader>
-              <Skeleton className="h-5 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
+            <CardHeader className="p-4 md:p-6">
+              <Skeleton className="h-4 md:h-5 w-3/4" />
+              <Skeleton className="h-3 md:h-4 w-1/2" />
             </CardHeader>
-            <CardContent>
-              <Skeleton className="h-4 w-full" />
+            <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
+              <Skeleton className="h-3 md:h-4 w-full" />
             </CardContent>
-            <CardFooter>
-              <Skeleton className="h-8 w-20" />
+            <CardFooter className="p-4 pt-0 md:p-6 md:pt-0">
+              <Skeleton className="h-8 w-16 md:w-20" />
             </CardFooter>
           </Card>
         ))}
@@ -159,16 +161,16 @@ export function KnowledgeSourceList({
 
       {sources.length === 0 ? (
         <Card className="w-full">
-          <CardHeader>
-            <CardTitle>No Knowledge Sources</CardTitle>
-            <CardDescription>
+          <CardHeader className="p-4 md:p-6">
+            <CardTitle className="text-base md:text-lg">No Knowledge Sources</CardTitle>
+            <CardDescription className="text-xs md:text-sm">
               {mode === "conversation"
                 ? "This conversation doesn't have any knowledge sources attached."
                 : "You haven't added any knowledge sources yet."}
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-4">
+          <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
+            <p className="text-xs md:text-sm text-muted-foreground mb-4">
               {mode === "conversation"
                 ? "Knowledge sources provide context to the AI, allowing it to reference specific information in its responses."
                 : "Knowledge sources allow you to reference external information in your AI conversations. You can upload files (PDF, TXT, etc.), paste text, or add a URL."}
@@ -177,12 +179,12 @@ export function KnowledgeSourceList({
               <KnowledgeSheet />
             ) : (
               <>
-                <Button onClick={() => setIsUploadDialogOpen(true)}>
+                <Button size={isMobile ? "sm" : "default"} onClick={() => setIsUploadDialogOpen(true)}>
                   <PlusCircle className="mr-2 h-4 w-4" />
                   Add Knowledge Source
                 </Button>
                 <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
-                  <DialogContent className="sm:max-w-[600px]">
+                  <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Add Knowledge Source</DialogTitle>
                     </DialogHeader>
@@ -198,7 +200,7 @@ export function KnowledgeSourceList({
       ) : (
         <div
           className={
-            gridLayout ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-4"
+            gridLayout ? "grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4" : "space-y-3 md:space-y-4"
           }
         >
           {sources.map((source) => (
@@ -211,37 +213,37 @@ export function KnowledgeSourceList({
               }`}
               onClick={() => onSelectKnowledgeSource?.(source)}
             >
-              <CardHeader>
-                <CardTitle className="flex items-center">
+              <CardHeader className="p-4 md:p-6">
+                <CardTitle className="flex items-center text-sm md:text-base">
                   {(source.source_type === "file" || !source.source_type) && (
-                    <FileText className="mr-2 h-4 w-4" />
+                    <FileText className="mr-2 h-4 w-4 shrink-0" />
                   )}
                   {source.source_type === "url" && (
-                    <Globe className="mr-2 h-4 w-4" />
+                    <Globe className="mr-2 h-4 w-4 shrink-0" />
                   )}
                   {source.source_type === "text" && (
-                    <FileText className="mr-2 h-4 w-4" />
+                    <FileText className="mr-2 h-4 w-4 shrink-0" />
                   )}
-                  {source.name}
+                  <span className="truncate">{source.name}</span>
                 </CardTitle>
 
-                <div className="flex gap-2 flex-wrap mt-2">
-                  <Badge variant={source.use_rag ? "default" : "outline"}>
+                <div className="flex gap-1.5 md:gap-2 flex-wrap mt-2">
+                  <Badge variant={source.use_rag ? "default" : "outline"} className="text-[10px] md:text-xs">
                     {source.use_rag ? "RAG" : "Full Text"}
                   </Badge>
-                  <Badge variant="outline">
+                  <Badge variant="outline" className="text-[10px] md:text-xs">
                     {source.source_type || "file"}
                   </Badge>
                   {source.is_shared && (
-                    <Badge variant="secondary">
-                      <Users className="h-3.5 w-3.5 mr-1" />
+                    <Badge variant="secondary" className="text-[10px] md:text-xs">
+                      <Users className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1" />
                       Shared
                     </Badge>
                   )}
                   {/* Show attached status for sources already in the conversation */}
                   {attachedSourceIds.includes(source.id) && (
-                    <Badge variant="default" className="bg-blue-500">
-                      <Link className="h-3.5 w-3.5 mr-1" />
+                    <Badge variant="default" className="bg-blue-500 text-[10px] md:text-xs">
+                      <Link className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1" />
                       Attached
                     </Badge>
                   )}
@@ -253,17 +255,13 @@ export function KnowledgeSourceList({
                           ? "default"
                           : "outline"
                       }
-                      className={
+                      className={`text-[10px] md:text-xs ${
                         selectedSourceIds.includes(source.id)
                           ? "bg-green-500"
                           : "text-gray-400"
-                      }
+                      }`}
                     >
-                      {selectedSourceIds.includes(source.id) ? (
-                        <Check className="h-3.5 w-3.5 mr-1" />
-                      ) : (
-                        <Check className="h-3.5 w-3.5 mr-1" />
-                      )}
+                      <Check className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1" />
                       {selectedSourceIds.includes(source.id)
                         ? "Selected"
                         : "Select"}
@@ -272,9 +270,9 @@ export function KnowledgeSourceList({
                 </div>
               </CardHeader>
 
-              <CardContent>
+              <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
                 {source.description && (
-                  <p className="text-sm text-muted-foreground mb-2">
+                  <p className="text-xs md:text-sm text-muted-foreground mb-2 line-clamp-2">
                     {source.description}
                   </p>
                 )}
@@ -283,20 +281,21 @@ export function KnowledgeSourceList({
                 </p>
               </CardContent>
 
-              <CardFooter className="flex justify-between flex-wrap gap-2">
-                <div className="flex gap-2 flex-wrap">
+              <CardFooter className="flex justify-between flex-wrap gap-2 p-4 pt-0 md:p-6 md:pt-0">
+                <div className="flex gap-1.5 md:gap-2 flex-wrap">
                   {mode === "all" && (
                     <Button
                       variant="destructive"
                       size="sm"
+                      className="h-8 text-xs md:text-sm"
                       onClick={(e) => {
                         e.stopPropagation();
                         deleteKnowledgeSource(source.id);
                       }}
                       disabled={isDeleting}
                     >
-                      <Trash className="mr-2 h-4 w-4" />
-                      Delete
+                      <Trash className={isMobile ? "h-3.5 w-3.5" : "mr-2 h-4 w-4"} />
+                      {!isMobile && "Delete"}
                     </Button>
                   )}
 
@@ -306,16 +305,17 @@ export function KnowledgeSourceList({
                         <Button
                           variant="outline"
                           size="sm"
+                          className="h-8 text-xs md:text-sm"
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingSource(source);
                           }}
                         >
-                          <Edit className="mr-2 h-4 w-4" />
-                          Edit
+                          <Edit className={isMobile ? "h-3.5 w-3.5" : "mr-2 h-4 w-4"} />
+                          {!isMobile && "Edit"}
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="sm:max-w-[600px]">
+                      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle>Edit Knowledge Source</DialogTitle>
                         </DialogHeader>
@@ -332,14 +332,15 @@ export function KnowledgeSourceList({
                     <Button
                       variant={source.is_shared ? "default" : "outline"}
                       size="sm"
+                      className="h-8 text-xs md:text-sm"
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleKnowledgeSourceSharing(source.id);
                       }}
                       disabled={isTogglingSharing}
                     >
-                      <Share2 className="mr-2 h-4 w-4" />
-                      {source.is_shared ? "Unshare" : "Share"}
+                      <Share2 className={isMobile ? "h-3.5 w-3.5" : "mr-2 h-4 w-4"} />
+                      {!isMobile && (source.is_shared ? "Unshare" : "Share")}
                     </Button>
                   )}
                 </div>
@@ -349,10 +350,11 @@ export function KnowledgeSourceList({
                   <Button
                     variant="outline"
                     size="sm"
+                    className="h-8 text-xs md:text-sm"
                     onClick={(e) => {
                       e.stopPropagation();
                       const isAttached = attachedSourceIds.includes(source.id);
-                      
+
                       if (isAttached && conversationId) {
                         // Detach if already attached
                         removeKnowledgeFromConversation({
@@ -376,13 +378,13 @@ export function KnowledgeSourceList({
                   >
                     {attachedSourceIds.includes(source.id) ? (
                       <>
-                        <Unlink className="mr-2 h-4 w-4" />
-                        Detach
+                        <Unlink className={isMobile ? "h-3.5 w-3.5" : "mr-2 h-4 w-4"} />
+                        {!isMobile && "Detach"}
                       </>
                     ) : (
                       <>
-                        <Link className="mr-2 h-4 w-4" />
-                        {conversationId ? "Attach" : "Select"}
+                        <Link className={isMobile ? "h-3.5 w-3.5" : "mr-2 h-4 w-4"} />
+                        {!isMobile && (conversationId ? "Attach" : "Select")}
                       </>
                     )}
                   </Button>

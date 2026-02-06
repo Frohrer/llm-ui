@@ -8,16 +8,20 @@ import { MultiChatWindow } from '@/components/chat/multi-chat-window';
 import { MainSidebar } from '@/components/main-sidebar';
 import type { Conversation } from '@/lib/llm/types';
 import { nanoid } from 'nanoid';
-import { 
-  Tooltip, 
-  TooltipContent, 
+import {
+  Tooltip,
+  TooltipContent,
   TooltipTrigger,
   TooltipProvider
 } from '@/components/ui/tooltip';
+import { useUserPreferences } from '@/hooks/use-user-preferences';
 
 export default function Home() {
   const [activeConversation, setActiveConversation] = useState<Conversation | undefined>();
   const [isMultiModelMode, setIsMultiModelMode] = useState<boolean>(false);
+
+  // Load user preferences to apply theme
+  useUserPreferences();
 
   const handleCreateNewConversation = () => {
     // Here we would normally create a new conversation in the database

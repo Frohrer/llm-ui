@@ -103,6 +103,16 @@ export const customTools = pgTable("custom_tools", {
   updated_at: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// User preferences table - stores user customization settings
+export const userPreferences = pgTable("user_preferences", {
+  id: serial("id").primaryKey(),
+  user_id: integer("user_id").references(() => users.id).notNull().unique(),
+  primary_color: text("primary_color").default("hsl(250 100% 60%)").notNull(),
+  custom_prompt: text("custom_prompt").default(""),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
 
 
 // Relations setup
@@ -156,6 +166,13 @@ export const customToolsRelations = relations(customTools, ({ one }) => ({
   }),
 }));
 
+export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
+  user: one(users, {
+    fields: [userPreferences.user_id],
+    references: [users.id],
+  }),
+}));
+
 
 
 // Schemas for form validation
@@ -173,6 +190,8 @@ export const insertConversationKnowledgeSchema = createInsertSchema(conversation
 export const selectConversationKnowledgeSchema = createSelectSchema(conversationKnowledge);
 export const insertCustomToolSchema = createInsertSchema(customTools);
 export const selectCustomToolSchema = createSelectSchema(customTools);
+export const insertUserPreferencesSchema = createInsertSchema(userPreferences);
+export const selectUserPreferencesSchema = createSelectSchema(userPreferences);
 
 
 // Type definitions for use in the app
@@ -190,3 +209,5 @@ export type InsertConversationKnowledge = typeof conversationKnowledge.$inferIns
 export type SelectConversationKnowledge = typeof conversationKnowledge.$inferSelect;
 export type InsertCustomTool = typeof customTools.$inferInsert;
 export type SelectCustomTool = typeof customTools.$inferSelect;
+export type InsertUserPreferences = typeof userPreferences.$inferInsert;
+export type SelectUserPreferences = typeof userPreferences.$inferSelect;

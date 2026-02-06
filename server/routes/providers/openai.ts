@@ -10,7 +10,9 @@ import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } fr
 import { getToolDefinitions, handleToolCalls } from "../../tools";
 import { runAgenticLoop } from "../../agentic-workflow";
 import { getOpenAIModel } from "../../ai-sdk-providers";
-import { CoreMessage } from "ai";
+import { prepareContext, isContextLengthError, truncateToolResult, estimateTotalTokens } from "../../context-manager";
+import { saveGeneratedImage } from "../../file-handler";
+import { buildSystemPrompt } from "../../user-preferences-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -65,30 +67,14 @@ export function getOpenAIClient() {
   return client;
 }
 
-// Helper to convert OpenAI messages to AI SDK CoreMessage format
-function convertToCoreMessages(messages: any[]): CoreMessage[] {
-  return messages.map(msg => {
-    if (msg.role === 'system') {
-      // System messages are handled separately in AI SDK
-      return null;
-    }
-    
-    if (msg.role === 'user') {
-      return {
-        role: 'user' as const,
-        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-      };
-    }
-    
-    if (msg.role === 'assistant') {
-      return {
-        role: 'assistant' as const,
-        content: msg.content || ''
-      };
-    }
-    
-    return null;
-  }).filter((msg): msg is CoreMessage => msg !== null);
+// Helper to convert OpenAI messages to simple format for agent
+function convertToAgentMessages(messages: any[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return messages
+    .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+    .map(msg => ({
+      role: msg.role as 'user' | 'assistant',
+      content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+    }));
 }
 
 // Create or continue an OpenAI chat conversation
@@ -99,6 +85,7 @@ router.post("/", async (req: Request, res: Response) => {
       conversationId,
       context = [],
       model = "gpt-4",
+      modelContextLength = 128000, // Default for GPT-4 models
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
@@ -269,7 +256,13 @@ router.post("/", async (req: Request, res: Response) => {
       )
       .map((msg: any) => {
         let content = msg.content;
-        
+
+        // Add timestamp so LLM understands time passage between messages
+        if (msg.timestamp) {
+          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+          content = `[${msgTime}] ${content}`;
+        }
+
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -277,12 +270,12 @@ router.post("/", async (req: Request, res: Response) => {
             .filter((att: any) => att.type === 'document' && att.text)
             .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
             .join('\n');
-          
+
           if (documentTexts) {
             content += documentTexts;
           }
         }
-        
+
         return {
           role: msg.role,
           content: content,
@@ -306,6 +299,9 @@ router.post("/", async (req: Request, res: Response) => {
     
     // Check if this is an image edit request
     const isImageEditRequest = model === "gpt-image-1-edit";
+    
+    // Check if this is an image generation request with gpt-image-1.5
+    const isImageGenerationRequest = model === "gpt-image-1.5";
     
     // Process each attachment
     for (const att of allAttachmentsToProcess) {
@@ -397,9 +393,13 @@ router.post("/", async (req: Request, res: Response) => {
           throw new Error("No image data received from OpenAI");
         }
 
-        // Convert base64 to data URI
-        const editedImageDataUri = `data:${imageAttachmentContent.mimeType};base64,${result.data[0].b64_json}`;
-        streamedResponse = `![Edited Image](${editedImageDataUri})`;
+        // Save generated image to disk instead of embedding base64 in message
+        const imageUrl = await saveGeneratedImage(
+          result.data[0].b64_json,
+          imageAttachmentContent.mimeType,
+          req
+        );
+        streamedResponse = `![Edited Image](${imageUrl})`;
 
         // Insert the assistant message
         const timestamp = new Date();
@@ -446,6 +446,115 @@ router.post("/", async (req: Request, res: Response) => {
       return;
     }
 
+    // Handle image generation request with gpt-image-1.5
+    if (isImageGenerationRequest) {
+      // Send initial conversation data
+      res.write(
+        `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
+      );
+
+      // Send a single initial progress message
+      res.write(`data: ${JSON.stringify({ type: "chunk", content: "Generating image with GPT Image 1.5...\n" })}\n\n`);
+
+      try {
+        // If we have an image attachment, do an image edit; otherwise, generate from scratch
+        if (hasImageAttachment && imageAttachmentContent) {
+          // Image edit mode (with reference image)
+          const imageFile = await toFile(
+            fs.createReadStream(path.join(process.cwd(), 'uploads', 'images', imageAttachmentContent.fileName)),
+            null,
+            {
+              type: imageAttachmentContent.mimeType
+            }
+          );
+
+          const result = await client.images.edit({
+            model: "gpt-image-1",
+            image: imageFile,
+            prompt: message,
+            n: 1,
+            size: "1024x1024"
+          });
+
+          if (!result?.data?.[0]?.b64_json) {
+            throw new Error("No image data received from OpenAI");
+          }
+
+          // Save generated image to disk
+          const imageUrl = await saveGeneratedImage(
+            result.data[0].b64_json,
+            'image/png',
+            req
+          );
+          streamedResponse = `![Generated Image](${imageUrl})`;
+        } else {
+          // Pure image generation from text prompt
+          const result = await client.images.generate({
+            model: "gpt-image-1",
+            prompt: message,
+            n: 1,
+            size: "1024x1024",
+            response_format: "b64_json"
+          });
+
+          if (!result?.data?.[0]?.b64_json) {
+            throw new Error("No image data received from OpenAI");
+          }
+
+          // Save generated image to disk
+          const imageUrl = await saveGeneratedImage(
+            result.data[0].b64_json,
+            'image/png',
+            req
+          );
+          streamedResponse = `![Generated Image](${imageUrl})`;
+        }
+
+        // Insert the assistant message
+        const timestamp = new Date();
+        await db.insert(messages).values({
+          conversation_id: dbConversation.id,
+          role: "assistant",
+          content: streamedResponse,
+          created_at: timestamp,
+        });
+
+        // Get updated conversation data
+        const updatedConversation = await db.query.conversations.findFirst({
+          where: eq(conversations.id, dbConversation.id),
+          with: {
+            messages: {
+              orderBy: (messages: any, { asc }: { asc: any }) => [asc(messages.created_at)],
+            },
+          },
+        });
+
+        if (!updatedConversation) {
+          throw new Error("Failed to retrieve conversation");
+        }
+
+        // Send the final response
+        res.write(
+          `data: ${JSON.stringify({
+            type: "end",
+            conversation: transformDatabaseConversation(updatedConversation),
+          })}\n\n`,
+        );
+
+      } catch (error) {
+        console.error("Image generation error:", error);
+        res.write(
+          `data: ${JSON.stringify({
+            type: "error",
+            error: error instanceof Error ? error.message : "Failed to generate image",
+          })}\n\n`,
+        );
+      }
+
+      res.end();
+      return;
+    }
+
     // Get knowledge content if requested
     let knowledgeContent = '';
     if (useKnowledge && dbConversation) {
@@ -459,13 +568,16 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
+    // Add current timestamp to the user message so LLM understands time passage
+    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+
     // Create the message content based on what we have
     if (hasImageAttachment) {
       // For OpenAI, we use a different format with content array
       let contentArray: any[] = [];
-      
+
       // Add text first with any document content
-      let textContent = message;
+      let textContent = currentTimeStr + message;
       if (documentTexts.length > 0) {
         textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
       }
@@ -496,7 +608,7 @@ router.post("/", async (req: Request, res: Response) => {
     } 
     else if (documentTexts.length > 0 || knowledgeContent) {
       // Text-only message with documents or knowledge
-      let userContent = message;
+      let userContent = currentTimeStr + message;
       
       if (documentTexts.length > 0) {
         userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
@@ -511,8 +623,34 @@ router.post("/", async (req: Request, res: Response) => {
     } 
     else {
       // Regular text message without attachments or knowledge
-      apiMessages.push({ role: "user", content: message });
+      apiMessages.push({ role: "user", content: currentTimeStr + message });
       console.log("Plain text message added for OpenAI");
+    }
+
+    // Build and add system prompt with user custom prompt
+    const baseSystemPrompt = "You are a helpful AI assistant.";
+    const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
+    if (systemPrompt) {
+      apiMessages.unshift({ role: "system", content: systemPrompt });
+    }
+
+    // Pre-emptively manage context to avoid exceeding model limits
+    const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
+      apiMessages,
+      effectiveModel,
+      {
+        maxTokens: modelContextLength, // Use context length from model config
+        reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
+      }
+    );
+
+    // Only notify user if messages were actually removed (not just tool results truncated)
+    if (contextInfo.removedMessages > 0) {
+      console.log(`[OpenAI] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      res.write(`data: ${JSON.stringify({
+        type: "chunk",
+        content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
+      })}\n\n`);
     }
 
     // Stream the completion with retries
@@ -522,7 +660,7 @@ router.post("/", async (req: Request, res: Response) => {
         const isReasoningModelStream = effectiveModel.includes('o1') || effectiveModel.includes('o3') || effectiveModel.includes('gpt-4o') || effectiveModel.includes('gpt-5');
         
         const streamOptions: any = {
-          messages: apiMessages,
+          messages: contextManagedMessages,
           model: effectiveModel,
           stream: true,
           max_completion_tokens: 4096,
@@ -548,7 +686,35 @@ router.post("/", async (req: Request, res: Response) => {
         stream = await client.chat.completions.create(streamOptions);
         console.log("Stream created with model:", model);
         break;
-      } catch (error) {
+      } catch (error: any) {
+        // Check if this is a context length error
+        if (isContextLengthError(error)) {
+          console.log(`[OpenAI] Context length error detected, attempting to truncate further`);
+          
+          // Try with more aggressive truncation (reduce available space by 30%)
+          const { messages: retriedMessages, info: retryInfo } = prepareContext(
+            contextManagedMessages,
+            effectiveModel,
+            { 
+              reserveForTools: useTools ? 8000 : 0,
+              safetyBuffer: 10000, // Larger safety buffer for retry
+            }
+          );
+          
+          if (retryInfo.wasTruncated && retryInfo.finalMessageCount >= 2) {
+            contextManagedMessages.length = 0;
+            contextManagedMessages.push(...retriedMessages);
+            
+            res.write(`data: ${JSON.stringify({
+              type: "chunk",
+              content: `[Additional context trimming applied. ${retryInfo.removedMessages} more messages removed.]\n\n`
+            })}\n\n`);
+            
+            retryCount++;
+            continue;
+          }
+        }
+        
         retryCount++;
         if (retryCount === maxRetries) throw error;
         await new Promise((resolve) =>
@@ -581,19 +747,18 @@ router.post("/", async (req: Request, res: Response) => {
         // Get the AI SDK model instance
         const aiModel = getOpenAIModel(effectiveModel);
         
-        // Extract system prompt from apiMessages
-        const systemMessage = apiMessages.find((msg: any) => msg.role === 'system');
+        // Extract system prompt from contextManagedMessages (which has been truncated if needed)
+        const systemMessage = contextManagedMessages.find((msg: any) => msg.role === 'system');
         const systemPrompt = systemMessage?.content || undefined;
         
-        // Convert messages to CoreMessage format (excluding system messages)
-        const coreMessages = convertToCoreMessages(apiMessages);
+        // Convert messages to simple format for agent - use contextManagedMessages which has been truncated
+        const agentMessages = convertToAgentMessages(contextManagedMessages);
         
-        // Run the agentic loop with AI SDK
+        // Run the agentic loop with AI SDK v6 ToolLoopAgent
         const finalResponse = await runAgenticLoop(
-          coreMessages,
+          agentMessages,
           {
-            maxIterations: 10,
-            maxContextMessages: 15,
+            maxIterations: 20,
             conversationId: dbConversation.id,
             model: aiModel,
             systemPrompt,
@@ -1080,10 +1245,45 @@ async function handleResponsesAPI(req: Request, res: Response) {
       include
     };
 
+    // Build conversation history from context
+    const conversationMessages: any[] = context
+      .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .map((msg: any) => {
+        let content = msg.content;
+
+        // Add timestamp so LLM understands time passage between messages
+        if (msg.timestamp) {
+          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+          content = `[${msgTime}] ${content}`;
+        }
+
+        // Include attachment content from metadata for historical messages
+        if (msg.metadata && msg.metadata.attachments) {
+          const attachments = msg.metadata.attachments;
+          const historicalDocTexts = attachments
+            .filter((att: any) => att.type === 'document' && att.text)
+            .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
+            .join('\n');
+
+          if (historicalDocTexts) {
+            content += historicalDocTexts;
+          }
+        }
+
+        return {
+          role: msg.role,
+          content: content,
+        };
+      });
+
     // Build structured input when we have images/documents/knowledge
     const hasRichInput = imageDataUris.length > 0 || documentTexts.length > 0 || !!knowledgeContent;
+
+    // Build the current user message with timestamp
+    const responsesTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    let currentUserMessage: any;
     if (hasRichInput) {
-      let textContent = input;
+      let textContent = responsesTimeStr + input;
       if (documentTexts.length > 0) {
         textContent += `\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
       }
@@ -1098,15 +1298,23 @@ async function handleResponsesAPI(req: Request, res: Response) {
       for (const uri of imageDataUris) {
         contentParts.push({ type: 'input_image', image_url: uri });
       }
-      responsesPayload.input = [
-        {
-          role: 'user',
-          content: contentParts
-        }
-      ];
+      currentUserMessage = {
+        role: 'user',
+        content: contentParts
+      };
     } else {
-      // Simple text input
-      responsesPayload.input = input;
+      currentUserMessage = {
+        role: 'user',
+        content: responsesTimeStr + input
+      };
+    }
+
+    // Combine conversation history with current message
+    // If there's conversation history, include it; otherwise just send the current message
+    if (conversationMessages.length > 0) {
+      responsesPayload.input = [...conversationMessages, currentUserMessage];
+    } else {
+      responsesPayload.input = [currentUserMessage];
     }
 
     // Add previous response ID if provided

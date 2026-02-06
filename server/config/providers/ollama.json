@@ -1,0 +1,13 @@
+{
+  "id": "ollama",
+  "name": "Ollama",
+  "icon": "SiOllama",
+  "models": [
+    {
+      "id": "gpt-oss:20b",
+      "name": "GPT-OSS 20B",
+      "contextLength": 32000,
+      "defaultModel": true
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import knowledgeRoutes from "./routes/knowledge";
 import conversationsRoutes from "./routes/conversations";
 import toolsRoutes from "./routes/tools";
 import customToolsRoutes from "./routes/custom-tools";
+import userPreferencesRoutes from "./routes/user-preferences";
 import {
   openaiRouter,
   anthropicRouter,
@@ -16,6 +17,7 @@ import {
   falRouter,
   grokRouter,
   superModelRouter,
+  ollamaRouter,
   initializeOpenAI,
   initializeAnthropic,
   initializeDeepSeek,
@@ -23,6 +25,7 @@ import {
   initializeFal,
   initializeGrok,
   initializeSuperModel,
+  initializeOllama,
   getSuperModelStatus,
 } from "./routes/providers";
 import { uploadSingleMiddleware, extractTextFromFile, transformUrlToProxy } from "./file-handler";
@@ -47,7 +50,8 @@ const clientsInitialized: Record<string, boolean> = {
   gemini: false,
   fal: false,
   grok: false,
-  superModel: false
+  superModel: false,
+  ollama: false
 };
 
 // Initialize clients from environment variables
@@ -73,6 +77,10 @@ if (process.env.FAL_KEY) {
 
 if (process.env.XAI_KEY) {
   clientsInitialized.grok = initializeGrok();
+}
+
+if (process.env.OLLAMA_API_URL) {
+  clientsInitialized.ollama = initializeOllama();
 }
 
 // Initialize super model if all required providers are available
@@ -128,6 +136,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return clientsInitialized.grok;
           case "super-model":
             return clientsInitialized.superModel;
+          case "ollama":
+            return clientsInitialized.ollama;
           default:
             return false;
         }
@@ -150,6 +160,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/chat/falai', falRouter);
   app.use('/api/chat/grok', grokRouter);
   app.use('/api/chat/super-model', superModelRouter);
+  app.use('/api/chat/ollama', ollamaRouter);
 
   // Register conversation routes
   app.use('/api/conversations', conversationsRoutes);
@@ -163,7 +174,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register custom tools routes
   app.use(customToolsRoutes);
 
-
+  // Register user preferences routes
+  app.use('/api/user', userPreferencesRoutes);
 
   // Statistics endpoint: latency per model and token counts
   app.get('/api/stats', async (req: Request, res: Response) => {

@@ -10,7 +10,8 @@ import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } fr
 import { getToolDefinitions, handleToolCalls } from "../../tools";
 import { runAgenticLoop } from "../../agentic-workflow";
 import { getAnthropicModel } from "../../ai-sdk-providers";
-import { CoreMessage } from "ai";
+import { prepareContext, isContextLengthError, truncateToolResult } from "../../context-manager";
+import { buildSystemPrompt } from "../../user-preferences-service";
 
 const router = express.Router();
 let client: Anthropic | null = null;
@@ -96,55 +97,26 @@ function createUserMessageContent(message: string, imageAttachments: any[], docu
   }
 }
 
-// Helper to convert Anthropic messages to AI SDK CoreMessage format
-function convertToCoreMessages(messages: any[]): CoreMessage[] {
-  return messages.map(msg => {
-    if (msg.role === 'system') {
-      // System messages are handled separately in AI SDK
-      return null;
-    }
-    
-    if (msg.role === 'user') {
-      // Handle both string and array content
+// Helper to convert Anthropic messages to simple format for agent
+function convertToAgentMessages(messages: any[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return messages
+    .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+    .map(msg => {
+      let content = '';
       if (typeof msg.content === 'string') {
-        return {
-          role: 'user' as const,
-          content: msg.content
-        };
+        content = msg.content;
       } else if (Array.isArray(msg.content)) {
-        // Convert Anthropic content blocks to AI SDK format
-        const textParts = msg.content
+        // Extract text from content blocks
+        content = msg.content
           .filter((block: any) => block.type === 'text')
           .map((block: any) => block.text)
           .join('\n');
-        return {
-          role: 'user' as const,
-          content: textParts
-        };
       }
-    }
-    
-    if (msg.role === 'assistant') {
-      // Handle both string and array content
-      if (typeof msg.content === 'string') {
-        return {
-          role: 'assistant' as const,
-          content: msg.content
-        };
-      } else if (Array.isArray(msg.content)) {
-        const textParts = msg.content
-          .filter((block: any) => block.type === 'text')
-          .map((block: any) => block.text)
-          .join('\n');
-        return {
-          role: 'assistant' as const,
-          content: textParts
-        };
-      }
-    }
-    
-    return null;
-  }).filter((msg): msg is CoreMessage => msg !== null);
+      return {
+        role: msg.role as 'user' | 'assistant',
+        content
+      };
+    });
 }
 
 // Helper function to execute tools and get response
@@ -304,6 +276,7 @@ router.post("/", async (req: Request, res: Response) => {
       conversationId,
       context = [],
       model = "claude-3-5-sonnet-latest",
+      modelContextLength = 200000, // Default for Claude models
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
@@ -435,7 +408,13 @@ router.post("/", async (req: Request, res: Response) => {
       .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       .map((msg: any) => {
         let content = msg.content;
-        
+
+        // Add timestamp so LLM understands time passage between messages
+        if (msg.timestamp) {
+          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+          content = `[${msgTime}] ${content}`;
+        }
+
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -443,12 +422,12 @@ router.post("/", async (req: Request, res: Response) => {
             .filter((att: any) => att.type === 'document' && att.text)
             .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
             .join('\n');
-          
+
           if (documentTexts) {
             content += documentTexts;
           }
         }
-        
+
         return {
           role: msg.role === "user" ? "user" : "assistant",
           content: content,
@@ -505,15 +484,41 @@ router.post("/", async (req: Request, res: Response) => {
       console.log('Tools disabled for this request');
     }
 
-    // Create user message content
-    const userMessageContent = createUserMessageContent(message, imageAttachments, documentTexts, knowledgeContent);
+    // Create user message content with current timestamp
+    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    const userMessageContent = createUserMessageContent(currentTimeStr + message, imageAttachments, documentTexts, knowledgeContent);
     apiMessages.push({ role: "user", content: userMessageContent });
-    requestOptions.messages = apiMessages;
 
+    // Pre-emptively manage context to avoid exceeding model limits
+    const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
+      apiMessages,
+      model,
+      {
+        maxTokens: modelContextLength, // Use context length from model config
+        reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
+      }
+    );
 
+    requestOptions.messages = contextManagedMessages;
+
+    // Build system prompt with user custom prompt
+    const baseSystemPrompt = "You are a helpful AI assistant.";
+    const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
+    if (systemPrompt) {
+      requestOptions.system = systemPrompt;
+    }
 
     // Send initial conversation data
     res.write(`data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`);
+    
+    // Only notify user if messages were actually removed (not just tool results truncated)
+    if (contextInfo.removedMessages > 0) {
+      console.log(`[Anthropic] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      res.write(`data: ${JSON.stringify({
+        type: "chunk",
+        content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
+      })}\n\n`);
+    }
 
     // Set up keep-alive
     const keepAliveInterval = setInterval(() => {
@@ -532,19 +537,18 @@ router.post("/", async (req: Request, res: Response) => {
         // Get the AI SDK model instance
         const aiModel = getAnthropicModel(model);
         
-        // Extract system prompt from apiMessages
-        const systemMessage = apiMessages.find((msg: any) => msg.role === 'system');
+        // Extract system prompt from contextManagedMessages (which has been truncated if needed)
+        const systemMessage = contextManagedMessages.find((msg: any) => msg.role === 'system');
         const systemPrompt = systemMessage?.content || undefined;
         
-        // Convert messages to CoreMessage format (excluding system messages)
-        const coreMessages = convertToCoreMessages(apiMessages);
+        // Convert messages to simple format for agent - use contextManagedMessages which has been truncated
+        const agentMessages = convertToAgentMessages(contextManagedMessages);
         
-        // Run the agentic loop with AI SDK
+        // Run the agentic loop with AI SDK v6 ToolLoopAgent
         const finalResponse = await runAgenticLoop(
-          coreMessages,
+          agentMessages,
           {
-            maxIterations: 10,
-            maxContextMessages: 15,
+            maxIterations: 20,
             conversationId: dbConversation.id,
             model: aiModel,
             systemPrompt,
