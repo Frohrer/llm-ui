@@ -256,7 +256,13 @@ router.post("/", async (req: Request, res: Response) => {
       )
       .map((msg: any) => {
         let content = msg.content;
-        
+
+        // Add timestamp so LLM understands time passage between messages
+        if (msg.timestamp) {
+          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+          content = `[${msgTime}] ${content}`;
+        }
+
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -264,12 +270,12 @@ router.post("/", async (req: Request, res: Response) => {
             .filter((att: any) => att.type === 'document' && att.text)
             .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
             .join('\n');
-          
+
           if (documentTexts) {
             content += documentTexts;
           }
         }
-        
+
         return {
           role: msg.role,
           content: content,
@@ -562,13 +568,16 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
+    // Add current timestamp to the user message so LLM understands time passage
+    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+
     // Create the message content based on what we have
     if (hasImageAttachment) {
       // For OpenAI, we use a different format with content array
       let contentArray: any[] = [];
-      
+
       // Add text first with any document content
-      let textContent = message;
+      let textContent = currentTimeStr + message;
       if (documentTexts.length > 0) {
         textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
       }
@@ -599,7 +608,7 @@ router.post("/", async (req: Request, res: Response) => {
     } 
     else if (documentTexts.length > 0 || knowledgeContent) {
       // Text-only message with documents or knowledge
-      let userContent = message;
+      let userContent = currentTimeStr + message;
       
       if (documentTexts.length > 0) {
         userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
@@ -614,7 +623,7 @@ router.post("/", async (req: Request, res: Response) => {
     } 
     else {
       // Regular text message without attachments or knowledge
-      apiMessages.push({ role: "user", content: message });
+      apiMessages.push({ role: "user", content: currentTimeStr + message });
       console.log("Plain text message added for OpenAI");
     }
 
@@ -1242,6 +1251,12 @@ async function handleResponsesAPI(req: Request, res: Response) {
       .map((msg: any) => {
         let content = msg.content;
 
+        // Add timestamp so LLM understands time passage between messages
+        if (msg.timestamp) {
+          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+          content = `[${msgTime}] ${content}`;
+        }
+
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -1264,10 +1279,11 @@ async function handleResponsesAPI(req: Request, res: Response) {
     // Build structured input when we have images/documents/knowledge
     const hasRichInput = imageDataUris.length > 0 || documentTexts.length > 0 || !!knowledgeContent;
 
-    // Build the current user message
+    // Build the current user message with timestamp
+    const responsesTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
     let currentUserMessage: any;
     if (hasRichInput) {
-      let textContent = input;
+      let textContent = responsesTimeStr + input;
       if (documentTexts.length > 0) {
         textContent += `\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
       }
@@ -1289,7 +1305,7 @@ async function handleResponsesAPI(req: Request, res: Response) {
     } else {
       currentUserMessage = {
         role: 'user',
-        content: input
+        content: responsesTimeStr + input
       };
     }
 

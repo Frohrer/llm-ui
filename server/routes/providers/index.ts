@@ -5,6 +5,7 @@ import geminiRouter, { initializeGemini, getGeminiClient } from './gemini';
 import { falRouter, initializeFal } from './fal';
 import grokRouter, { initializeGrok, getGrokClient } from './grok';
 import superModelRouter, { initializeSuperModel, getSuperModelStatus } from './super-model';
+import ollamaRouter, { initializeOllama, getOllamaClient } from './ollama';
 
 export {
   openaiRouter,
@@ -14,6 +15,7 @@ export {
   falRouter,
   grokRouter,
   superModelRouter,
+  ollamaRouter,
   initializeOpenAI,
   initializeAnthropic,
   initializeDeepSeek,
@@ -21,10 +23,12 @@ export {
   initializeFal,
   initializeGrok,
   initializeSuperModel,
+  initializeOllama,
   getOpenAIClient,
   getAnthropicClient,
   getDeepSeekClient,
   getGeminiClient,
   getGrokClient,
-  getSuperModelStatus
+  getSuperModelStatus,
+  getOllamaClient
 };

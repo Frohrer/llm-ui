@@ -310,7 +310,13 @@ router.post("/", async (req: Request, res: Response) => {
       )
       .map((msg: any) => {
         let content = msg.content;
-        
+
+        // Add timestamp so LLM understands time passage between messages
+        if (msg.timestamp) {
+          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+          content = `[${msgTime}] ${content}`;
+        }
+
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -318,12 +324,12 @@ router.post("/", async (req: Request, res: Response) => {
             .filter((att: any) => att.type === 'document' && att.text)
             .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
             .join('\n');
-          
+
           if (documentTexts) {
             content += documentTexts;
           }
         }
-        
+
         return {
           role: msg.role === "user" ? "user" : "model",
           parts: [{ text: content }],
@@ -408,8 +414,9 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    // Create the user message content
-    let userText = message;
+    // Create the user message content with current timestamp
+    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    let userText = currentTimeStr + message;
     if (documentTexts.length > 0) {
       userText += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
     }

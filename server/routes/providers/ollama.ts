@@ -12,53 +12,58 @@ import { prepareContext, isContextLengthError } from "../../context-manager";
 const router = express.Router();
 let client: OpenAI | null = null;
 
-// Initialize the DeepSeek client (uses OpenAI client with custom baseURL)
-export function initializeDeepSeek(apiKey?: string) {
-  if (apiKey || process.env.DEEPSEEK_API_KEY) {
-    client = new OpenAI({
-      baseURL: "https://api.deepseek.com/v1",
-      apiKey: apiKey || process.env.DEEPSEEK_API_KEY,
-    });
-    return true;
-  }
-  return false;
+// Initialize the Ollama client (uses OpenAI client with custom baseURL and CF Access headers)
+export function initializeOllama() {
+  const baseURL = process.env.OLLAMA_API_URL || "https://ollama.fdr.sh/v1";
+  const cfClientId = process.env.OLLAMA_CF_CLIENT_ID || "a90f4a3868c287799ab85c8f02c5f16f.access";
+  const cfClientSecret = process.env.OLLAMA_CF_CLIENT_SECRET || "3b176a6d4c92d509c38561409275d7a3820f73ea969808feb0efaebafdc4b679";
+
+  client = new OpenAI({
+    baseURL,
+    apiKey: "ollama", // Placeholder — auth is via CF Access headers
+    defaultHeaders: {
+      "CF-Access-Client-Id": cfClientId,
+      "CF-Access-Client-Secret": cfClientSecret,
+    },
+  });
+  return true;
 }
 
-// Get the DeepSeek client instance
-export function getDeepSeekClient() {
+// Get the Ollama client instance
+export function getOllamaClient() {
   return client;
 }
 
-// Create or continue a DeepSeek chat conversation
+// Create or continue an Ollama chat conversation
 router.post("/", async (req: Request, res: Response) => {
   try {
     const {
       message,
       conversationId,
       context = [],
-      model = "deepseek-chat",
-      modelContextLength = 64000, // Default for DeepSeek models
+      model = "gpt-oss:20b",
+      modelContextLength = 32000,
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
       pendingKnowledgeSources = [],
     } = req.body;
-    
+
     if (!message || typeof message !== "string") {
       return res.status(400).json({ error: "Invalid message" });
     }
-    
+
     if (!client) {
-      return res.status(503).json({ error: "DeepSeek service not initialized" });
+      return res.status(503).json({ error: "Ollama service not initialized" });
     }
-    
-    console.log(`Processing message with ${allAttachments.length} attachments for DeepSeek`);
+
+    console.log(`Processing message with ${allAttachments.length} attachments for Ollama`);
 
     // Set up SSE headers with keep-alive
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no"); // Disable proxy buffering
+    res.setHeader("X-Accel-Buffering", "no");
 
     let conversationTitle = message.slice(0, 100);
     let dbConversation;
@@ -71,7 +76,7 @@ router.post("/", async (req: Request, res: Response) => {
         .insert(conversations)
         .values({
           title: conversationTitle,
-          provider: "deepseek",
+          provider: "ollama",
           model,
           user_id: req.user!.id,
           created_at: timestamp,
@@ -83,7 +88,6 @@ router.post("/", async (req: Request, res: Response) => {
         throw new Error("Failed to create conversation");
       }
 
-      // Save attachment metadata so it's available in future context
       const messageMetadata: any = {};
       if (allAttachments && allAttachments.length > 0) {
         messageMetadata.attachments = allAttachments;
@@ -99,10 +103,9 @@ router.post("/", async (req: Request, res: Response) => {
         created_at: timestamp,
       });
 
-      // Add any pending knowledge sources to the new conversation
       if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
         console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
-        
+
         for (const knowledgeSourceId of pendingKnowledgeSources) {
           try {
             await addKnowledgeToConversation(newConversation.id, knowledgeSourceId);
@@ -136,7 +139,6 @@ router.post("/", async (req: Request, res: Response) => {
         .set({ last_message_at: timestamp })
         .where(eq(conversations.id, conversationIdNum));
 
-      // Save attachment metadata so it's available in future context
       const messageMetadata: any = {};
       if (allAttachments && allAttachments.length > 0) {
         messageMetadata.attachments = allAttachments;
@@ -152,10 +154,9 @@ router.post("/", async (req: Request, res: Response) => {
         created_at: timestamp,
       });
 
-      // Add any pending knowledge sources to existing conversation (allows mid-conversation injection)
       if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
         console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to existing conversation ${conversationIdNum}`);
-        
+
         for (const knowledgeSourceId of pendingKnowledgeSources) {
           try {
             await addKnowledgeToConversation(conversationIdNum, knowledgeSourceId);
@@ -177,13 +178,11 @@ router.post("/", async (req: Request, res: Response) => {
       .map((msg: any) => {
         let content = msg.content;
 
-        // Add timestamp so LLM understands time passage between messages
         if (msg.timestamp) {
           const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
           content = `[${msgTime}] ${content}`;
         }
 
-        // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
           const documentTexts = attachments
@@ -202,37 +201,32 @@ router.post("/", async (req: Request, res: Response) => {
         };
       });
 
-    // Process attachments based on type
+    // Process attachments
     let stream;
     const maxRetries = 3;
     let retryCount = 0;
-    
-    // Get all attachments (prioritize the allAttachments array if it exists)
+
     const allAttachmentsToProcess = allAttachments.length > 0 ? allAttachments : (attachment ? [attachment] : []);
-    
-    console.log(`Processing ${allAttachmentsToProcess.length} attachments for DeepSeek`);
-    
-    // DeepSeek doesn't support image attachments in the same way as OpenAI, handle as text
+
+    console.log(`Processing ${allAttachmentsToProcess.length} attachments for Ollama`);
+
     let documentTexts: string[] = [];
-    
-    // Process each attachment
+
     for (const att of allAttachmentsToProcess) {
-      // Handle document attachments
       if (att.type === 'document' && att.text) {
-        console.log(`Processing document attachment for DeepSeek: ${att.name}`);
+        console.log(`Processing document attachment for Ollama: ${att.name}`);
         documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
       }
-      // Handle image attachments as text descriptions
       else if (att.type === 'image') {
         try {
-          console.log("Processing image attachment for DeepSeek:", att.url);
+          console.log("Processing image attachment for Ollama:", att.url);
           documentTexts.push(`[Image: ${att.name || 'Uploaded image'}]`);
         } catch (imageError) {
-          console.error("Error processing image for DeepSeek:", imageError);
+          console.error("Error processing image for Ollama:", imageError);
         }
       }
     }
-    
+
     // Get knowledge content if requested
     let knowledgeContent = '';
     if (useKnowledge && dbConversation) {
@@ -246,38 +240,34 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    // Add current timestamp to the user message so LLM understands time passage
     const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
 
-    // Create the message content based on what we have
     if (documentTexts.length > 0 || knowledgeContent) {
-      // Text-only message with documents or knowledge
       let userContent = currentTimeStr + message;
-      
+
       if (documentTexts.length > 0) {
         userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
       }
-      
+
       if (knowledgeContent) {
         userContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
       }
-      
+
       apiMessages.push({ role: "user", content: userContent });
-      console.log("Message with document/knowledge content added for DeepSeek");
-    } 
+      console.log("Message with document/knowledge content added for Ollama");
+    }
     else {
-      // Regular text message without attachments or knowledge
       apiMessages.push({ role: "user", content: currentTimeStr + message });
-      console.log("Plain text message added for DeepSeek");
+      console.log("Plain text message added for Ollama");
     }
 
-    // Pre-emptively manage context to avoid exceeding model limits (DeepSeek doesn't use tools)
+    // Pre-emptively manage context to avoid exceeding model limits
     const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
       apiMessages,
       model,
-      { 
-        maxTokens: modelContextLength, // Use context length from model config
-        reserveForTools: 0,  // DeepSeek doesn't support tool calling
+      {
+        maxTokens: modelContextLength,
+        reserveForTools: 0,
       }
     );
 
@@ -294,20 +284,18 @@ router.post("/", async (req: Request, res: Response) => {
         console.log("Stream created with model:", model);
         break;
       } catch (error: any) {
-        // Check if this is a context length error
         if (isContextLengthError(error)) {
-          console.log(`[DeepSeek] Context length error detected, attempting to truncate further`);
-          
-          // Try with more aggressive truncation
+          console.log(`[Ollama] Context length error detected, attempting to truncate further`);
+
           const { messages: retriedMessages, info: retryInfo } = prepareContext(
             contextManagedMessages,
             model,
-            { 
+            {
               reserveForTools: 0,
-              safetyBuffer: 10000, // Larger safety buffer for retry
+              safetyBuffer: 10000,
             }
           );
-          
+
           if (retryInfo.wasTruncated && retryInfo.finalMessageCount >= 2) {
             contextManagedMessages.length = 0;
             contextManagedMessages.push(...retriedMessages);
@@ -315,12 +303,12 @@ router.post("/", async (req: Request, res: Response) => {
             continue;
           }
         }
-        
+
         retryCount++;
         if (retryCount === maxRetries) throw error;
         await new Promise((resolve) =>
           setTimeout(resolve, 1000 * retryCount),
-        ); // Exponential backoff
+        );
       }
     }
 
@@ -332,10 +320,9 @@ router.post("/", async (req: Request, res: Response) => {
     res.write(
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
     );
-    
-    // Only notify user if messages were actually removed (not just tool results truncated)
+
     if (contextInfo.removedMessages > 0) {
-      console.log(`[DeepSeek] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      console.log(`[Ollama] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
       res.write(`data: ${JSON.stringify({
         type: "chunk",
         content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
@@ -345,13 +332,13 @@ router.post("/", async (req: Request, res: Response) => {
     // Set up keep-alive interval
     const keepAliveInterval = setInterval(() => {
       res.write(": keep-alive\n\n");
-    }, 15000); // Send keep-alive every 15 seconds
+    }, 15000);
 
     try {
       const requestStart = Date.now();
       let ttftMs: number | null = null;
       let lastChunkTime = Date.now();
-      const chunkTimeout = 30000; // 30 seconds timeout between chunks
+      const chunkTimeout = 30000;
 
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content || "";
@@ -367,15 +354,13 @@ router.post("/", async (req: Request, res: Response) => {
           if (res.flush) res.flush();
         }
 
-        // Check for timeout between chunks
         if (Date.now() - lastChunkTime > chunkTimeout) {
           throw new Error("Stream timeout - no data received for 30 seconds");
         }
       }
 
-      // Save the complete response only after successful streaming
+      // Save the complete response
       const timestamp = new Date();
-      // Approximate input tokens from apiMessages
       let approxInputTokens = 0;
       try {
         const texts: string[] = [];
@@ -403,7 +388,6 @@ router.post("/", async (req: Request, res: Response) => {
         created_at: timestamp,
       });
 
-      // Send completion event after successful save
       const updatedConversation = await db.query.conversations.findFirst({
         where: eq(conversations.id, dbConversation.id),
         with: {

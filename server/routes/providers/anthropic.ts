@@ -408,7 +408,13 @@ router.post("/", async (req: Request, res: Response) => {
       .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       .map((msg: any) => {
         let content = msg.content;
-        
+
+        // Add timestamp so LLM understands time passage between messages
+        if (msg.timestamp) {
+          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+          content = `[${msgTime}] ${content}`;
+        }
+
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -416,12 +422,12 @@ router.post("/", async (req: Request, res: Response) => {
             .filter((att: any) => att.type === 'document' && att.text)
             .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
             .join('\n');
-          
+
           if (documentTexts) {
             content += documentTexts;
           }
         }
-        
+
         return {
           role: msg.role === "user" ? "user" : "assistant",
           content: content,
@@ -478,8 +484,9 @@ router.post("/", async (req: Request, res: Response) => {
       console.log('Tools disabled for this request');
     }
 
-    // Create user message content
-    const userMessageContent = createUserMessageContent(message, imageAttachments, documentTexts, knowledgeContent);
+    // Create user message content with current timestamp
+    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    const userMessageContent = createUserMessageContent(currentTimeStr + message, imageAttachments, documentTexts, knowledgeContent);
     apiMessages.push({ role: "user", content: userMessageContent });
 
     // Pre-emptively manage context to avoid exceeding model limits

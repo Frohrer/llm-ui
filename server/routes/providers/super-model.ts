@@ -255,7 +255,13 @@ router.post("/", async (req: Request, res: Response) => {
       .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       .map((msg: any) => {
         let content = msg.content;
-        
+
+        // Add timestamp so LLM understands time passage between messages
+        if (msg.timestamp) {
+          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+          content = `[${msgTime}] ${content}`;
+        }
+
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -263,12 +269,12 @@ router.post("/", async (req: Request, res: Response) => {
             .filter((att: any) => att.type === 'document' && att.text)
             .map((att: any) => `\n\n[Attached file: ${att.name}]\n${att.text}`)
             .join('\n');
-          
+
           if (documentTexts) {
             content += documentTexts;
           }
         }
-        
+
         return {
           role: msg.role,
           content: content,
@@ -281,8 +287,9 @@ router.post("/", async (req: Request, res: Response) => {
       knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id);
     }
 
-    // Prepare the current message with knowledge
-    let currentMessage = message;
+    // Prepare the current message with knowledge and timestamp
+    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    let currentMessage = currentTimeStr + message;
     if (knowledgeContent) {
       currentMessage += "\n\nKnowledge Sources:\n" + knowledgeContent;
     }

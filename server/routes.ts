@@ -17,6 +17,7 @@ import {
   falRouter,
   grokRouter,
   superModelRouter,
+  ollamaRouter,
   initializeOpenAI,
   initializeAnthropic,
   initializeDeepSeek,
@@ -24,6 +25,7 @@ import {
   initializeFal,
   initializeGrok,
   initializeSuperModel,
+  initializeOllama,
   getSuperModelStatus,
 } from "./routes/providers";
 import { uploadSingleMiddleware, extractTextFromFile, transformUrlToProxy } from "./file-handler";
@@ -48,7 +50,8 @@ const clientsInitialized: Record<string, boolean> = {
   gemini: false,
   fal: false,
   grok: false,
-  superModel: false
+  superModel: false,
+  ollama: false
 };
 
 // Initialize clients from environment variables
@@ -75,6 +78,9 @@ if (process.env.FAL_KEY) {
 if (process.env.XAI_KEY) {
   clientsInitialized.grok = initializeGrok();
 }
+
+// Initialize Ollama (always available — uses CF Access auth)
+clientsInitialized.ollama = initializeOllama();
 
 // Initialize super model if all required providers are available
 clientsInitialized.superModel = initializeSuperModel();
@@ -129,6 +135,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return clientsInitialized.grok;
           case "super-model":
             return clientsInitialized.superModel;
+          case "ollama":
+            return clientsInitialized.ollama;
           default:
             return false;
         }
@@ -151,6 +159,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/chat/falai', falRouter);
   app.use('/api/chat/grok', grokRouter);
   app.use('/api/chat/super-model', superModelRouter);
+  app.use('/api/chat/ollama', ollamaRouter);
 
   // Register conversation routes
   app.use('/api/conversations', conversationsRoutes);
