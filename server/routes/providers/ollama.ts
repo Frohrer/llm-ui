@@ -14,9 +14,13 @@ let client: OpenAI | null = null;
 
 // Initialize the Ollama client (uses OpenAI client with custom baseURL and CF Access headers)
 export function initializeOllama() {
-  const baseURL = process.env.OLLAMA_API_URL || "https://ollama.fdr.sh/v1";
-  const cfClientId = process.env.OLLAMA_CF_CLIENT_ID || "a90f4a3868c287799ab85c8f02c5f16f.access";
-  const cfClientSecret = process.env.OLLAMA_CF_CLIENT_SECRET || "3b176a6d4c92d509c38561409275d7a3820f73ea969808feb0efaebafdc4b679";
+  const baseURL = process.env.OLLAMA_API_URL;
+  const cfClientId = process.env.OLLAMA_CF_CLIENT_ID;
+  const cfClientSecret = process.env.OLLAMA_CF_CLIENT_SECRET;
+
+  if (!baseURL || !cfClientId || !cfClientSecret) {
+    return false;
+  }
 
   client = new OpenAI({
     baseURL,

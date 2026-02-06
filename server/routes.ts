@@ -79,8 +79,9 @@ if (process.env.XAI_KEY) {
   clientsInitialized.grok = initializeGrok();
 }
 
-// Initialize Ollama (always available — uses CF Access auth)
-clientsInitialized.ollama = initializeOllama();
+if (process.env.OLLAMA_API_URL) {
+  clientsInitialized.ollama = initializeOllama();
+}
 
 // Initialize super model if all required providers are available
 clientsInitialized.superModel = initializeSuperModel();
