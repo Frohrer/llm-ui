@@ -389,7 +389,7 @@ const MessageComponent = ({ message }: MessageProps) => {
       )
     ) : (
                   <div className="text-base whitespace-pre-wrap break-words chat-message-content">{message.content}</div>
-    ), [message.content, message.role, hasGenerativeUI, handleUIAction]);
+    ), [message.content, message.role, hasGenerativeUI, handleUIAction, executingCode, isExecuting, result, error]);
 
   // Render attachments if present
   const [imageLoading, setImageLoading] = useState(true);
