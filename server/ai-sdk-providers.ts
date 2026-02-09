@@ -81,6 +81,32 @@ export function getGroqModel(modelName: string, apiKey?: string): LanguageModel 
 }
 
 /**
+ * Get an AI SDK model instance for Ollama
+ * Ollama is OpenAI-compatible, uses custom baseURL and CF Access headers
+ */
+export function getOllamaModel(modelName: string): LanguageModel {
+  const baseURL = process.env.OLLAMA_API_URL;
+  const cfClientId = process.env.OLLAMA_CF_CLIENT_ID;
+  const cfClientSecret = process.env.OLLAMA_CF_CLIENT_SECRET;
+
+  if (!baseURL || !cfClientId || !cfClientSecret) {
+    throw new Error('Ollama environment variables not configured');
+  }
+
+  const ollama = createOpenAI({
+    apiKey: 'ollama',
+    baseURL,
+    headers: {
+      'CF-Access-Client-Id': cfClientId,
+      'CF-Access-Client-Secret': cfClientSecret,
+    },
+  });
+
+  // Use .chat() to force Chat Completions API — Ollama doesn't support Responses API
+  return ollama.chat(modelName);
+}
+
+/**
  * Get an AI SDK model instance for any OpenAI-compatible provider
  */
 export function getOpenAICompatibleModel(
