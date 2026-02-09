@@ -96,16 +96,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Speech credentials route
+  // Apply authentication middleware to all /api routes
+  app.use("/api", cloudflareAuthMiddleware);
+
+  // Speech credentials route (requires auth)
   app.get('/api/speech-credentials', (req, res) => {
     res.json({
       key: process.env.AZURE_SPEECH_KEY,
       region: process.env.AZURE_SPEECH_REGION
     });
   });
-  
-  // Apply authentication middleware to all /api routes
-  app.use("/api", cloudflareAuthMiddleware);
 
   // Add endpoint to get current user info
   app.get("/api/user", (req, res) => {
