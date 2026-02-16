@@ -90,3 +90,11 @@ export async function getAllProviders(): Promise<LLMProvider[]> {
   }
   return Object.values(providersCache);
 }
+
+/**
+ * Clear the providers cache so the next call to initializeProviders()
+ * re-fetches from the server. Call this after toggling models in admin UI.
+ */
+export function clearProvidersCache() {
+  providersCache = {};
+}

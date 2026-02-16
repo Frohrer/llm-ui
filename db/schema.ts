@@ -113,6 +113,23 @@ export const userPreferences = pgTable("user_preferences", {
   updated_at: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Model settings table - stores admin-managed model configurations per provider
+export const modelSettings = pgTable("model_settings", {
+  id: serial("id").primaryKey(),
+  provider_id: text("provider_id").notNull(),
+  model_id: text("model_id").notNull(),
+  display_name: text("display_name"),
+  context_length: integer("context_length"),
+  is_enabled: boolean("is_enabled").default(true).notNull(),
+  is_default: boolean("is_default").default(false).notNull(),
+  source: text("source", { enum: ["static", "api_discovered"] }).default("static").notNull(),
+  owned_by: text("owned_by"),
+  sort_order: integer("sort_order"),
+  published_at: timestamp("published_at"),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
 
 
 // Relations setup
@@ -173,6 +190,8 @@ export const userPreferencesRelations = relations(userPreferences, ({ one }) => 
   }),
 }));
 
+export const modelSettingsRelations = relations(modelSettings, () => ({}));
+
 
 
 // Schemas for form validation
@@ -192,6 +211,8 @@ export const insertCustomToolSchema = createInsertSchema(customTools);
 export const selectCustomToolSchema = createSelectSchema(customTools);
 export const insertUserPreferencesSchema = createInsertSchema(userPreferences);
 export const selectUserPreferencesSchema = createSelectSchema(userPreferences);
+export const insertModelSettingsSchema = createInsertSchema(modelSettings);
+export const selectModelSettingsSchema = createSelectSchema(modelSettings);
 
 
 // Type definitions for use in the app
@@ -211,3 +232,5 @@ export type InsertCustomTool = typeof customTools.$inferInsert;
 export type SelectCustomTool = typeof customTools.$inferSelect;
 export type InsertUserPreferences = typeof userPreferences.$inferInsert;
 export type SelectUserPreferences = typeof userPreferences.$inferSelect;
+export type InsertModelSettings = typeof modelSettings.$inferInsert;
+export type SelectModelSettings = typeof modelSettings.$inferSelect;

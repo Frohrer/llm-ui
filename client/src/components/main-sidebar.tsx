@@ -92,7 +92,7 @@ export function MainSidebar({
                   }`}
                 >
                   <BarChart3 className="mr-2 h-4 w-4" />
-                  Statistics
+                  Admin & Stats
                 </a>
               </Link>
               <Link href="/custom-tools">
