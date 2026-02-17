@@ -8,5 +8,6 @@ export interface ProviderConfig {
     name: string;
     contextLength: number;
     defaultModel: boolean;
+    skipSystemPrompt?: boolean;
   }[];
 }

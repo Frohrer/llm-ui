@@ -150,6 +150,15 @@ export function MultiChatWindow({
      return modelId;
    };
 
+     const getModelSkipSystemPrompt = (modelId: string): boolean => {
+     if (!providers) return false;
+     for (const provider of Object.values(providers)) {
+       const model = provider.config.models.find((m: any) => m.id === modelId);
+       if (model) return model.skipSystemPrompt || false;
+     }
+     return false;
+   };
+
      const getModelContextLength = (modelId: string): number => {
      if (!providers) return 128000;
      for (const provider of Object.values(providers)) {
@@ -295,6 +304,7 @@ export function MultiChatWindow({
           model: modelId,
           attachment,
           allAttachments: allAttachments || [],
+          skipSystemPrompt: getModelSkipSystemPrompt(modelId),
           useKnowledge: true,
           pendingKnowledgeSources: [],
           useTools,

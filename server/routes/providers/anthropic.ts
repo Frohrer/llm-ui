@@ -283,6 +283,7 @@ router.post("/", async (req: Request, res: Response) => {
       pendingKnowledgeSources = [],
       useTools = false,
       useAgenticMode = false,
+      skipSystemPrompt = false,
     } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -410,7 +411,7 @@ router.post("/", async (req: Request, res: Response) => {
         let content = msg.content;
 
         // Add timestamp so LLM understands time passage between messages
-        if (msg.timestamp) {
+        if (!skipSystemPrompt && msg.timestamp) {
           const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
           content = `[${msgTime}] ${content}`;
         }
@@ -485,7 +486,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     // Create user message content with current timestamp
-    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    const currentTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
     const userMessageContent = createUserMessageContent(currentTimeStr + message, imageAttachments, documentTexts, knowledgeContent);
     apiMessages.push({ role: "user", content: userMessageContent });
 
@@ -502,10 +503,12 @@ router.post("/", async (req: Request, res: Response) => {
     requestOptions.messages = contextManagedMessages;
 
     // Build system prompt with user custom prompt
-    const baseSystemPrompt = "You are a helpful AI assistant.";
-    const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
-    if (systemPrompt) {
-      requestOptions.system = systemPrompt;
+    if (!skipSystemPrompt) {
+      const baseSystemPrompt = "You are a helpful AI assistant.";
+      const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
+      if (systemPrompt) {
+        requestOptions.system = systemPrompt;
+      }
     }
 
     // Send initial conversation data

@@ -92,6 +92,7 @@ router.post("/", async (req: Request, res: Response) => {
       pendingKnowledgeSources = [],
       useTools = false,
       useAgenticMode = false,
+      skipSystemPrompt = false,
     } = req.body;
 
     // Check if this is a GPT-5 model and NOT in agentic mode - use Responses API
@@ -258,7 +259,7 @@ router.post("/", async (req: Request, res: Response) => {
         let content = msg.content;
 
         // Add timestamp so LLM understands time passage between messages
-        if (msg.timestamp) {
+        if (!skipSystemPrompt && msg.timestamp) {
           const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
           content = `[${msgTime}] ${content}`;
         }
@@ -569,7 +570,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     // Add current timestamp to the user message so LLM understands time passage
-    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    const currentTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
 
     // Create the message content based on what we have
     if (hasImageAttachment) {
@@ -628,10 +629,12 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     // Build and add system prompt with user custom prompt
-    const baseSystemPrompt = "You are a helpful AI assistant.";
-    const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
-    if (systemPrompt) {
-      apiMessages.unshift({ role: "system", content: systemPrompt });
+    if (!skipSystemPrompt) {
+      const baseSystemPrompt = "You are a helpful AI assistant.";
+      const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
+      if (systemPrompt) {
+        apiMessages.unshift({ role: "system", content: systemPrompt });
+      }
     }
 
     // Pre-emptively manage context to avoid exceeding model limits
@@ -1056,6 +1059,7 @@ async function handleResponsesAPI(req: Request, res: Response) {
       useKnowledge = false,
       pendingKnowledgeSources = [],
       useTools = false,
+      skipSystemPrompt = false,
       // New GPT-5 Responses API parameters
       reasoning = { effort: "medium" },
       text = { verbosity: "medium" },
@@ -1252,7 +1256,7 @@ async function handleResponsesAPI(req: Request, res: Response) {
         let content = msg.content;
 
         // Add timestamp so LLM understands time passage between messages
-        if (msg.timestamp) {
+        if (!skipSystemPrompt && msg.timestamp) {
           const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
           content = `[${msgTime}] ${content}`;
         }
@@ -1280,7 +1284,7 @@ async function handleResponsesAPI(req: Request, res: Response) {
     const hasRichInput = imageDataUris.length > 0 || documentTexts.length > 0 || !!knowledgeContent;
 
     // Build the current user message with timestamp
-    const responsesTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    const responsesTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
     let currentUserMessage: any;
     if (hasRichInput) {
       let textContent = responsesTimeStr + input;

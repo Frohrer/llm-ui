@@ -67,6 +67,7 @@ type ModelSetting = {
   context_length: number | null;
   is_enabled: boolean;
   is_default: boolean;
+  skip_system_prompt: boolean;
   source: 'static' | 'api_discovered';
   owned_by: string | null;
   sort_order: number | null;
@@ -127,11 +128,13 @@ function SortableModelRow({
   isCustomOrder,
   togglingModels,
   onToggle,
+  onToggleSkipSystemPrompt,
 }: {
   model: ModelSetting;
   isCustomOrder: boolean;
   togglingModels: Set<string>;
   onToggle: (modelId: string, enabled: boolean) => void;
+  onToggleSkipSystemPrompt: (modelId: string, skip: boolean) => void;
 }) {
   const {
     attributes,
@@ -166,6 +169,13 @@ function SortableModelRow({
           checked={model.is_enabled}
           disabled={togglingModels.has(model.model_id)}
           onCheckedChange={(checked) => onToggle(model.model_id, checked)}
+        />
+      </TableCell>
+      <TableCell>
+        <Switch
+          checked={model.skip_system_prompt}
+          disabled={togglingModels.has(model.model_id)}
+          onCheckedChange={(checked) => onToggleSkipSystemPrompt(model.model_id, checked)}
         />
       </TableCell>
       <TableCell className="font-mono text-sm">{model.model_id}</TableCell>
@@ -275,6 +285,25 @@ export default function StatsPage() {
     }
   };
 
+  const handleToggleSkipSystemPrompt = async (modelId: string, skip: boolean) => {
+    setTogglingModels((prev) => new Set(prev).add(modelId));
+    try {
+      const r = await fetch(`/api/admin/models/${selectedProvider}/${encodeURIComponent(modelId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skip_system_prompt: skip }),
+      });
+      if (!r.ok) throw new Error('Failed to toggle skip system prompt');
+      const updated: ModelSetting = await r.json();
+      setModelSettings((prev) => prev.map((m) => (m.model_id === modelId ? updated : m)));
+      clearProvidersCache();
+    } catch (e) {
+      setModelsError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setTogglingModels((prev) => { const next = new Set(prev); next.delete(modelId); return next; });
+    }
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -337,6 +366,7 @@ export default function StatsPage() {
           bVal = b.published_at ? new Date(b.published_at).getTime() : 0;
           break;
         case 'is_enabled': aVal = a.is_enabled ? 1 : 0; bVal = b.is_enabled ? 1 : 0; break;
+        case 'skip_system_prompt': aVal = a.skip_system_prompt ? 1 : 0; bVal = b.skip_system_prompt ? 1 : 0; break;
         default: return 0;
       }
       if (typeof aVal === 'string' && typeof bVal === 'string')
@@ -765,6 +795,7 @@ export default function StatsPage() {
                         <TableRow className="hover:bg-transparent">
                           {isCustomOrder && <TableHead className="w-[40px]" />}
                           <ModelSortHeader sortKey="is_enabled" className="w-[80px]">Enabled</ModelSortHeader>
+                          <ModelSortHeader sortKey="skip_system_prompt" className="w-[100px]">Skip Prompt</ModelSortHeader>
                           <ModelSortHeader sortKey="model_id">Model ID</ModelSortHeader>
                           <ModelSortHeader sortKey="display_name">Display Name</ModelSortHeader>
                           <ModelSortHeader sortKey="context_length" className="text-right">Context</ModelSortHeader>
@@ -786,6 +817,7 @@ export default function StatsPage() {
                               isCustomOrder={isCustomOrder}
                               togglingModels={togglingModels}
                               onToggle={handleToggleModel}
+                              onToggleSkipSystemPrompt={handleToggleSkipSystemPrompt}
                             />
                           ))}
                         </TableBody>

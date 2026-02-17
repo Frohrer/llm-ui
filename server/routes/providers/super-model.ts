@@ -124,6 +124,7 @@ router.post("/", async (req: Request, res: Response) => {
     useKnowledge = false,
     pendingKnowledgeSources = [],
     useTools = false,
+    skipSystemPrompt = false,
   } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -257,7 +258,7 @@ router.post("/", async (req: Request, res: Response) => {
         let content = msg.content;
 
         // Add timestamp so LLM understands time passage between messages
-        if (msg.timestamp) {
+        if (!skipSystemPrompt && msg.timestamp) {
           const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
           content = `[${msgTime}] ${content}`;
         }
@@ -288,7 +289,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     // Prepare the current message with knowledge and timestamp
-    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    const currentTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
     let currentMessage = currentTimeStr + message;
     if (knowledgeContent) {
       currentMessage += "\n\nKnowledge Sources:\n" + knowledgeContent;

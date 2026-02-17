@@ -176,6 +176,7 @@ router.post("/", async (req: Request, res: Response) => {
       pendingKnowledgeSources = [],
       useTools = false,
       useAgenticMode = false,
+      skipSystemPrompt = false,
     } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -312,7 +313,7 @@ router.post("/", async (req: Request, res: Response) => {
         let content = msg.content;
 
         // Add timestamp so LLM understands time passage between messages
-        if (msg.timestamp) {
+        if (!skipSystemPrompt && msg.timestamp) {
           const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
           content = `[${msgTime}] ${content}`;
         }
@@ -415,7 +416,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     // Create the user message content with current timestamp
-    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    const currentTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
     let userText = currentTimeStr + message;
     if (documentTexts.length > 0) {
       userText += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");

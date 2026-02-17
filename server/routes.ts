@@ -209,6 +209,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     name: m.display_name || m.model_id,
                     contextLength: m.context_length || 128000,
                     defaultModel: m.is_default,
+                    skipSystemPrompt: m.skip_system_prompt,
                   })),
                 };
               }

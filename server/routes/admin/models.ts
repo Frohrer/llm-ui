@@ -321,7 +321,7 @@ router.post("/:providerId/reorder", async (req: Request, res: Response) => {
 router.patch("/:providerId/:modelId", async (req: Request, res: Response) => {
   try {
     const { providerId, modelId } = req.params;
-    const { is_enabled, display_name, context_length } = req.body;
+    const { is_enabled, display_name, context_length, skip_system_prompt } = req.body;
 
     const updates: Record<string, any> = { updated_at: new Date() };
 
@@ -333,6 +333,9 @@ router.patch("/:providerId/:modelId", async (req: Request, res: Response) => {
     }
     if (typeof context_length === "number") {
       updates.context_length = context_length;
+    }
+    if (typeof skip_system_prompt === "boolean") {
+      updates.skip_system_prompt = skip_system_prompt;
     }
 
     const [updated] = await db

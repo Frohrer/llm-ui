@@ -382,6 +382,15 @@ export function ChatWindow({
     return 128000; // Default fallback value
   };
 
+  const getModelSkipSystemPrompt = (modelId: string): boolean => {
+    if (!providers) return false;
+    for (const provider of Object.values(providers)) {
+      const model = provider.config.models.find((m: any) => m.id === modelId);
+      if (model) return model.skipSystemPrompt || false;
+    }
+    return false;
+  };
+
   const getProviderForModel = (modelId: string): string => {
     if (!providers) return "";
     for (const provider of Object.values(providers)) {
@@ -469,6 +478,7 @@ export function ChatWindow({
           allAttachments: allAttachments || [], // Send all attachments to be processed together
           useKnowledge: useKnowledge,
           pendingKnowledgeSources: pendingKnowledgeSources,
+          skipSystemPrompt: getModelSkipSystemPrompt(selectedModel),
           useTools: useAgenticMode, // Enable tools when using agentic mode
           useAgenticMode: useAgenticMode, // Send agentic mode state to the API
         }),
