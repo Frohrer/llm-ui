@@ -51,6 +51,7 @@ router.get("/search", async (req: Request, res: Response) => {
         model: conversations.model,
         created_at: conversations.created_at,
         last_message_at: conversations.last_message_at,
+        is_nsfw: conversations.is_nsfw,
         // Calculate relevance rank (higher = better match)
         rank: sql<number>`
           ts_rank(${conversations.title_search}, to_tsquery('english', ${tsquery})) +
@@ -77,6 +78,7 @@ router.get("/search", async (req: Request, res: Response) => {
         conversations.model,
         conversations.created_at,
         conversations.last_message_at,
+        conversations.is_nsfw,
         conversations.title_search
       )
       .orderBy(sql`rank DESC, ${conversations.last_message_at} DESC`);
@@ -119,6 +121,42 @@ router.get("/:id/messages", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Database error:", error);
     res.status(500).json({ error: "Failed to fetch conversation messages" });
+  }
+});
+
+// Toggle NSFW flag on a conversation
+router.patch("/:id/nsfw", async (req: Request, res: Response) => {
+  try {
+    const conversationId = parseInt(req.params.id);
+    if (isNaN(conversationId)) {
+      return res.status(400).json({ error: "Invalid conversation ID" });
+    }
+
+    const conversation = await db.query.conversations.findFirst({
+      where: eq(conversations.id, conversationId),
+    });
+
+    if (!conversation || conversation.user_id !== req.user!.id) {
+      return res
+        .status(404)
+        .json({ error: "Conversation not found or unauthorized" });
+    }
+
+    const { is_nsfw } = req.body;
+    if (typeof is_nsfw !== "boolean") {
+      return res.status(400).json({ error: "is_nsfw must be a boolean" });
+    }
+
+    const [updated] = await db
+      .update(conversations)
+      .set({ is_nsfw })
+      .where(eq(conversations.id, conversationId))
+      .returning();
+
+    res.json(transformDatabaseConversation(updated));
+  } catch (error) {
+    console.error("Database error:", error);
+    res.status(500).json({ error: "Failed to update NSFW flag" });
   }
 });
 

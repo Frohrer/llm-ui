@@ -6,7 +6,7 @@ import { ThemeToggle } from "./theme-toggle";
 import { MessageCircle, BookOpen, Plus, BarChart3, Wrench, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ConversationList } from "./conversation-list";
 import { Conversation } from "@/lib/llm/types";
 import { KnowledgeSheet } from "@/components/knowledge";
@@ -28,6 +28,10 @@ export function MainSidebar({
 }: MainSidebarProps) {
   const { user } = useUser();
   const [location, setLocation] = useLocation();
+  const [hideNsfw, setHideNsfw] = useState(() => {
+    const stored = localStorage.getItem("nsfw-visibility");
+    return stored !== "show";
+  });
 
   // Close sidebar on navigation if mobile
   useEffect(() => {
@@ -140,12 +144,25 @@ export function MainSidebar({
             <>
               <Separator />
               <div className="px-0">
-                <h3 className="text-md font-medium mb-2 px-2 pl-5">
-                  Chat History
-                </h3>
+                <div className="flex items-center justify-between mb-2 px-2 pl-5 pr-4">
+                  <h3 className="text-md font-medium">
+                    Chat History
+                  </h3>
+                  <button
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => {
+                      const next = !hideNsfw;
+                      setHideNsfw(next);
+                      localStorage.setItem("nsfw-visibility", next ? "hide" : "show");
+                    }}
+                  >
+                    {hideNsfw ? "Show All" : "Hide"}
+                  </button>
+                </div>
                 <ConversationList
                   activeConversation={activeConversation}
                   onSelectConversation={onSelectConversation}
+                  hideNsfw={hideNsfw}
                 />
               </div>
             </>

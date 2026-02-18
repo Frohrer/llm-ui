@@ -169,6 +169,7 @@ export function ChatWindow({
   const [pendingKnowledgeSources, setPendingKnowledgeSources] = useState<
     number[]
   >([]);
+  const [pendingNsfw, setPendingNsfw] = useState(false);
 
   // Check if conversation has knowledge attached
   const conversationKnowledgeQuery = useQuery({
@@ -401,6 +402,29 @@ export function ChatWindow({
     throw new Error(`No provider found for model: ${modelId}`);
   };
 
+  const currentNsfw = conversation?.isNsfw || pendingNsfw;
+
+  const handleToggleNsfw = async () => {
+    if (conversation) {
+      try {
+        const res = await fetch(`/api/conversations/${conversation.id}/nsfw`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ is_nsfw: !conversation.isNsfw }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          onConversationUpdate?.(updated);
+          queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+        }
+      } catch (error) {
+        console.error("Failed to toggle hidden flag:", error);
+      }
+    } else {
+      setPendingNsfw((prev) => !prev);
+    }
+  };
+
   const handleSendMessage = async (
     content: string,
     attachment?: {
@@ -611,6 +635,22 @@ export function ChatWindow({
                     isStreamActive = false; // Ensure we stop after receiving end event
                     if (onConversationUpdate && data.conversation) {
                       onConversationUpdate(data.conversation);
+                    }
+                    // If this was a new conversation and pendingNsfw is true, mark it
+                    if (pendingNsfw && data.conversation?.id) {
+                      fetch(`/api/conversations/${data.conversation.id}/nsfw`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ is_nsfw: true }),
+                      }).then(res => {
+                        if (res.ok) {
+                          res.json().then(updated => {
+                            onConversationUpdate?.(updated);
+                            queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+                          });
+                        }
+                      }).catch(err => console.error("Failed to set hidden flag on new conversation:", err));
+                      setPendingNsfw(false);
                     }
                     const updatedMessages = transformMessages(
                       data.conversation,
@@ -896,6 +936,8 @@ export function ChatWindow({
                 isLoading={isLoading}
                 modelContextLength={getModelContextLength(selectedModel)}
                 contextMessages={messages}
+                isNsfw={currentNsfw}
+                onToggleNsfw={handleToggleNsfw}
               />
             </div>
           </ResizablePanel>

@@ -48,6 +48,14 @@ if [ $? -ne 0 ]; then
     # Don't exit - migration might already be applied
 fi
 
+# Add NSFW flag to conversations
+echo "Adding NSFW flag to conversations..."
+psql -f migrations/0005_add_nsfw_flag.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to add NSFW flag (may already be applied)"
+    # Don't exit - migration might already be applied
+fi
+
 echo "Database schema setup completed!"
 
 # Start the application

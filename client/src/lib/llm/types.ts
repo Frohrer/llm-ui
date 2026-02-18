@@ -25,6 +25,7 @@ export interface Conversation {
   model: string;
   lastMessageAt: string;
   createdAt: string;
+  isNsfw?: boolean;
   messages: {
     id: number;
     role: 'user' | 'assistant';
@@ -157,6 +158,7 @@ export function transformDatabaseConversation(dbConv: SelectConversation & { mes
     model: dbConv.model,
     lastMessageAt: dbConv.last_message_at.toISOString(),
     createdAt: dbConv.created_at.toISOString(),
+    isNsfw: dbConv.is_nsfw ?? false,
     messages: dbConv.messages 
       ? dbConv.messages
           .filter(msg => msg.role !== 'tool') // Filter out tool messages

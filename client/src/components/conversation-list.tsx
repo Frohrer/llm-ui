@@ -12,11 +12,13 @@ import type { Conversation } from "@/lib/llm/types";
 interface ConversationListProps {
   activeConversation?: Conversation;
   onSelectConversation: (conversation: Conversation | undefined) => void;
+  hideNsfw?: boolean;
 }
 
 export function ConversationList({
   activeConversation,
   onSelectConversation,
+  hideNsfw = false,
 }: ConversationListProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -122,10 +124,12 @@ export function ConversationList({
   const categorizedConversations = useMemo(() => {
     // Use search results if searching, otherwise use all conversations
     const conversationsToUse = debouncedSearchQuery.trim().length > 0 ? searchResults : conversations;
-    
+
     if (!conversationsToUse) return { today: [], thisWeek: [], older: [] };
 
-    return conversationsToUse.reduce(
+    const filtered = hideNsfw ? conversationsToUse.filter(c => !c.isNsfw) : conversationsToUse;
+
+    return filtered.reduce(
       (acc, conv) => {
         const lastMessageDate = parseISO(conv.lastMessageAt);
 
@@ -141,7 +145,7 @@ export function ConversationList({
       },
       { today: [], thisWeek: [], older: [] } as Record<"today" | "thisWeek" | "older", Conversation[]>,
     );
-  }, [conversations, searchResults, debouncedSearchQuery]);
+  }, [conversations, searchResults, debouncedSearchQuery, hideNsfw]);
 
   // Update active conversation with messages when they are loaded
   useEffect(() => {

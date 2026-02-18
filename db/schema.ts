@@ -25,6 +25,7 @@ export const conversations = pgTable("conversations", {
   model: text("model").notNull(),
   created_at: timestamp("created_at").defaultNow().notNull(),
   last_message_at: timestamp("last_message_at").defaultNow().notNull(),
+  is_nsfw: boolean("is_nsfw").default(false).notNull(),
 });
 
 export const messages = pgTable("messages", {

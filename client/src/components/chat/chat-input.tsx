@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Image, SendHorizonal, X } from 'lucide-react';
+import { FileText, Image, SendHorizonal, X, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { estimateTokenCount } from '@/lib/llm/token-counter';
 import type { Message as MessageType } from '@/lib/llm/types';
@@ -21,9 +21,11 @@ interface ChatInputProps {
   modelContextLength?: number;
   /** Entire conversation messages to include in token counting */
   contextMessages?: MessageType[];
+  isNsfw?: boolean;
+  onToggleNsfw?: () => void;
 }
 
-export function ChatInput({ onSendMessage, isLoading, modelContextLength = 128000, contextMessages = [] }: ChatInputProps) {
+export function ChatInput({ onSendMessage, isLoading, modelContextLength = 128000, contextMessages = [], isNsfw, onToggleNsfw }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
   // Store an array of attachments - all are always sent with the message
@@ -399,6 +401,21 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         </div>
         
         <div className="flex flex-row gap-2 items-center justify-end">
+          {onToggleNsfw && (
+            <button
+              type="button"
+              onClick={onToggleNsfw}
+              className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+                isNsfw
+                  ? "bg-destructive/15 text-destructive font-medium"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              title={isNsfw ? "This conversation is hidden" : "Mark conversation as hidden"}
+            >
+              <EyeOff className="h-3 w-3" />
+              Hidden
+            </button>
+          )}
           <div className="text-xs text-muted-foreground mr-auto sm:mr-2">
             <span className={isOverLimit ? "text-destructive font-medium" : ""}>
               {tokenCount.toLocaleString()}
