@@ -129,12 +129,14 @@ function SortableModelRow({
   togglingModels,
   onToggle,
   onToggleSkipSystemPrompt,
+  onToggleDefault,
 }: {
   model: ModelSetting;
   isCustomOrder: boolean;
   togglingModels: Set<string>;
   onToggle: (modelId: string, enabled: boolean) => void;
   onToggleSkipSystemPrompt: (modelId: string, skip: boolean) => void;
+  onToggleDefault: (modelId: string, isDefault: boolean) => void;
 }) {
   const {
     attributes,
@@ -176,6 +178,13 @@ function SortableModelRow({
           checked={model.skip_system_prompt}
           disabled={togglingModels.has(model.model_id)}
           onCheckedChange={(checked) => onToggleSkipSystemPrompt(model.model_id, checked)}
+        />
+      </TableCell>
+      <TableCell>
+        <Switch
+          checked={model.is_default}
+          disabled={togglingModels.has(model.model_id)}
+          onCheckedChange={(checked) => onToggleDefault(model.model_id, checked)}
         />
       </TableCell>
       <TableCell className="font-mono text-sm">{model.model_id}</TableCell>
@@ -304,6 +313,31 @@ export default function StatsPage() {
     }
   };
 
+  const handleToggleDefault = async (modelId: string, isDefault: boolean) => {
+    setTogglingModels((prev) => new Set(prev).add(modelId));
+    try {
+      const r = await fetch(`/api/admin/models/${selectedProvider}/${encodeURIComponent(modelId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_default: isDefault }),
+      });
+      if (!r.ok) throw new Error('Failed to toggle default');
+      const updated: ModelSetting = await r.json();
+      setModelSettings((prev) =>
+        prev.map((m) => {
+          if (m.model_id === modelId) return updated;
+          if (isDefault) return { ...m, is_default: false };
+          return m;
+        }),
+      );
+      clearProvidersCache();
+    } catch (e) {
+      setModelsError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setTogglingModels((prev) => { const next = new Set(prev); next.delete(modelId); return next; });
+    }
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -367,6 +401,7 @@ export default function StatsPage() {
           break;
         case 'is_enabled': aVal = a.is_enabled ? 1 : 0; bVal = b.is_enabled ? 1 : 0; break;
         case 'skip_system_prompt': aVal = a.skip_system_prompt ? 1 : 0; bVal = b.skip_system_prompt ? 1 : 0; break;
+        case 'is_default': aVal = a.is_default ? 1 : 0; bVal = b.is_default ? 1 : 0; break;
         default: return 0;
       }
       if (typeof aVal === 'string' && typeof bVal === 'string')
@@ -796,6 +831,7 @@ export default function StatsPage() {
                           {isCustomOrder && <TableHead className="w-[40px]" />}
                           <ModelSortHeader sortKey="is_enabled" className="w-[80px]">Enabled</ModelSortHeader>
                           <ModelSortHeader sortKey="skip_system_prompt" className="w-[100px]">Skip Prompt</ModelSortHeader>
+                          <ModelSortHeader sortKey="is_default" className="w-[80px]">Default</ModelSortHeader>
                           <ModelSortHeader sortKey="model_id">Model ID</ModelSortHeader>
                           <ModelSortHeader sortKey="display_name">Display Name</ModelSortHeader>
                           <ModelSortHeader sortKey="context_length" className="text-right">Context</ModelSortHeader>
@@ -818,6 +854,7 @@ export default function StatsPage() {
                               togglingModels={togglingModels}
                               onToggle={handleToggleModel}
                               onToggleSkipSystemPrompt={handleToggleSkipSystemPrompt}
+                              onToggleDefault={handleToggleDefault}
                             />
                           ))}
                         </TableBody>
