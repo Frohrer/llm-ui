@@ -666,7 +666,7 @@ export default function StatsPage() {
                     <p className="text-sm">No token usage yet</p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
                     {sortedTokensData.map((t) => {
                       const pct = Math.round((t.totalTokens / maxTokens) * 100);
                       return (
@@ -706,9 +706,9 @@ export default function StatsPage() {
                   <p className="text-sm">No latency data yet</p>
                 </div>
               ) : (
-                <div className="rounded-md border">
+                <div className="rounded-md border max-h-[400px] overflow-y-auto">
                   <Table>
-                    <TableHeader>
+                    <TableHeader className="sticky top-0 bg-background z-[1]">
                       <TableRow className="hover:bg-transparent">
                         <TableHead
                           className="cursor-pointer hover:bg-muted/50 select-none"
@@ -824,9 +824,9 @@ export default function StatsPage() {
                 </div>
               ) : (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <div className="rounded-md border">
+                  <div className="rounded-md border max-h-[500px] overflow-y-auto">
                     <Table>
-                      <TableHeader>
+                      <TableHeader className="sticky top-0 bg-background z-[1]">
                         <TableRow className="hover:bg-transparent">
                           {isCustomOrder && <TableHead className="w-[40px]" />}
                           <ModelSortHeader sortKey="is_enabled" className="w-[80px]">Enabled</ModelSortHeader>
