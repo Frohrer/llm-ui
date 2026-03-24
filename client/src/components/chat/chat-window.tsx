@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { nanoid } from "nanoid";
 import { Message } from "@/components/chat/message";
 import { ChatInput } from "@/components/chat/chat-input";
@@ -79,6 +79,16 @@ export function ChatWindow({
   const containerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
+
+  // Message queue for sending messages while AI is responding
+  type QueuedMessage = {
+    id: string;
+    content: string;
+    attachment?: { type: "document" | "image"; url: string; text?: string; name: string };
+    allAttachments?: { type: "document" | "image"; url: string; text?: string; name: string }[];
+  };
+  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
+  const isProcessingQueueRef = useRef(false);
 
   const [providers, setProviders] = useState<Record<string, any>>({});
   const [isLoadingProviders, setIsLoadingProviders] = useState(true);
@@ -343,6 +353,29 @@ export function ChatWindow({
     };
   }, []);
 
+  // Process queued messages when loading finishes
+  useEffect(() => {
+    if (!isLoading && messageQueue.length > 0 && !isProcessingQueueRef.current) {
+      isProcessingQueueRef.current = true;
+      const [next, ...rest] = messageQueue;
+      setMessageQueue(rest);
+
+      // Remove the optimistic queued user message (it will be re-added by handleSendMessage)
+      setMessages((prev) => prev.filter((m) => m.id !== `queued-${next.id}`));
+
+      // Small delay to let state settle before sending next message
+      setTimeout(() => {
+        isProcessingQueueRef.current = false;
+        handleSendMessage(next.content, next.attachment, next.allAttachments);
+      }, 100);
+    }
+  }, [isLoading, messageQueue]);
+
+  // Clear queue when conversation changes
+  useEffect(() => {
+    setMessageQueue([]);
+  }, [conversation?.id]);
+
   const getModelDisplayName = (modelId: string): string => {
     if (!providers) return modelId;
     for (const provider of Object.values(providers)) {
@@ -448,6 +481,30 @@ export function ChatWindow({
         description: "Please select a model before sending a message.",
       });
       return;
+    }
+
+    // If already loading, queue the message instead of sending immediately
+    if (isLoading) {
+      const queued: QueuedMessage = {
+        id: nanoid(),
+        content,
+        attachment,
+        allAttachments,
+      };
+      setMessageQueue((prev) => [...prev, queued]);
+
+      // Show the queued user message in the chat immediately
+      const queuedUserMessage: MessageType = {
+        id: `queued-${queued.id}`,
+        role: "user",
+        content,
+        timestamp: Date.now(),
+        attachment,
+        attachments: allAttachments,
+      };
+      setMessages((prev) => [...prev, queuedUserMessage]);
+      setTimeout(scrollToBottom, 0);
+      return true;
     }
 
     // Cancel any existing request
@@ -938,6 +995,13 @@ export function ChatWindow({
                 contextMessages={messages}
                 isNsfw={currentNsfw}
                 onToggleNsfw={handleToggleNsfw}
+                queueSize={messageQueue.length}
+                onClearQueue={() => {
+                  // Remove queued user messages from the chat
+                  const queuedIds = new Set(messageQueue.map((q) => `queued-${q.id}`));
+                  setMessages((prev) => prev.filter((m) => !queuedIds.has(m.id)));
+                  setMessageQueue([]);
+                }}
               />
             </div>
           </ResizablePanel>

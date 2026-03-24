@@ -266,10 +266,8 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    const currentTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
-
     if (documentTexts.length > 0 || knowledgeContent) {
-      let userContent = currentTimeStr + message;
+      let userContent = message;
 
       if (documentTexts.length > 0) {
         userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
@@ -283,14 +281,13 @@ router.post("/", async (req: Request, res: Response) => {
       console.log("Message with document/knowledge content added for Ollama");
     }
     else {
-      apiMessages.push({ role: "user", content: currentTimeStr + message });
+      apiMessages.push({ role: "user", content: message });
       console.log("Plain text message added for Ollama");
     }
 
     // Build and add system prompt with user custom prompt
     if (!skipSystemPrompt) {
-      const baseSystemPrompt = "You are a helpful AI assistant.";
-      const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
+      const systemPrompt = await buildSystemPrompt(req.user!.id);
       if (systemPrompt) {
         apiMessages.unshift({ role: "system", content: systemPrompt });
       }

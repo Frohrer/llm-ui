@@ -35,7 +35,7 @@ import { uploadSingleMiddleware, extractTextFromFile, transformUrlToProxy } from
 import { handleRealtimeVoiceConnection } from "./routes/realtime-voice";
 
 // Providers that support DB-backed model management (seeding + refresh)
-const SEEDABLE_PROVIDERS = ["openai", "anthropic", "deepseek", "grok", "gemini", "ollama"];
+const SEEDABLE_PROVIDERS = ["openai", "anthropic", "deepseek", "grok", "gemini", "ollama", "falai"];
 
 // Load provider configurations at startup and seed model_settings if empty
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -75,6 +75,7 @@ async function seedModelSettingsIfEmpty(configs: Awaited<ReturnType<typeof loadP
           is_default: model.defaultModel || false,
           source: "static",
           owned_by: providerId,
+          parameters: (model as any).parameters || null,
         });
       }
       console.log(`Seeded ${config.models.length} ${config.name} models into model_settings`);

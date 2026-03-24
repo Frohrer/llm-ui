@@ -7,6 +7,7 @@ import { getAnthropicClient } from './anthropic';
 import { getOpenAIClient } from './openai';
 import { getGeminiClient } from './gemini';
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
+import { buildSystemPrompt } from "../../user-preferences-service";
 
 const router = express.Router();
 
@@ -288,9 +289,8 @@ router.post("/", async (req: Request, res: Response) => {
       knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id);
     }
 
-    // Prepare the current message with knowledge and timestamp
-    const currentTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
-    let currentMessage = currentTimeStr + message;
+    // Prepare the current message with knowledge
+    let currentMessage = message;
     if (knowledgeContent) {
       currentMessage += "\n\nKnowledge Sources:\n" + knowledgeContent;
     }
@@ -300,6 +300,14 @@ router.post("/", async (req: Request, res: Response) => {
       role: "user",
       content: currentMessage,
     });
+
+    // Build and add system prompt
+    if (!skipSystemPrompt) {
+      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      if (systemPrompt) {
+        apiMessages.unshift({ role: "system", content: systemPrompt });
+      }
+    }
 
     // Send initial conversation data
     res.write(

@@ -25,24 +25,21 @@ export async function getUserCustomPrompt(userId: number): Promise<string> {
 }
 
 /**
- * Build a system message that includes the user's custom prompt
- * @param baseSystemPrompt - The base system prompt
+ * Build a system message that includes current time and the user's custom prompt
  * @param userId - The user ID
  * @returns Combined system prompt
  */
 export async function buildSystemPrompt(
-  baseSystemPrompt: string,
   userId: number
 ): Promise<string> {
   const customPrompt = await getUserCustomPrompt(userId);
+  const currentTime = new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 
-  if (!customPrompt) {
-    return baseSystemPrompt;
+  let prompt = `Current date and time: ${currentTime}. Timestamps in brackets on messages are internal metadata — never repeat or reference them to the user.`;
+
+  if (customPrompt) {
+    prompt += `\n\n## User Preferences and Context\n${customPrompt}`;
   }
 
-  // Combine base prompt with custom prompt
-  return `${baseSystemPrompt}
-
-## User Preferences and Context
-${customPrompt}`;
+  return prompt;
 }

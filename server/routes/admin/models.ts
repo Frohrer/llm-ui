@@ -12,7 +12,7 @@ import { getModelDisplayInfo } from "../../config/known-models";
 const router = express.Router();
 
 // Providers that only use static config (no API discovery)
-const STATIC_ONLY_PROVIDERS = new Set(["falai", "super-model"]);
+const STATIC_ONLY_PROVIDERS = new Set(["super-model"]);
 
 // Per-provider chat model filters
 const PROVIDER_CHAT_FILTERS: Record<string, {
@@ -45,6 +45,11 @@ const PROVIDER_CHAT_FILTERS: Record<string, {
   ollama: {
     // Include all — user-managed local models
   },
+  falai: {
+    // All discovered models come from category filter in fetchModelsFromApi,
+    // but exclude training/lora endpoints
+    exclude: [/training/, /lora/],
+  },
 };
 
 function isChatModelForProvider(modelId: string, providerId: string): boolean {
@@ -75,6 +80,7 @@ type NormalizedModel = {
   displayName?: string;
   contextLength?: number;
   publishedAt?: Date;
+  parameters?: Record<string, any>;
 };
 
 async function fetchModelsFromApi(providerId: string): Promise<NormalizedModel[]> {
@@ -150,6 +156,57 @@ async function fetchModelsFromApi(providerId: string): Promise<NormalizedModel[]
           contextLength: m.inputTokenLimit || undefined,
         });
       }
+      return models;
+    }
+
+    case "falai": {
+      const apiKey = process.env.FAL_KEY;
+      if (!apiKey) {
+        throw new Error("FAL_KEY not set");
+      }
+
+      // Default parameters for newly discovered text-to-image models
+      const defaultImageParams: Record<string, any> = {
+        num_images: 1,
+        enable_safety_checker: false,
+        output_format: "png",
+        sync_mode: true,
+        image_size: { width: 1024, height: 1024 },
+      };
+
+      const models: NormalizedModel[] = [];
+      let cursor: string | null = null;
+
+      do {
+        const params = new URLSearchParams({
+          category: "text-to-image",
+          status: "active",
+          limit: "50",
+        });
+        if (cursor) params.set("cursor", cursor);
+
+        const resp = await fetch(`https://api.fal.ai/v1/models?${params}`, {
+          headers: { Authorization: `Key ${apiKey}` },
+        });
+        if (!resp.ok) {
+          throw new Error(`fal.ai API error: ${resp.status} ${resp.statusText}`);
+        }
+
+        const data = await resp.json();
+        for (const m of data.models || data.data || []) {
+          const endpointId = m.endpoint_id || m.id;
+          if (!endpointId) continue;
+
+          models.push({
+            id: endpointId,
+            owned_by: "fal-ai",
+            displayName: m.metadata?.display_name || m.display_name || m.name || undefined,
+            parameters: defaultImageParams,
+          });
+        }
+        cursor = data.next_cursor || null;
+      } while (cursor);
+
       return models;
     }
 
@@ -232,6 +289,7 @@ router.post("/:providerId/refresh", async (req: Request, res: Response) => {
           source: "api_discovered",
           owned_by: apiModel.owned_by,
           published_at: apiModel.publishedAt || null,
+          parameters: apiModel.parameters || null,
         });
         newCount++;
       } else {

@@ -41,6 +41,7 @@ const MANAGEABLE_PROVIDERS = [
   { id: 'grok', label: 'Grok', supportsRefresh: true },
   { id: 'gemini', label: 'Gemini', supportsRefresh: true },
   { id: 'ollama', label: 'Ollama', supportsRefresh: true },
+  { id: 'falai', label: 'Fal.AI', supportsRefresh: true },
 ] as const;
 
 type LatencyEvent = { timestamp: string; model: string; provider: string; latencyMs: number };

@@ -127,6 +127,7 @@ export const modelSettings = pgTable("model_settings", {
   owned_by: text("owned_by"),
   sort_order: integer("sort_order"),
   skip_system_prompt: boolean("skip_system_prompt").default(false).notNull(),
+  parameters: jsonb("parameters"),
   published_at: timestamp("published_at"),
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),

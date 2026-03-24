@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { nanoid } from "nanoid";
 import { Message } from "@/components/chat/message";
 import { ChatInput } from "@/components/chat/chat-input";
@@ -53,11 +53,21 @@ export function MultiChatWindow({
   isMultiModelMode = true,
   onToggleMode,
 }: MultiChatWindowProps) {
+  type QueuedMessage = {
+    id: string;
+    content: string;
+    attachment?: { type: "document" | "image"; url: string; text?: string; name: string };
+    allAttachments?: { type: "document" | "image"; url: string; text?: string; name: string }[];
+  };
+
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [conversations, setConversations] = useState<Record<string, ModelConversation>>({});
   const [providers, setProviders] = useState<Record<string, any>>({});
   const [isLoadingProviders, setIsLoadingProviders] = useState(true);
   const [useTools, setUseTools] = useState<boolean>(false);
+  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
+  const isProcessingQueueRef = useRef(false);
+  const anyModelLoading = Object.values(conversations).some(conv => conv.isLoading);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const containerRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -128,6 +138,34 @@ export function MultiChatWindow({
 
     setConversations(newConversations);
   }, [selectedModels]);
+
+  // Process queued messages when all models finish loading
+  useEffect(() => {
+    if (!anyModelLoading && messageQueue.length > 0 && !isProcessingQueueRef.current) {
+      isProcessingQueueRef.current = true;
+      const [next, ...rest] = messageQueue;
+      setMessageQueue(rest);
+
+      // Remove the optimistic queued user message
+      setConversations((prev) => {
+        const updated = { ...prev };
+        for (const modelId of selectedModels) {
+          if (updated[modelId]) {
+            updated[modelId] = {
+              ...updated[modelId],
+              messages: updated[modelId].messages.filter((m) => m.id !== `queued-${next.id}`),
+            };
+          }
+        }
+        return updated;
+      });
+
+      setTimeout(() => {
+        isProcessingQueueRef.current = false;
+        handleSendMessage(next.content, next.attachment, next.allAttachments);
+      }, 100);
+    }
+  }, [anyModelLoading, messageQueue]);
 
      const getProviderForModel = (modelId: string): string => {
      if (!providers) return "";
@@ -219,6 +257,41 @@ export function MultiChatWindow({
         description: "Please select at least one model before sending a message.",
       });
       return;
+    }
+
+    // If any model is still loading, queue the message
+    if (anyModelLoading) {
+      const queued: QueuedMessage = {
+        id: nanoid(),
+        content,
+        attachment,
+        allAttachments,
+      };
+      setMessageQueue((prev) => [...prev, queued]);
+
+      // Show the queued message in all conversations immediately
+      const queuedUserMessage: MessageType = {
+        id: `queued-${queued.id}`,
+        role: "user",
+        content,
+        timestamp: Date.now(),
+        attachment,
+        attachments: allAttachments,
+      };
+      setConversations((prev) => {
+        const updated = { ...prev };
+        for (const modelId of selectedModels) {
+          if (updated[modelId]) {
+            updated[modelId] = {
+              ...updated[modelId],
+              messages: [...updated[modelId].messages, queuedUserMessage],
+            };
+          }
+        }
+        return updated;
+      });
+      selectedModels.forEach((modelId) => setTimeout(() => scrollToBottom(modelId), 0));
+      return true;
     }
 
     const timestamp = Date.now();
@@ -488,8 +561,7 @@ export function MultiChatWindow({
     }
   };
 
-  const anyModelLoading = Object.values(conversations).some(conv => conv.isLoading);
-  const minContextLength = selectedModels.length > 0 
+  const minContextLength = selectedModels.length > 0
     ? Math.min(...selectedModels.map(getModelContextLength))
     : 128000;
 
@@ -643,6 +715,23 @@ export function MultiChatWindow({
                   isLoading={anyModelLoading}
                   modelContextLength={minContextLength}
                   contextMessages={getLongestConversationMessages()}
+                  queueSize={messageQueue.length}
+                  onClearQueue={() => {
+                    const queuedIds = new Set(messageQueue.map((q) => `queued-${q.id}`));
+                    setConversations((prev) => {
+                      const updated = { ...prev };
+                      for (const modelId of selectedModels) {
+                        if (updated[modelId]) {
+                          updated[modelId] = {
+                            ...updated[modelId],
+                            messages: updated[modelId].messages.filter((m) => !queuedIds.has(m.id)),
+                          };
+                        }
+                      }
+                      return updated;
+                    });
+                    setMessageQueue([]);
+                  }}
                 />
               </div>
             </ResizablePanel>

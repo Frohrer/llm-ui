@@ -23,9 +23,13 @@ interface ChatInputProps {
   contextMessages?: MessageType[];
   isNsfw?: boolean;
   onToggleNsfw?: () => void;
+  /** Number of messages currently queued */
+  queueSize?: number;
+  /** Callback to clear all queued messages */
+  onClearQueue?: () => void;
 }
 
-export function ChatInput({ onSendMessage, isLoading, modelContextLength = 128000, contextMessages = [], isNsfw, onToggleNsfw }: ChatInputProps) {
+export function ChatInput({ onSendMessage, isLoading, modelContextLength = 128000, contextMessages = [], isNsfw, onToggleNsfw, queueSize = 0, onClearQueue }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
   // Store an array of attachments - all are always sent with the message
@@ -81,7 +85,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (message.trim() && !isLoading) {
+    if (message.trim()) {
       // Store the current message in memory before clearing the input
       pendingMessageRef.current = message;
       
@@ -120,7 +124,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         pendingAttachmentRef.current = undefined;
       }
     }
-  }, [message, isLoading, onSendMessage, attachments]);
+  }, [message, onSendMessage, attachments]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -163,10 +167,10 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   ), [uploadingFile]);
 
   const renderSendButton = useCallback(() => (
-    <Button type="submit" size="icon" disabled={isLoading || !message.trim()}>
+    <Button type="submit" size="icon" disabled={!message.trim()}>
       <SendHorizonal className="h-4 w-4" />
     </Button>
-  ), [isLoading, message]);
+  ), [message]);
 
   // Shared file upload processing logic
   const processFile = async (file: File) => {
@@ -414,6 +418,17 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
             >
               <EyeOff className="h-3 w-3" />
               Hidden
+            </button>
+          )}
+          {queueSize > 0 && (
+            <button
+              type="button"
+              onClick={onClearQueue}
+              className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              title="Clear message queue"
+            >
+              <span className="font-medium">{queueSize} queued</span>
+              <X className="h-3 w-3" />
             </button>
           )}
           <div className="text-xs text-muted-foreground mr-auto sm:mr-2">

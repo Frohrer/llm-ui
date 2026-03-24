@@ -485,9 +485,8 @@ router.post("/", async (req: Request, res: Response) => {
       console.log('Tools disabled for this request');
     }
 
-    // Create user message content with current timestamp
-    const currentTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
-    const userMessageContent = createUserMessageContent(currentTimeStr + message, imageAttachments, documentTexts, knowledgeContent);
+    // Create user message content
+    const userMessageContent = createUserMessageContent(message, imageAttachments, documentTexts, knowledgeContent);
     apiMessages.push({ role: "user", content: userMessageContent });
 
     // Pre-emptively manage context to avoid exceeding model limits
@@ -504,8 +503,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Build system prompt with user custom prompt
     if (!skipSystemPrompt) {
-      const baseSystemPrompt = "You are a helpful AI assistant.";
-      const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
+      const systemPrompt = await buildSystemPrompt(req.user!.id);
       if (systemPrompt) {
         requestOptions.system = systemPrompt;
       }

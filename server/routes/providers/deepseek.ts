@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { prepareContext, isContextLengthError } from "../../context-manager";
+import { buildSystemPrompt } from "../../user-preferences-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -247,29 +248,34 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    // Add current timestamp to the user message so LLM understands time passage
-    const currentTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
-
     // Create the message content based on what we have
     if (documentTexts.length > 0 || knowledgeContent) {
       // Text-only message with documents or knowledge
-      let userContent = currentTimeStr + message;
-      
+      let userContent = message;
+
       if (documentTexts.length > 0) {
         userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
       }
-      
+
       if (knowledgeContent) {
         userContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
       }
-      
+
       apiMessages.push({ role: "user", content: userContent });
       console.log("Message with document/knowledge content added for DeepSeek");
-    } 
+    }
     else {
       // Regular text message without attachments or knowledge
-      apiMessages.push({ role: "user", content: currentTimeStr + message });
+      apiMessages.push({ role: "user", content: message });
       console.log("Plain text message added for DeepSeek");
+    }
+
+    // Build and add system prompt with user custom prompt
+    if (!skipSystemPrompt) {
+      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      if (systemPrompt) {
+        apiMessages.unshift({ role: "system", content: systemPrompt });
+      }
     }
 
     // Pre-emptively manage context to avoid exceeding model limits (DeepSeek doesn't use tools)

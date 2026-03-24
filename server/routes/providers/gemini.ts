@@ -14,6 +14,7 @@ import { getGoogleModel } from "../../ai-sdk-providers";
 import { generateText, tool } from "ai";
 import { z, ZodTypeAny, ZodObject, ZodRawShape } from "zod";
 import { prepareContext, isContextLengthError, truncateToolResult } from "../../context-manager";
+import { buildSystemPrompt } from "../../user-preferences-service";
 
 const router = express.Router();
 let client: GoogleGenerativeAI | null = null;
@@ -415,9 +416,8 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    // Create the user message content with current timestamp
-    const currentTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
-    let userText = currentTimeStr + message;
+    // Create the user message content
+    let userText = message;
     if (documentTexts.length > 0) {
       userText += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
     }
@@ -425,8 +425,15 @@ router.post("/", async (req: Request, res: Response) => {
       userText += "\n\nKnowledge Sources:\n" + knowledgeContent;
     }
 
-    // Initialize the model with the specified model name
-    const genModel = client.getGenerativeModel({ model });
+    // Initialize the model with the specified model name and system instruction
+    const modelConfig: any = { model };
+    if (!skipSystemPrompt) {
+      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      if (systemPrompt) {
+        modelConfig.systemInstruction = systemPrompt;
+      }
+    }
+    const genModel = client.getGenerativeModel(modelConfig);
     
     // Convert Gemini history format to standard format for context management
     const standardHistory = history.map((h: any) => ({

@@ -90,6 +90,27 @@ export const KNOWN_OLLAMA_MODELS: Record<string, { name: string; contextLength: 
   "gpt-oss:20b": { name: "GPT-OSS 20B", contextLength: 32000 },
 };
 
+export const KNOWN_FAL_MODELS: Record<string, { name: string; contextLength: number }> = {
+  "fal-ai/hidream-i1-full": { name: "HiDream I1 Full", contextLength: 1024 },
+  "fal-ai/flux-pro/v1.1-ultra": { name: "Flux Pro Ultra", contextLength: 1024 },
+  "fal-ai/flux-pro/v1.1": { name: "Flux Pro v1.1", contextLength: 1024 },
+  "fal-ai/flux-pro": { name: "Flux Pro", contextLength: 1024 },
+  "fal-ai/flux/dev": { name: "Flux Dev", contextLength: 1024 },
+  "fal-ai/flux/schnell": { name: "Flux Schnell", contextLength: 1024 },
+  "fal-ai/flux-realism": { name: "Flux Realism", contextLength: 1024 },
+  "fal-ai/stable-diffusion-v35-large": { name: "Stable Diffusion 3.5 Large", contextLength: 1024 },
+  "fal-ai/stable-diffusion-v35-medium": { name: "Stable Diffusion 3.5 Medium", contextLength: 1024 },
+  "fal-ai/reve/text-to-image": { name: "Reve", contextLength: 1024 },
+  "fal-ai/nano-banana-pro": { name: "Nano Banana Pro", contextLength: 1024 },
+  "fal-ai/bytedance/seedream/v4/text-to-image": { name: "ByteDance Seedream v4", contextLength: 1024 },
+  "fal-ai/bytedance/dreamina/v3.1/text-to-image": { name: "ByteDance Dreamina v3.1", contextLength: 1024 },
+  "fal-ai/ideogram/v3": { name: "Ideogram v3", contextLength: 1024 },
+  "fal-ai/ideogram/v2": { name: "Ideogram v2", contextLength: 1024 },
+  "fal-ai/recraft-v3": { name: "Recraft v3", contextLength: 1024 },
+  "fal-ai/aura-flow": { name: "AuraFlow", contextLength: 1024 },
+  "fal-ai/kolors": { name: "Kolors", contextLength: 1024 },
+};
+
 export const KNOWN_MODELS_BY_PROVIDER: Record<string, Record<string, { name: string; contextLength: number }>> = {
   openai: KNOWN_OPENAI_MODELS,
   anthropic: KNOWN_ANTHROPIC_MODELS,
@@ -97,6 +118,7 @@ export const KNOWN_MODELS_BY_PROVIDER: Record<string, Record<string, { name: str
   grok: KNOWN_GROK_MODELS,
   gemini: KNOWN_GEMINI_MODELS,
   ollama: KNOWN_OLLAMA_MODELS,
+  falai: KNOWN_FAL_MODELS,
 };
 
 /**

@@ -569,8 +569,6 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    // Add current timestamp to the user message so LLM understands time passage
-    const currentTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
 
     // Create the message content based on what we have
     if (hasImageAttachment) {
@@ -578,7 +576,7 @@ router.post("/", async (req: Request, res: Response) => {
       let contentArray: any[] = [];
 
       // Add text first with any document content
-      let textContent = currentTimeStr + message;
+      let textContent = message;
       if (documentTexts.length > 0) {
         textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
       }
@@ -609,29 +607,28 @@ router.post("/", async (req: Request, res: Response) => {
     } 
     else if (documentTexts.length > 0 || knowledgeContent) {
       // Text-only message with documents or knowledge
-      let userContent = currentTimeStr + message;
-      
+      let userContent = message;
+
       if (documentTexts.length > 0) {
         userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
       }
-      
+
       if (knowledgeContent) {
         userContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
       }
-      
+
       apiMessages.push({ role: "user", content: userContent });
       console.log("Message with document/knowledge content added for OpenAI");
-    } 
+    }
     else {
       // Regular text message without attachments or knowledge
-      apiMessages.push({ role: "user", content: currentTimeStr + message });
+      apiMessages.push({ role: "user", content: message });
       console.log("Plain text message added for OpenAI");
     }
 
-    // Build and add system prompt with user custom prompt
+    // Build and add system prompt
     if (!skipSystemPrompt) {
-      const baseSystemPrompt = "You are a helpful AI assistant.";
-      const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
+      const systemPrompt = await buildSystemPrompt(req.user!.id);
       if (systemPrompt) {
         apiMessages.unshift({ role: "system", content: systemPrompt });
       }
@@ -1249,6 +1246,14 @@ async function handleResponsesAPI(req: Request, res: Response) {
       include
     };
 
+    // Add system instructions for Responses API
+    if (!skipSystemPrompt) {
+      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      if (systemPrompt) {
+        responsesPayload.instructions = systemPrompt;
+      }
+    }
+
     // Build conversation history from context
     const conversationMessages: any[] = context
       .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
@@ -1283,11 +1288,10 @@ async function handleResponsesAPI(req: Request, res: Response) {
     // Build structured input when we have images/documents/knowledge
     const hasRichInput = imageDataUris.length > 0 || documentTexts.length > 0 || !!knowledgeContent;
 
-    // Build the current user message with timestamp
-    const responsesTimeStr = skipSystemPrompt ? '' : `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
+    // Build the current user message
     let currentUserMessage: any;
     if (hasRichInput) {
-      let textContent = responsesTimeStr + input;
+      let textContent = input;
       if (documentTexts.length > 0) {
         textContent += `\n\nDocuments Content:\n${documentTexts.join("\n\n")}`;
       }
@@ -1309,7 +1313,7 @@ async function handleResponsesAPI(req: Request, res: Response) {
     } else {
       currentUserMessage = {
         role: 'user',
-        content: responsesTimeStr + input
+        content: input
       };
     }
 
