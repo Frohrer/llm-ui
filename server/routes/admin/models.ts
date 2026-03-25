@@ -373,12 +373,14 @@ router.post("/:providerId/reorder", async (req: Request, res: Response) => {
 });
 
 /**
- * PATCH /api/admin/models/:providerId/:modelId
+ * PATCH /api/admin/models/:providerId/* (modelId)
  * Toggle isEnabled, update displayName/contextLength for a specific model.
+ * Uses wildcard to support slashes in model IDs (e.g. fal-ai/flux/schnell)
  */
-router.patch("/:providerId/:modelId", async (req: Request, res: Response) => {
+router.patch("/:providerId/*", async (req: Request, res: Response) => {
   try {
-    const { providerId, modelId } = req.params;
+    const { providerId } = req.params;
+    const modelId = req.params[0];
     const { is_enabled, display_name, context_length, skip_system_prompt, is_default } = req.body;
 
     const updates: Record<string, any> = { updated_at: new Date() };
