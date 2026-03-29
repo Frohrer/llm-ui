@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Palette } from "lucide-react";
+import { Save, Palette, Download } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface UserProfileSheetProps {
@@ -54,6 +54,7 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
   const [open, setOpen] = useState(false);
   const [selectedColor, setSelectedColor] = useState("hsl(250 100% 60%)");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   // Fetch user preferences
   const { data: preferences } = useQuery<UserPreferences>({
@@ -134,6 +135,40 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
 
   const handleColorSelect = (color: string) => {
     setSelectedColor(color);
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const response = await fetch("/api/conversations/export", {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Export failed");
+
+      const data = await response.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `chat-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "Export complete",
+        description: `Exported ${data.length} conversation${data.length === 1 ? "" : "s"}.`,
+      });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Export failed",
+        description: "Failed to export chat history. Please try again.",
+      });
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -220,7 +255,7 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
           </div>
 
           {/* Save Button */}
-          <div className="pt-4 border-t">
+          <div className="pt-4 border-t space-y-2">
             <Button
               onClick={handleSave}
               disabled={savePreferences.isPending}
@@ -228,6 +263,15 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
             >
               <Save className="h-4 w-4" />
               {savePreferences.isPending ? "Saving..." : "Save Settings"}
+            </Button>
+            <Button
+              onClick={handleExport}
+              disabled={isExporting}
+              variant="outline"
+              className="w-full gap-2"
+            >
+              <Download className="h-4 w-4" />
+              {isExporting ? "Exporting..." : "Export Chat History"}
             </Button>
           </div>
         </div>

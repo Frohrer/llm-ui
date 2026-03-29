@@ -94,6 +94,44 @@ router.get("/search", async (req: Request, res: Response) => {
   }
 });
 
+// Export all conversations with messages as JSON
+router.get("/export", async (req: Request, res: Response) => {
+  try {
+    const userConversations = await db.query.conversations.findMany({
+      where: eq(conversations.user_id, req.user!.id),
+      orderBy: [desc(conversations.last_message_at)],
+      with: {
+        messages: {
+          orderBy: (messages, { asc }) => [asc(messages.created_at)],
+        },
+      },
+    });
+
+    const exported = userConversations.map((conv) => ({
+      title: conv.title,
+      provider: conv.provider,
+      model: conv.model,
+      created_at: conv.created_at,
+      last_message_at: conv.last_message_at,
+      messages: (conv.messages || []).map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        created_at: msg.created_at,
+      })),
+    }));
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="chat-export-${new Date().toISOString().slice(0, 10)}.json"`,
+    );
+    res.json(exported);
+  } catch (error) {
+    console.error("Export error:", error);
+    res.status(500).json({ error: "Failed to export conversations" });
+  }
+});
+
 // Get a specific conversation by ID with messages
 router.get("/:id/messages", async (req: Request, res: Response) => {
   try {
