@@ -94,41 +94,64 @@ router.get("/search", async (req: Request, res: Response) => {
   }
 });
 
-// Export all conversations with messages as JSON
+// Export all conversations with messages as streamed JSON
 router.get("/export", async (req: Request, res: Response) => {
   try {
-    const userConversations = await db.query.conversations.findMany({
-      where: eq(conversations.user_id, req.user!.id),
-      orderBy: [desc(conversations.last_message_at)],
-      with: {
-        messages: {
-          orderBy: (messages, { asc }) => [asc(messages.created_at)],
-        },
-      },
-    });
-
-    const exported = userConversations.map((conv) => ({
-      title: conv.title,
-      provider: conv.provider,
-      model: conv.model,
-      created_at: conv.created_at,
-      last_message_at: conv.last_message_at,
-      messages: (conv.messages || []).map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-        created_at: msg.created_at,
-      })),
-    }));
-
     res.setHeader("Content-Type", "application/json");
     res.setHeader(
       "Content-Disposition",
       `attachment; filename="chat-export-${new Date().toISOString().slice(0, 10)}.json"`,
     );
-    res.json(exported);
+
+    // Fetch conversation IDs only (lightweight)
+    const convIds = await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.user_id, req.user!.id))
+      .orderBy(desc(conversations.last_message_at));
+
+    // Stream JSON array — write one conversation at a time to avoid OOM
+    res.write("[\n");
+
+    for (let i = 0; i < convIds.length; i++) {
+      const conv = await db.query.conversations.findFirst({
+        where: eq(conversations.id, convIds[i].id),
+        with: {
+          messages: {
+            orderBy: (messages, { asc }) => [asc(messages.created_at)],
+          },
+        },
+      });
+
+      if (!conv) continue;
+
+      const entry = JSON.stringify({
+        title: conv.title,
+        provider: conv.provider,
+        model: conv.model,
+        created_at: conv.created_at,
+        last_message_at: conv.last_message_at,
+        messages: (conv.messages || []).map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+          created_at: msg.created_at,
+        })),
+      });
+
+      res.write(entry);
+      if (i < convIds.length - 1) res.write(",\n");
+    }
+
+    res.write("\n]");
+    res.end();
   } catch (error) {
     console.error("Export error:", error);
-    res.status(500).json({ error: "Failed to export conversations" });
+    // If headers already sent, just end the stream
+    if (res.headersSent) {
+      res.end();
+    } else {
+      res.status(500).json({ error: "Failed to export conversations" });
+    }
   }
 });
 
