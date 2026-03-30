@@ -77,7 +77,7 @@ export function ChatWindow({
   const streamIdRef = useRef<string>("");
   const abortControllerRef = useRef<AbortController>();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const shouldAutoScrollRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   // Message queue for sending messages while AI is responding
@@ -214,7 +214,7 @@ export function ChatWindow({
 
   // Auto-scroll when messages change (for final message updates)
   useEffect(() => {
-    if (messages.length > 0 && isNearBottom()) {
+    if (messages.length > 0 && shouldAutoScrollRef.current) {
       // Use a small delay to ensure DOM has rendered
       setTimeout(scrollToBottom, 50);
     }
@@ -279,7 +279,7 @@ export function ChatWindow({
         viewport.scrollTop = viewport.scrollHeight;
       }
 
-      setShouldAutoScroll(true);
+      shouldAutoScrollRef.current = true;
       setShowScrollButton(false);
     };
 
@@ -300,6 +300,7 @@ export function ChatWindow({
 
     const checkScrollPosition = () => {
       const isAtBottom = isNearBottom();
+      shouldAutoScrollRef.current = isAtBottom;
       setShowScrollButton(!isAtBottom);
     };
 
@@ -630,7 +631,7 @@ export function ChatWindow({
                       setStreamedText((prev) => {
                         const newText = prev + data.content;
                         // Only scroll if user is still near the bottom
-                        if (isNearBottom()) {
+                        if (shouldAutoScrollRef.current) {
                           setTimeout(scrollToBottom, 0);
                         }
                         return newText;
@@ -646,7 +647,7 @@ export function ChatWindow({
                       
                       setStreamedText((prev) => {
                         const newText = prev + toolCallContent;
-                        if (isNearBottom()) {
+                        if (shouldAutoScrollRef.current) {
                           setTimeout(scrollToBottom, 0);
                         }
                         return newText;
@@ -656,7 +657,7 @@ export function ChatWindow({
                   case "tool_execution_start":
                     setStreamedText((prev) => {
                       const newText = prev + "\n\nExecuting tools...";
-                      if (isNearBottom()) {
+                      if (shouldAutoScrollRef.current) {
                         setTimeout(scrollToBottom, 0);
                       }
                       return newText;
@@ -670,7 +671,7 @@ export function ChatWindow({
                       
                       setStreamedText((prev) => {
                         const newText = prev + resultContent;
-                        if (isNearBottom()) {
+                        if (shouldAutoScrollRef.current) {
                           setTimeout(scrollToBottom, 0);
                         }
                         return newText;
@@ -681,7 +682,7 @@ export function ChatWindow({
                     if (data.error) {
                       setStreamedText((prev) => {
                         const newText = prev + `\n\nTool Execution Error: ${data.error}`;
-                        if (isNearBottom()) {
+                        if (shouldAutoScrollRef.current) {
                           setTimeout(scrollToBottom, 0);
                         }
                         return newText;
@@ -720,7 +721,7 @@ export function ChatWindow({
                     });
                     // Scroll to bottom to show the complete final message
                     // Use longer delay to ensure DOM has fully updated with new messages
-                    if (isNearBottom()) {
+                    if (shouldAutoScrollRef.current) {
                       setTimeout(scrollToBottom, 100);
                     }
                     break;
@@ -764,7 +765,7 @@ export function ChatWindow({
               if (data.type === "chunk" && typeof data.content === "string") {
                 setStreamedText((prev) => {
                   const newText = prev + data.content;
-                  if (isNearBottom()) {
+                  if (shouldAutoScrollRef.current) {
                     setTimeout(scrollToBottom, 0);
                   }
                   return newText;
