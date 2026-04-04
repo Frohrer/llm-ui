@@ -101,21 +101,21 @@ function KpiCard({ title, value, subtitle, icon: Icon, color, loading }: {
 }) {
   return (
     <Card className="relative overflow-hidden">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-muted-foreground">{title}</p>
+      <CardContent className="p-3 sm:p-5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-0.5 sm:space-y-1 min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-muted-foreground truncate">{title}</p>
             {loading ? (
-              <Skeleton className="h-8 w-24" />
+              <Skeleton className="h-6 sm:h-8 w-16 sm:w-24" />
             ) : (
-              <p className="text-2xl font-bold tracking-tight">{value}</p>
+              <p className="text-lg sm:text-2xl font-bold tracking-tight truncate">{value}</p>
             )}
             {subtitle && (
-              <p className="text-xs text-muted-foreground">{subtitle}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">{subtitle}</p>
             )}
           </div>
-          <div className={`rounded-lg p-2.5 ${color}`}>
-            <Icon className="h-5 w-5" />
+          <div className={`rounded-lg p-1.5 sm:p-2.5 shrink-0 ${color}`}>
+            <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
           </div>
         </div>
       </CardContent>
@@ -524,28 +524,28 @@ export default function StatsPage() {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+      <div className="min-h-screen bg-background">
         {/* ─── Header ─── */}
-        <div className="border-b bg-background/80 backdrop-blur-lg sticky top-0 z-10">
-          <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
+        <div className="border-b bg-background sticky top-0 z-10">
+          <div className="max-w-[1400px] mx-auto px-3 sm:px-4 md:px-8 py-3 sm:py-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <Button variant="ghost" size="icon" asChild className="shrink-0">
                 <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
               </Button>
-              <div>
-                <h1 className="text-xl font-semibold tracking-tight flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-primary" />
-                  Admin Dashboard
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-semibold tracking-tight flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-primary shrink-0" />
+                  <span className="truncate">Admin Dashboard</span>
                 </h1>
-                <p className="text-sm text-muted-foreground">Usage analytics & model management</p>
+                <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">Usage analytics & model management</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 space-y-6">
+        <div className="max-w-[1400px] mx-auto px-3 sm:px-4 md:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
           {/* ─── KPI Cards ─── */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
             <KpiCard
               title="Total Tokens"
               value={loading ? '—' : formatNumber(data?.totalTokens || 0)}
@@ -707,8 +707,8 @@ export default function StatsPage() {
                   <p className="text-sm">No latency data yet</p>
                 </div>
               ) : (
-                <div className="rounded-md border max-h-[400px] overflow-y-auto">
-                  <Table>
+                <div className="rounded-md border max-h-[400px] overflow-auto">
+                  <Table className="min-w-[400px]">
                     <TableHeader className="sticky top-0 bg-background z-[1]">
                       <TableRow className="hover:bg-transparent">
                         <TableHead
@@ -760,14 +760,14 @@ export default function StatsPage() {
           {/* ─── Model Management ─── */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-lg p-2 bg-primary/10">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="rounded-lg p-2 bg-primary/10 shrink-0">
                     <Settings2 className="h-5 w-5 text-primary" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <CardTitle className="text-base">Model Management</CardTitle>
-                    <CardDescription>
+                    <CardDescription className="truncate">
                       {modelSettings.length > 0
                         ? `${enabledCount} of ${modelSettings.length} models enabled`
                         : 'Configure which models appear in the chat selector'}
@@ -780,6 +780,7 @@ export default function StatsPage() {
                       <Button
                         variant="outline"
                         size="sm"
+                        className="shrink-0 self-end sm:self-auto"
                         onClick={handleRefreshModels}
                         disabled={refreshing}
                       >
@@ -798,11 +799,13 @@ export default function StatsPage() {
             </CardHeader>
             <CardContent>
               <Tabs value={selectedProvider} onValueChange={setSelectedProvider} className="mb-4">
-                <TabsList className="w-full justify-start">
-                  {MANAGEABLE_PROVIDERS.map((p) => (
-                    <TabsTrigger key={p.id} value={p.id} className="text-xs sm:text-sm">{p.label}</TabsTrigger>
-                  ))}
-                </TabsList>
+                <div className="overflow-x-auto -mx-1 px-1">
+                  <TabsList className="w-max sm:w-full justify-start">
+                    {MANAGEABLE_PROVIDERS.map((p) => (
+                      <TabsTrigger key={p.id} value={p.id} className="text-xs sm:text-sm">{p.label}</TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
               </Tabs>
 
               {modelsLoading ? (
@@ -825,8 +828,8 @@ export default function StatsPage() {
                 </div>
               ) : (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <div className="rounded-md border max-h-[500px] overflow-y-auto">
-                    <Table>
+                  <div className="rounded-md border max-h-[500px] overflow-auto">
+                    <Table className="min-w-[800px]">
                       <TableHeader className="sticky top-0 bg-background z-[1]">
                         <TableRow className="hover:bg-transparent">
                           {isCustomOrder && <TableHead className="w-[40px]" />}

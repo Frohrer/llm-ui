@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { nanoid } from "nanoid";
 import { Message } from "@/components/chat/message";
 import { ChatInput } from "@/components/chat/chat-input";
@@ -8,44 +8,37 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { getAllProviders } from "@/lib/llm/providers";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
-  Volume2,
-  VolumeX,
   ChevronDown,
-  BookOpen,
-  X,
-  Database,
   Wrench,
   Grid3x3,
+  Plus,
+  Menu,
+  History,
 } from "lucide-react";
-import { speechService } from "@/lib/speech-service";
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
 } from "@/components/ui/sheet";
-import { KnowledgeSourceList } from "@/components/knowledge/knowledge-source-list";
 import { getConversationKnowledge } from "@/hooks/use-knowledge";
-import { 
-  Tooltip, 
-  TooltipContent, 
+import { KnowledgeModal } from "@/components/knowledge/knowledge-modal";
+import {
+  Tooltip,
+  TooltipContent,
   TooltipTrigger,
   TooltipProvider
 } from "@/components/ui/tooltip";
+import { MainSidebar } from "@/components/main-sidebar";
+import { ConversationList } from "@/components/conversation-list";
 
 interface ChatWindowProps {
   conversation?: Conversation;
   onConversationUpdate?: (conversation: Conversation) => void;
-  mobileMenuTrigger?: React.ReactNode;
+  onNewChat?: () => void;
+  onSelectConversation?: (conversation: Conversation | undefined) => void;
   isMultiModelMode?: boolean;
   onToggleMode?: () => void;
 }
@@ -53,19 +46,25 @@ interface ChatWindowProps {
 export function ChatWindow({
   conversation,
   onConversationUpdate,
-  mobileMenuTrigger,
+  onNewChat,
+  onSelectConversation,
   isMultiModelMode = false,
   onToggleMode,
 }: ChatWindowProps) {
   const transformMessages = (conv?: Conversation): MessageType[] => {
     if (!conv) return [];
     return conv.messages
-      .map((msg) => ({
-        id: msg.id.toString(),
-        role: msg.role,
-        content: msg.content,
-        timestamp: new Date(msg.created_at).getTime(),
-      }))
+      .map((msg) => {
+        const attachments = msg.metadata?.attachments as MessageType['attachments'];
+        return {
+          id: msg.id.toString(),
+          role: msg.role,
+          content: msg.content,
+          timestamp: new Date(msg.created_at).getTime(),
+          attachment: attachments?.[0],
+          attachments,
+        };
+      })
       .sort((a, b) => a.timestamp - b.timestamp);
   };
 
@@ -172,14 +171,19 @@ export function ChatWindow({
   const useKnowledge = true;
   // Add useAgenticMode state for agentic workflow
   const [useAgenticMode, setUseAgenticMode] = useState<boolean>(false);
-  const [showMobileKnowledgePanel, setShowMobileKnowledgePanel] =
-    useState<boolean>(false);
-  const [showDesktopKnowledgePanel, setShowDesktopKnowledgePanel] =
-    useState<boolean>(false);
+  const [showMenuSheet, setShowMenuSheet] = useState(false);
+  const [showHistorySheet, setShowHistorySheet] = useState(false);
+  const [showKnowledgeModal, setShowKnowledgeModal] = useState(false);
+  const [hideNsfw, setHideNsfw] = useState(() => {
+    const stored = localStorage.getItem("nsfw-visibility");
+    return stored !== "show";
+  });
   const [pendingKnowledgeSources, setPendingKnowledgeSources] = useState<
     number[]
   >([]);
   const [pendingNsfw, setPendingNsfw] = useState(false);
+
+
 
   // Check if conversation has knowledge attached
   const conversationKnowledgeQuery = useQuery({
@@ -212,13 +216,10 @@ export function ChatWindow({
     }
   }, [conversation]);
 
-  // Auto-scroll when messages change (for final message updates)
-  useEffect(() => {
-    if (messages.length > 0 && shouldAutoScrollRef.current) {
-      // Use a small delay to ensure DOM has rendered
-      setTimeout(scrollToBottom, 50);
-    }
-  }, [messages.length]);
+  // Helper to get the Radix scroll viewport element
+  const getViewport = useCallback(() => {
+    return containerRef.current?.closest('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+  }, []);
 
   // Set default model when providers are loaded
   useEffect(() => {
@@ -244,106 +245,53 @@ export function ChatWindow({
     }
   }, [providers, selectedModel, conversation]);
 
-  const isNearBottom = () => {
-    const chatContainer = containerRef.current?.closest('.relative.h-full');
-    const viewport = chatContainer?.querySelector('[data-radix-scroll-area-viewport]');
-    
+  // Check if the viewport is scrolled near the bottom (within 80px)
+  const isNearBottom = useCallback(() => {
+    const viewport = getViewport();
     if (!viewport) return true;
+    return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 80;
+  }, [getViewport]);
 
-    const visibleHeight = viewport.clientHeight;
-    const scrollHeight = viewport.scrollHeight;
-    const currentScroll = viewport.scrollTop;
-    
-    const threshold = 100;
-    const distanceFromBottom = scrollHeight - (currentScroll + visibleHeight);
-    
-    return distanceFromBottom <= threshold;
-  };
+  // Instantly scroll the viewport to the very bottom (for button click / sending a message)
+  const scrollToBottom = useCallback(() => {
+    const viewport = getViewport();
+    if (!viewport) return;
+    viewport.scrollTop = viewport.scrollHeight;
+    shouldAutoScrollRef.current = true;
+    setShowScrollButton(false);
+  }, [getViewport]);
 
-  const scrollToBottom = () => {
-    const chatContainer = containerRef.current?.closest('.relative.h-full');
-    const viewport = chatContainer?.querySelector(
-      '[data-radix-scroll-area-viewport]'
-    ) as HTMLElement | null;
-    const bottomAnchor = containerRef.current?.querySelector(
-      '#bottom-anchor'
-    ) as HTMLElement | null;
+  // Auto-scroll when streaming text changes — useLayoutEffect fires after DOM update
+  // but before the browser paints, so the user never sees an un-scrolled frame.
+  useLayoutEffect(() => {
+    if (streamedText && shouldAutoScrollRef.current) {
+      const viewport = getViewport();
+      if (viewport) viewport.scrollTop = viewport.scrollHeight;
+    }
+  }, [streamedText, getViewport]);
 
-    // Use rAF to ensure DOM/layout has settled after new message render
-    const doScroll = () => {
-      if (bottomAnchor) {
-        // Use scrollIntoView with block: 'end' to ensure we scroll to the very bottom
-        bottomAnchor.scrollIntoView({ block: 'end', behavior: 'auto' });
-      } else if (viewport) {
-        // Fallback: scroll to the very bottom of the viewport
-        viewport.scrollTop = viewport.scrollHeight;
-      }
+  // Auto-scroll when the messages array changes (user message added, stream finishes)
+  useLayoutEffect(() => {
+    if (messages.length > 0 && shouldAutoScrollRef.current) {
+      const viewport = getViewport();
+      if (viewport) viewport.scrollTop = viewport.scrollHeight;
+    }
+  }, [messages, getViewport]);
 
-      shouldAutoScrollRef.current = true;
-      setShowScrollButton(false);
-    };
-
-    // Triple rAF to ensure all DOM updates and layout changes have completed
-    // This is especially important when messages contain dynamic content
-    requestAnimationFrame(() => 
-      requestAnimationFrame(() => 
-        requestAnimationFrame(doScroll)
-      )
-    );
-  };
-
+  // Scroll-position listener: unstick when user scrolls up, re-stick when they scroll back down
   useEffect(() => {
-    const chatContainer = containerRef.current?.closest('.relative.h-full');
-    const viewport = chatContainer?.querySelector('[data-radix-scroll-area-viewport]');
-    
+    const viewport = getViewport();
     if (!viewport) return;
 
-    const checkScrollPosition = () => {
-      const isAtBottom = isNearBottom();
-      shouldAutoScrollRef.current = isAtBottom;
-      setShowScrollButton(!isAtBottom);
+    const onScroll = () => {
+      const atBottom = isNearBottom();
+      shouldAutoScrollRef.current = atBottom;
+      setShowScrollButton(!atBottom);
     };
 
-    viewport.addEventListener("scroll", checkScrollPosition);
-    const initialCheckTimeout = setTimeout(checkScrollPosition, 100);
-
-    const mutationObserver = new MutationObserver(() => {
-      setTimeout(checkScrollPosition, 100);
-    });
-
-    mutationObserver.observe(viewport, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-
-    return () => {
-      clearTimeout(initialCheckTimeout);
-      viewport.removeEventListener("scroll", checkScrollPosition);
-      mutationObserver.disconnect();
-    };
-  }, [messages.length, conversation?.id]);
-
-  // Handle screen resize to appropriately manage knowledge panel visibility
-  useEffect(() => {
-    const handleResize = () => {
-      // If we're resizing from mobile to desktop
-      if (window.innerWidth >= 768 && showMobileKnowledgePanel) {
-        setShowMobileKnowledgePanel(false);
-        setShowDesktopKnowledgePanel(true);
-      }
-      // If we're resizing from desktop to mobile
-      else if (window.innerWidth < 768 && showDesktopKnowledgePanel) {
-        setShowDesktopKnowledgePanel(false);
-        setShowMobileKnowledgePanel(true);
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [showMobileKnowledgePanel, showDesktopKnowledgePanel]);
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, [conversation?.id, messages.length, getViewport, isNearBottom]);
 
   // Cleanup abort controller on unmount
   useEffect(() => {
@@ -504,7 +452,7 @@ export function ChatWindow({
         attachments: allAttachments,
       };
       setMessages((prev) => [...prev, queuedUserMessage]);
-      setTimeout(scrollToBottom, 0);
+      shouldAutoScrollRef.current = true;
       return true;
     }
 
@@ -528,11 +476,9 @@ export function ChatWindow({
     setIsLoading(true);
     setStreamedText("");
     streamIdRef.current = nanoid();
-    
-    // Scroll to bottom immediately after adding the user message
-    setTimeout(scrollToBottom, 0);
-    
-    // Auto-scroll behavior is now handled per chunk by checking isNearBottom()
+
+    // Force auto-scroll on — the useLayoutEffect on messages will scroll after render
+    shouldAutoScrollRef.current = true;
 
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController();
@@ -628,65 +574,31 @@ export function ChatWindow({
                     break;
                   case "chunk":
                     if (typeof data.content === "string") {
-                      setStreamedText((prev) => {
-                        const newText = prev + data.content;
-                        // Only scroll if user is still near the bottom
-                        if (shouldAutoScrollRef.current) {
-                          setTimeout(scrollToBottom, 0);
-                        }
-                        return newText;
-                      });
+                      setStreamedText((prev) => prev + data.content);
                     }
                     break;
                   case "tool_call_progress":
-                    // Show tool call information in the UI
                     if (data.tool_calls) {
-                      const toolCallContent = data.tool_calls.map((call: any, index: number) => {
+                      const toolCallContent = data.tool_calls.map((call: any) => {
                         return `\n\nCalling tool: ${call.function?.name || "Unknown Tool"}\nWith parameters: ${call.function?.arguments || "{}"}`;
                       }).join("");
-                      
-                      setStreamedText((prev) => {
-                        const newText = prev + toolCallContent;
-                        if (shouldAutoScrollRef.current) {
-                          setTimeout(scrollToBottom, 0);
-                        }
-                        return newText;
-                      });
+                      setStreamedText((prev) => prev + toolCallContent);
                     }
                     break;
                   case "tool_execution_start":
-                    setStreamedText((prev) => {
-                      const newText = prev + "\n\nExecuting tools...";
-                      if (shouldAutoScrollRef.current) {
-                        setTimeout(scrollToBottom, 0);
-                      }
-                      return newText;
-                    });
+                    setStreamedText((prev) => prev + "\n\nExecuting tools...");
                     break;
                   case "tool_execution_complete":
                     if (data.results) {
                       const resultContent = data.results.map((result: any) => {
                         return `\n\nTool: ${result.toolName}\nResult: ${JSON.stringify(result.result, null, 2)}`;
                       }).join("");
-                      
-                      setStreamedText((prev) => {
-                        const newText = prev + resultContent;
-                        if (shouldAutoScrollRef.current) {
-                          setTimeout(scrollToBottom, 0);
-                        }
-                        return newText;
-                      });
+                      setStreamedText((prev) => prev + resultContent);
                     }
                     break;
                   case "tool_execution_error":
                     if (data.error) {
-                      setStreamedText((prev) => {
-                        const newText = prev + `\n\nTool Execution Error: ${data.error}`;
-                        if (shouldAutoScrollRef.current) {
-                          setTimeout(scrollToBottom, 0);
-                        }
-                        return newText;
-                      });
+                      setStreamedText((prev) => prev + `\n\nTool Execution Error: ${data.error}`);
                     }
                     break;
                   case "end":
@@ -719,11 +631,7 @@ export function ChatWindow({
                     queryClient.invalidateQueries({
                       queryKey: ["/api/conversations"],
                     });
-                    // Scroll to bottom to show the complete final message
-                    // Use longer delay to ensure DOM has fully updated with new messages
-                    if (shouldAutoScrollRef.current) {
-                      setTimeout(scrollToBottom, 100);
-                    }
+                    // useLayoutEffect on messages handles the scroll
                     break;
                   case "error":
                     isStreamActive = false;
@@ -763,13 +671,7 @@ export function ChatWindow({
               const jsonStr = trimmedLine.slice(5).trim();
               const data = JSON.parse(jsonStr);
               if (data.type === "chunk" && typeof data.content === "string") {
-                setStreamedText((prev) => {
-                  const newText = prev + data.content;
-                  if (shouldAutoScrollRef.current) {
-                    setTimeout(scrollToBottom, 0);
-                  }
-                  return newText;
-                });
+                setStreamedText((prev) => prev + data.content);
               }
             }
           } catch (error) {
@@ -809,252 +711,255 @@ export function ChatWindow({
     }
   };
 
-  const getRandomThinkingMessage = () => {
-    const messages = [
-      "Getting the ducks in a row",
-      "Thinking about it", 
-      "Being lazy",
-      "Hopefully we don't hit rate limits",
-      "You should be working/sleeping/going outside",
-      "Sponsored by Sam Altman",
-      "If you're reading this, you're probably not a duck",
-      "I'm not a duck",
-      "This chat exists in a quantum superposition of all possible conversations",
-      "Doing a lot of math really fast",
-      "Reticulating splines",
-      "Please tip your system administrator"
-    ];
-    return messages[Math.floor(Math.random() * messages.length)];
-  };
+  const hasMessages = messages.length > 0 || !!streamedText;
 
-  return (
-    <div className="flex flex-col h-screen bg-background">
-      <div className="p-3 md:p-5 border-b border-border/50 bg-gradient-to-r from-background/80 via-background to-background/80 backdrop-blur-sm flex items-center justify-between gap-2 shadow-sm">
-        <div className="flex items-center gap-2 md:gap-3 min-w-0">
-          {mobileMenuTrigger}
-          <h2 className="font-semibold text-sm md:text-lg hidden md:block truncate bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
-            {conversation?.title || "New Conversation"}
-          </h2>
-        </div>
-        <div className="flex items-center gap-1 md:gap-2 shrink-0">
-          <ModelSelector
-            selectedModel={selectedModel}
-            onModelChange={(modelId) => {
-              console.log(`Model changed to: ${modelId}`);
-              setSelectedModel(modelId);
+  const inputBar = (
+    <ChatInput
+      onSendMessage={handleSendMessage}
+      isLoading={isLoading}
+      modelContextLength={getModelContextLength(selectedModel)}
+      contextMessages={messages}
+      isNsfw={currentNsfw}
+      onToggleNsfw={handleToggleNsfw}
+      queueSize={messageQueue.length}
+      onClearQueue={() => {
+        const queuedIds = new Set(messageQueue.map((q) => `queued-${q.id}`));
+        setMessages((prev) => prev.filter((m) => !queuedIds.has(m.id)));
+        setMessageQueue([]);
+      }}
+      onAddKnowledge={() => setShowKnowledgeModal(true)}
+    />
+  );
 
-              // Log the context length of the newly selected model
-              if (providers) {
-                for (const provider of Object.values(providers)) {
-                  const model = provider.models.find(
-                    (m: any) => m.id === modelId,
-                  );
-                  if (model) {
-                    console.log(
-                      `Selected model ${model.name} with context length: ${model.contextLength}`,
-                    );
-                    break;
-                  }
-                }
+  // Hamburger menu sheet
+  const menuSheet = (
+    <Sheet open={showMenuSheet} onOpenChange={setShowMenuSheet}>
+      <SheetContent side="left" className="w-[280px] p-0">
+        <MainSidebar
+          activeConversation={conversation}
+          onSelectConversation={(conv) => {
+            onSelectConversation?.(conv);
+            setShowMenuSheet(false);
+          }}
+          onNewConversation={() => {
+            onNewChat?.();
+            setShowMenuSheet(false);
+          }}
+          isMobile={true}
+          onClose={() => setShowMenuSheet(false)}
+        />
+      </SheetContent>
+    </Sheet>
+  );
+
+  // History sheet
+  const historySheet = (
+    <Sheet open={showHistorySheet} onOpenChange={setShowHistorySheet}>
+      <SheetContent side="left" className="w-[320px] sm:w-[380px] flex flex-col p-0 gap-0 [&>button]:top-[28px] [&>button]:right-3 [&>button]:-translate-y-1/2">
+        <SheetHeader className="sr-only">
+          <SheetTitle>Chat History</SheetTitle>
+        </SheetHeader>
+        <div className="flex-1 overflow-hidden">
+          <ConversationList
+            activeConversation={conversation}
+            onSelectConversation={(conv) => {
+              onSelectConversation?.(conv);
+              // Only close sheet on intentional selection (different conversation),
+              // not when ConversationList re-fires for the current conversation's messages
+              if (!conv || conv.id !== conversation?.id) {
+                setShowHistorySheet(false);
               }
             }}
+            hideNsfw={hideNsfw}
+          />
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+
+  const knowledgeModal = (
+    <KnowledgeModal
+      open={showKnowledgeModal}
+      onOpenChange={setShowKnowledgeModal}
+      conversationId={conversation?.id}
+      pendingKnowledgeSources={pendingKnowledgeSources}
+      onTogglePendingSource={(sourceId) => {
+        if (pendingKnowledgeSources.includes(sourceId)) {
+          setPendingKnowledgeSources((prev) => prev.filter((id) => id !== sourceId));
+        } else {
+          setPendingKnowledgeSources((prev) => [...prev, sourceId]);
+        }
+      }}
+      attachedSourceIds={conversationKnowledgeQuery.data?.map(s => s.id) || []}
+    />
+  );
+
+  const topBar = (
+    <TooltipProvider>
+      <div className="flex items-center justify-between px-2 sm:px-4 py-2 sm:py-3 shrink-0 gap-1 min-w-0">
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+          <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => setShowMenuSheet(true)}>
+            <Menu className="h-5 w-5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => setShowHistorySheet(true)}>
+            <History className="h-5 w-5" />
+          </Button>
+          {hasMessages && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 sm:hidden"
+              onClick={onNewChat}
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
+          )}
+          {hasMessages && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground hidden sm:flex"
+              onClick={onNewChat}
+            >
+              <Plus className="h-4 w-4" />
+              New chat
+            </Button>
+          )}
+        </div>
+        <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
+          <ModelSelector
+            selectedModel={selectedModel}
+            onModelChange={(modelId) => setSelectedModel(modelId)}
             disabled={!!conversation || isLoading || isLoadingProviders}
             getModelDisplayName={getModelDisplayName}
           />
-          {/* Add Tools Button */}
-          <TooltipProvider>
-            {/* Multi-model mode toggle */}
-            {onToggleMode && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="shrink-0"
-                    onClick={onToggleMode}
-                    aria-label="Switch to multi-model mode"
-                  >
-                    <Grid3x3 className="h-[1.2rem] w-[1.2rem]" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Switch to multi-model mode
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {/* Tools toggle */}
+          {onToggleMode && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="shrink-0 relative"
-                  onClick={() => setUseAgenticMode(!useAgenticMode)}
-                  aria-label="Toggle agentic mode"
-                >
-                  <Wrench className="h-[1.2rem] w-[1.2rem]" />
-                  {useAgenticMode && (
-                    <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-green-500 animate-pulse shadow-sm"></span>
-                  )}
-                  <span className="sr-only">Toggle agentic mode</span>
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 hidden sm:flex" onClick={onToggleMode}>
+                  <Grid3x3 className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                {useAgenticMode ? "Agentic mode enabled - AI will use tools autonomously" : "Agentic mode disabled"}
-              </TooltipContent>
+              <TooltipContent>Multi-model mode</TooltipContent>
             </Tooltip>
-          </TooltipProvider>
-          <Button
-            variant="outline"
-            size="icon"
-            className={`shrink-0 relative ${showDesktopKnowledgePanel || showMobileKnowledgePanel ? "border-primary" : ""}`}
-            onClick={() => {
-              if (window.innerWidth >= 768) {
-                setShowDesktopKnowledgePanel(!showDesktopKnowledgePanel);
-              } else {
-                setShowMobileKnowledgePanel(!showMobileKnowledgePanel);
-              }
-            }}
-            title={
-              hasKnowledgeAttached
-                ? "Knowledge attached (click to view)"
-                : "Knowledge panel"
-            }
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0 relative"
+                onClick={() => setUseAgenticMode(!useAgenticMode)}
+              >
+                <Wrench className="h-4 w-4" />
+                {useAgenticMode && (
+                  <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-green-500 animate-pulse" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{useAgenticMode ? "Agentic mode on" : "Agentic mode off"}</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    </TooltipProvider>
+  );
+
+  // Random greeting for empty state
+  const emptyStateGreetings = [
+    "Haven't had enough?",
+    "What else?",
+    "What now?",
+    "You again.",
+    "Time for another embarrassing question?",
+    "Back for more, huh?",
+    "Oh, it's you again.",
+    "Miss me already?",
+    "What trouble are we getting into now?",
+    "Couldn't stay away, could you?",
+    "Ready to pretend you know what you're doing?",
+    "Let's make some questionable decisions.",
+  ];
+  const [greeting] = useState(() =>
+    emptyStateGreetings[Math.floor(Math.random() * emptyStateGreetings.length)]
+  );
+
+  // Empty state — no messages yet
+  if (!hasMessages) {
+    return (
+      <div className="flex flex-col h-screen bg-background">
+        {topBar}
+        <div className="flex-1 flex flex-col items-center pt-[12vh] sm:pt-[18vh] px-3 sm:px-4">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-6 sm:mb-8 text-foreground text-center">
+            {greeting}
+          </h1>
+          <div className="w-full max-w-2xl">
+            {inputBar}
+          </div>
+        </div>
+        {menuSheet}
+        {historySheet}
+        {knowledgeModal}
+      </div>
+    );
+  }
+
+  // Active chat — has messages
+  return (
+    <div className="flex flex-col h-screen bg-background">
+      {topBar}
+
+      <div className="flex-1 overflow-hidden relative">
+        <ScrollArea className="h-full w-full">
+          <div
+            className="max-w-2xl mx-auto px-3 sm:px-4 py-3 sm:py-4 space-y-2"
+            ref={containerRef}
           >
-            <BookOpen className="h-[1.2rem] w-[1.2rem]" />
-            {hasKnowledgeAttached && (
-              <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-green-500 animate-pulse shadow-sm"></span>
+            {messages.map((message) => (
+              <Message key={message.id} message={message} />
+            ))}
+            {streamedText && (
+              <Message
+                key="streaming"
+                message={{
+                  id: streamIdRef.current,
+                  role: "assistant",
+                  content: streamedText,
+                  timestamp: Date.now(),
+                  attachment: undefined,
+                  attachments: undefined,
+                }}
+              />
             )}
-          </Button>
-          <ThemeToggle />
+            {isLoading && !streamedText && (
+              <div className="loading-dots text-muted-foreground py-2">
+                <span>.</span><span>.</span><span>.</span>
+              </div>
+            )}
+            <div id="bottom-anchor" className="h-1 w-full" />
+          </div>
+        </ScrollArea>
+
+        {showScrollButton && (
+          <button
+            onClick={scrollToBottom}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full p-2 bg-secondary hover:bg-secondary/80 text-foreground z-10 transition-colors"
+            style={{ width: "35px", height: "35px" }}
+            aria-label="Scroll to bottom"
+          >
+            <ChevronDown className="h-5 w-5" />
+          </button>
+        )}
+      </div>
+
+      <div className="shrink-0 px-3 sm:px-4 pb-3 sm:pb-4 pt-2" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+        <div className="max-w-2xl mx-auto">
+          {inputBar}
         </div>
       </div>
 
-      <div className="flex-1 flex">
-        {/* Main chat area */}
-        <ResizablePanelGroup direction="vertical" className="flex-1">
-          {/* Messages area */}
-          <ResizablePanel defaultSize={75} minSize={30}>
-            <div className="relative h-full">
-              <ScrollArea className="h-full w-full">
-                <div
-                  className="p-4 space-y-4 max-w-full overflow-x-hidden break-words"
-                  ref={containerRef}
-                >
-                  {messages.map((message) => (
-                    <Message key={message.id} message={message} />
-                  ))}
-                  {streamedText && (
-                    <Message
-                      key="streaming"
-                      message={{
-                        id: streamIdRef.current,
-                        role: "assistant",
-                        content: streamedText,
-                        timestamp: Date.now(),
-                        // Explicitly passing undefined to prevent attachment handling during streaming
-                        attachment: undefined,
-                        attachments: undefined,
-                      }}
-                    />
-                  )}
-                  {isLoading && !streamedText && (
-                    <div className="animate-pulse">{getRandomThinkingMessage()}</div>
-                  )}
-
-                  {/* Hidden anchor for scroll functionality */}
-                  <div id="bottom-anchor" className="h-1 w-full"></div>
-                </div>
-              </ScrollArea>
-
-              {/* Scroll to bottom button */}
-              {showScrollButton && (
-                <button
-                  onClick={scrollToBottom}
-                  className="absolute bottom-4 right-4 rounded-full p-2 shadow-md bg-secondary hover:bg-secondary/80 text-foreground border border-border z-10 transition-all duration-200 hover:shadow-lg hover:scale-110 hover:translate-y-[-2px] flex items-center justify-center"
-                  style={{ width: "35px", height: "35px" }}
-                  aria-label="Scroll to bottom"
-                  title="Scroll to bottom"
-                >
-                  <ChevronDown className="h-5 w-5" />
-                  <span className="sr-only">Scroll to bottom</span>
-                </button>
-              )}
-            </div>
-          </ResizablePanel>
-
-          {/* Resizable handle with visible grip */}
-          <ResizableHandle withHandle />
-
-          {/* Input area */}
-          <ResizablePanel defaultSize={25} minSize={15}>
-            <div className="p-2 md:p-4 h-full border-t">
-              <ChatInput
-                onSendMessage={handleSendMessage}
-                isLoading={isLoading}
-                modelContextLength={getModelContextLength(selectedModel)}
-                contextMessages={messages}
-                isNsfw={currentNsfw}
-                onToggleNsfw={handleToggleNsfw}
-                queueSize={messageQueue.length}
-                onClearQueue={() => {
-                  // Remove queued user messages from the chat
-                  const queuedIds = new Set(messageQueue.map((q) => `queued-${q.id}`));
-                  setMessages((prev) => prev.filter((m) => !queuedIds.has(m.id)));
-                  setMessageQueue([]);
-                }}
-              />
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-
-        {/* Knowledge panel - shown as a sheet on all devices */}
-        <Sheet
-          open={showMobileKnowledgePanel || showDesktopKnowledgePanel}
-          onOpenChange={(open) => {
-            if (window.innerWidth >= 768) {
-              setShowDesktopKnowledgePanel(open);
-            } else {
-              setShowMobileKnowledgePanel(open);
-            }
-          }}
-        >
-          <SheetContent
-            side="right"
-            className="w-[300px] sm:w-[400px] h-full flex flex-col"
-          >
-            <SheetHeader className="flex-shrink-0">
-              <div className="flex items-center justify-between">
-                <SheetTitle>Conversation Knowledge</SheetTitle>
-              </div>
-            </SheetHeader>
-            <ScrollArea className="flex-1">
-              <div className="py-4">
-                {/* Always show all knowledge sources so users can add new ones mid-conversation */}
-                <KnowledgeSourceList
-                  mode="all"
-                  conversationId={conversation?.id}
-                  showAttachButton={true}
-                  onSelectKnowledgeSource={(source) => {
-                    if (pendingKnowledgeSources.includes(source.id)) {
-                      setPendingKnowledgeSources((prev) =>
-                        prev.filter((id) => id !== source.id),
-                      );
-                    } else {
-                      setPendingKnowledgeSources((prev) => [
-                        ...prev,
-                        source.id,
-                      ]);
-                    }
-                  }}
-                  selectedSourceIds={pendingKnowledgeSources}
-                  attachedSourceIds={conversationKnowledgeQuery.data?.map(s => s.id) || []}
-                />
-              </div>
-            </ScrollArea>
-          </SheetContent>
-        </Sheet>
-      </div>
+      {menuSheet}
+      {historySheet}
+      {knowledgeModal}
     </div>
   );
 }

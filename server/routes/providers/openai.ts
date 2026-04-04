@@ -258,12 +258,6 @@ router.post("/", async (req: Request, res: Response) => {
       .map((msg: any) => {
         let content = msg.content;
 
-        // Add timestamp so LLM understands time passage between messages
-        if (!skipSystemPrompt && msg.timestamp) {
-          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-          content = `[${msgTime}] ${content}`;
-        }
-
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -1259,12 +1253,6 @@ async function handleResponsesAPI(req: Request, res: Response) {
       .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       .map((msg: any) => {
         let content = msg.content;
-
-        // Add timestamp so LLM understands time passage between messages
-        if (!skipSystemPrompt && msg.timestamp) {
-          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-          content = `[${msgTime}] ${content}`;
-        }
 
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {

@@ -133,8 +133,10 @@ async function fetchModelsFromApi(providerId: string): Promise<NormalizedModel[]
         throw new Error("GEMINI_API_KEY not set");
       }
 
-      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=100`;
-      const resp = await fetch(url);
+      const url = `https://generativelanguage.googleapis.com/v1beta/models?pageSize=100`;
+      const resp = await fetch(url, {
+        headers: { "x-goog-api-key": apiKey },
+      });
       if (!resp.ok) {
         throw new Error(`Gemini API error: ${resp.status} ${resp.statusText}`);
       }

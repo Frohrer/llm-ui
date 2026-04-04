@@ -204,11 +204,6 @@ router.post("/", async (req: Request, res: Response) => {
       .map((msg: any) => {
         let content = msg.content;
 
-        if (!skipSystemPrompt && msg.timestamp) {
-          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-          content = `[${msgTime}] ${content}`;
-        }
-
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
           const documentTexts = attachments

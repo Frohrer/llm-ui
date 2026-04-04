@@ -5,11 +5,9 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
 import type { Message as MessageType } from "@/lib/llm/types";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Check, Volume2, VolumeX, FileText, ExternalLink, Wrench, Play } from "lucide-react";
+import { Copy, Check, FileText, ExternalLink, Wrench, Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useSpeech } from "@/hooks/use-speech";
 import { Badge } from "@/components/ui/badge";
 import { useCodeExecution } from "@/hooks/use-code-execution";
 import { TerminalOutput } from "@/components/ui/terminal-output";
@@ -21,34 +19,9 @@ interface MessageProps {
 
 const MessageComponent = ({ message }: MessageProps) => {
   const { toast } = useToast();
-  const { speak, isSpeaking } = useSpeech();
-  const [localIsSpeaking, setLocalIsSpeaking] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const { executeCode, isExecuting, result, error, clearResults } = useCodeExecution();
   const [executingCode, setExecutingCode] = useState<string | null>(null);
-
-  const handleSpeakMessage = async () => {
-    try {
-      if (localIsSpeaking) {
-        // Stop speaking (this needs additional implementation to interrupt active speech)
-        setLocalIsSpeaking(false);
-        // Here we could add a method to interrupt speech, but we'll handle this differently for now
-      } else {
-        setLocalIsSpeaking(true);
-        console.log("Starting text-to-speech...");
-        await speak(message.content);
-        setLocalIsSpeaking(false);
-      }
-    } catch (error) {
-      console.error("Error with speech:", error);
-      toast({
-        variant: "destructive",
-        description: "Failed to speak message",
-        duration: 2000,
-      });
-      setLocalIsSpeaking(false);
-    }
-  };
 
   const handleCopyMessage = async () => {
     try {
@@ -248,12 +221,12 @@ const MessageComponent = ({ message }: MessageProps) => {
 
               return !inline && match ? (
                 <div className="relative group w-full max-w-full overflow-hidden">
-                  <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-1">
+                  <div className="absolute right-2 top-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10 flex gap-1">
                     {language === 'python' && (
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="h-8 w-8"
+                        className="h-8 w-8 bg-background/80 backdrop-blur-sm sm:bg-transparent"
                         onClick={() => handleRunCode(originalCode, language)}
                         disabled={isExecuting}
                         title="Run Python code"
@@ -264,7 +237,7 @@ const MessageComponent = ({ message }: MessageProps) => {
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-8 w-8"
+                      className="h-8 w-8 bg-background/80 backdrop-blur-sm sm:bg-transparent"
                       onClick={() => handleCopyCode(originalCode)}
                     >
                       <Copy className="h-4 w-4" />
@@ -319,7 +292,7 @@ const MessageComponent = ({ message }: MessageProps) => {
                     <img
                       src={src}
                       alt={alt || "Generated image"}
-                      className="max-w-full h-auto rounded-lg shadow-lg cursor-zoom-in hover:opacity-95 transition-opacity"
+                      className="max-w-full h-auto rounded-lg cursor-zoom-in hover:opacity-95 transition-opacity"
                       style={{ 
                         maxHeight: "80vh",
                         imageRendering: "auto",
@@ -456,7 +429,7 @@ const MessageComponent = ({ message }: MessageProps) => {
             <img
               src={imageUrl}
               alt={attachment.name}
-              className={`w-full h-auto object-contain max-h-96 ${imageLoading ? "hidden" : ""}`}
+              className={`w-full h-auto object-contain max-h-96 ${imageLoading || imageError ? "hidden" : ""}`}
               onLoad={() => setImageLoading(false)}
               onError={() => {
                 console.error(`Failed to load image: ${imageUrl}`);
@@ -527,62 +500,60 @@ const MessageComponent = ({ message }: MessageProps) => {
     );
   };
 
-  // Format timestamp
+  // Format timestamp with relative day labels
   const formatTimestamp = () => {
     if (!message.timestamp) return '';
     const date = new Date(message.timestamp);
-    return new Intl.DateTimeFormat('default', {
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    }).format(date);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const msgDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+    const time = date.toLocaleTimeString('default', { hour: 'numeric', minute: '2-digit' });
+
+    if (msgDay.getTime() === today.getTime()) return `Today, ${time}`;
+    if (msgDay.getTime() === yesterday.getTime()) return `Yesterday, ${time}`;
+    return `${date.toLocaleDateString('default', { month: 'short', day: 'numeric' })}, ${time}`;
   };
 
-  return (
-    <div className="mb-4 md:mb-6 w-full max-w-full min-w-0">
-      <Card
-        className={cn(
-          "p-4 md:p-5 relative w-full max-w-full min-w-0 overflow-hidden",
-          message.role === "assistant"
-            ? "bg-gradient-to-br from-secondary via-secondary to-secondary/95 border-l-2 border-l-primary/30"
-            : "bg-gradient-to-br from-primary/10 via-primary/8 to-primary/5 dark:from-primary/20 dark:via-primary/15 dark:to-primary/10 border-l-2 border-l-primary/50 shadow-sm shadow-primary/10",
-        )}
-      >
-        <div className="group w-full max-w-full min-w-0 break-words">
-          <div className="w-full max-w-full min-w-0 overflow-hidden text-sm md:text-base">
-            {messageContent}
+  if (message.role === "user") {
+    return (
+      <div className="mb-3 sm:mb-4 md:mb-6 flex justify-end">
+        <div className="max-w-[85%] sm:max-w-[75%] md:max-w-[70%] min-w-0 w-fit">
+          <div className="bg-muted rounded-3xl rounded-br-lg px-3 sm:px-4 py-2.5 sm:py-3">
+            <div className="text-sm md:text-base whitespace-pre-wrap break-words">
+              {messageContent}
+            </div>
+            {renderAttachments()}
           </div>
-          {renderAttachments()}
+          <div className="text-xs text-muted-foreground text-right mt-1 px-1">
+            {formatTimestamp()}
+          </div>
         </div>
-      </Card>
+      </div>
+    );
+  }
 
-      {message.role === 'assistant' && (
-        <div className="flex items-center mt-1 text-xs text-muted-foreground gap-2">
-          <span className="truncate">{formatTimestamp()}</span>
-          <div className="flex-1"></div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 md:h-7 px-2 md:px-2 flex items-center gap-1 shrink-0"
-            onClick={handleCopyMessage}
-          >
-            {isCopied ? (
-              <>
-                <Check className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Copied</span>
-              </>
-            ) : (
-              <>
-                <Copy className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Copy</span>
-              </>
-            )}
-          </Button>
+  // Assistant message
+  return (
+    <div className="mb-3 sm:mb-4 md:mb-6 flex justify-start">
+      <div className="max-w-full min-w-0 w-full">
+        <div className="text-sm md:text-base overflow-hidden break-words">
+          {messageContent}
         </div>
-      )}
+        {renderAttachments()}
+        <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
+          <button
+            onClick={handleCopyMessage}
+            className="hover:text-foreground transition-colors p-0.5 rounded"
+            title="Copy message"
+          >
+            {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          </button>
+          <span>{formatTimestamp()}</span>
+        </div>
+      </div>
     </div>
   );
 };

@@ -13,6 +13,7 @@ const tsvector = customType<{ data: string }>({
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").unique().notNull(),
+  is_admin: boolean("is_admin").default(false).notNull(),
   created_at: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -174,7 +174,7 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>{trigger}</SheetTrigger>
-      <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-md overflow-y-auto px-4 sm:px-6">
         <SheetHeader>
           <SheetTitle>Profile Settings</SheetTitle>
           <SheetDescription>
@@ -188,7 +188,7 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
             <Label className="text-sm font-medium">Account</Label>
             <div className="p-4 bg-muted/50 rounded-lg border">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center text-primary-foreground shadow-md shadow-primary/20 font-semibold text-lg">
+                <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-semibold text-lg">
                   {user?.email?.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex flex-col">
@@ -208,16 +208,16 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
             <p className="text-xs text-muted-foreground">
               Choose a color theme for your interface
             </p>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-4 gap-2 sm:gap-3">
               {PRESET_COLORS.map((color) => (
                 <button
                   key={color.value}
                   type="button"
                   onClick={() => handleColorSelect(color.value)}
-                  className={`relative aspect-square rounded-lg transition-all duration-200 hover:scale-105 ${
+                  className={`relative aspect-square rounded-lg transition-all duration-150 ${
                     selectedColor === color.value
-                      ? "ring-2 ring-offset-2 ring-primary shadow-lg"
-                      : "hover:shadow-md"
+                      ? "ring-2 ring-offset-2 ring-offset-background ring-foreground scale-105"
+                      : "hover:scale-105 opacity-80 hover:opacity-100"
                   }`}
                   style={{ backgroundColor: color.value }}
                   title={color.name}

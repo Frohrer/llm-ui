@@ -73,7 +73,7 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
   // If disabled (existing conversation), show just the model name
   if (disabled) {
     return (
-      <div className="text-xs sm:text-sm text-muted-foreground truncate max-w-[140px] sm:max-w-[280px]">Using {modelName}</div>
+      <div className="text-xs sm:text-sm text-muted-foreground truncate max-w-[100px] sm:max-w-[280px]">{modelName}</div>
     );
   }
 
@@ -91,10 +91,10 @@ export function ModelSelector({ selectedModel, onModelChange, disabled, getModel
       variant="outline"
       role="combobox"
       aria-expanded={open}
-      className="w-[160px] sm:w-[280px] justify-between text-xs sm:text-sm"
+      className="w-[120px] sm:w-[280px] justify-between text-xs sm:text-sm"
     >
       <span className="truncate">
-        {selectedModel ? modelName : 'Select a model...'}
+        {selectedModel ? modelName : 'Select model...'}
       </span>
       <ChevronDown className="ml-1 sm:ml-2 h-4 w-4 shrink-0 opacity-50" />
     </Button>

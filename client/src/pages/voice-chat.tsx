@@ -916,12 +916,9 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <Link href="/">
-                    <a className="flex items-center text-muted-foreground hover:text-foreground">
-                      <ArrowLeft className="h-4 w-4 mr-1" />
-                      <span className="text-sm hidden sm:inline">Back</span>
-                    </a>
-                  </Link>
+                  <Button variant="ghost" size="icon" asChild className="shrink-0">
+                    <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
+                  </Button>
                   <h1 className="text-lg md:text-xl font-semibold truncate">Voice Chat</h1>
                   <Badge variant={status === 'connected' ? 'default' : 'secondary'} className="text-xs">
                     {status}
@@ -1077,7 +1074,7 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
 
         {/* Static Bottom Status Bar (only when connected) */}
         {status === 'connected' && (
-          <div className="flex-none border-t bg-background z-10 touch-none">
+          <div className="flex-none border-t bg-background z-10 touch-none" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
             <div className="p-3 md:p-4">
               {/* Show interrupt button when AI is speaking - tap as fallback, or speak to interrupt */}
               {isAISpeaking ? (

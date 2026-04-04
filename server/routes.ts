@@ -5,7 +5,7 @@ import { db } from "@db";
 import { modelSettings } from "@db/schema";
 import { eq, and, asc, sql } from "drizzle-orm";
 import { loadProviderConfigs } from "./config/loader";
-import { cloudflareAuthMiddleware } from "./middleware/auth";
+import { cloudflareAuthMiddleware, requireAdmin } from "./middleware/auth";
 import knowledgeRoutes from "./routes/knowledge";
 import conversationsRoutes from "./routes/conversations";
 import toolsRoutes from "./routes/tools";
@@ -33,6 +33,7 @@ import {
 } from "./routes/providers";
 import { uploadSingleMiddleware, extractTextFromFile, transformUrlToProxy } from "./file-handler";
 import { handleRealtimeVoiceConnection } from "./routes/realtime-voice";
+import transcribeRouter from "./routes/transcribe";
 
 // Providers that support DB-backed model management (seeding + refresh)
 const SEEDABLE_PROVIDERS = ["openai", "anthropic", "deepseek", "grok", "gemini", "ollama", "falai"];
@@ -142,14 +143,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Apply authentication middleware to all /api routes
   app.use("/api", cloudflareAuthMiddleware);
 
-  // Speech credentials route (requires auth)
-  app.get('/api/speech-credentials', (req, res) => {
-    res.json({
-      key: process.env.AZURE_SPEECH_KEY,
-      region: process.env.AZURE_SPEECH_REGION
-    });
-  });
-
   // Add endpoint to get current user info
   app.get("/api/user", (req, res) => {
     res.json(req.user);
@@ -241,6 +234,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/chat/super-model', superModelRouter);
   app.use('/api/chat/ollama', ollamaRouter);
 
+  // Register transcription route
+  app.use('/api/chat/transcribe', transcribeRouter);
+
   // Register conversation routes
   app.use('/api/conversations', conversationsRoutes);
 
@@ -256,8 +252,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register user preferences routes
   app.use('/api/user', userPreferencesRoutes);
 
-  // Register admin routes
-  app.use('/api/admin/models', adminModelsRouter);
+  // Register admin routes (require admin role)
+  app.use('/api/admin/models', requireAdmin, adminModelsRouter);
 
   // Statistics endpoint: latency per model and token counts
   app.get('/api/stats', async (req: Request, res: Response) => {

@@ -83,8 +83,8 @@ export function MultiModelSelector({
   if (disabled) {
     const selectedNames = getSelectedModelNames();
     return (
-      <div className="text-sm text-muted-foreground truncate max-w-[300px]">
-        Using {selectedNames.length} models: {selectedNames.join(', ')}
+      <div className="text-xs sm:text-sm text-muted-foreground truncate max-w-[140px] sm:max-w-[300px]">
+        {selectedNames.length} models
       </div>
     );
   }
@@ -107,16 +107,18 @@ export function MultiModelSelector({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-[300px] justify-between"
+          className="w-[140px] sm:w-[300px] justify-between text-xs sm:text-sm"
         >
-          {selectedCount === 0 
-            ? "Select models..." 
-            : `${selectedCount} model${selectedCount === 1 ? '' : 's'} selected`
-          }
-          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <span className="truncate">
+            {selectedCount === 0
+              ? "Select models..."
+              : `${selectedCount} model${selectedCount === 1 ? '' : 's'}`
+            }
+          </span>
+          <ChevronDown className="ml-1 sm:ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[300px] p-0">
+      <PopoverContent className="w-[280px] sm:w-[300px] p-0">
         <div className="flex items-center justify-between p-3 border-b">
           <span className="text-sm font-medium">Select Models</span>
           <div className="flex gap-1">

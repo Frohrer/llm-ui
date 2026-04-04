@@ -9,10 +9,29 @@ declare global {
       user?: {
         id: number;
         email: string;
+        is_admin: boolean;
       };
     }
   }
 }
+
+export function requireAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  if (!req.user?.is_admin) {
+    return res.status(403).json({ error: "Forbidden - Admin access required" });
+  }
+  next();
+}
+
+const adminEmails = new Set(
+  (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
 
 export async function cloudflareAuthMiddleware(
   req: Request,
@@ -72,10 +91,13 @@ export async function cloudflareAuthMiddleware(
       return res.status(401).json({ error: "Failed to authenticate user" });
     }
 
-    // Attach user to request
+    // Attach user to request — env var overrides DB flag
+    const isAdmin = user.is_admin || adminEmails.has(user.email.toLowerCase());
+
     req.user = {
       id: user.id,
       email: user.email,
+      is_admin: isAdmin,
     };
 
     next();

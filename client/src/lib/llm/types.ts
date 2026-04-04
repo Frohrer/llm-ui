@@ -31,6 +31,7 @@ export interface Conversation {
     role: 'user' | 'assistant';
     content: string;
     created_at: string;
+    metadata?: Record<string, any>;
   }[];
 }
 
@@ -167,7 +168,8 @@ export function transformDatabaseConversation(dbConv: SelectConversation & { mes
             id: msg.id,
             role: msg.role as 'user' | 'assistant',
             content: msg.content,
-            created_at: msg.created_at.toISOString()
+            created_at: msg.created_at.toISOString(),
+            metadata: msg.metadata as Record<string, any> | undefined,
           }))
       : []
   };
