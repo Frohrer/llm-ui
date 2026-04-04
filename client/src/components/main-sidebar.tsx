@@ -88,6 +88,7 @@ export function MainSidebar({
                   Conversations
                 </a>
               </Link>
+              {user?.is_admin && (
               <Link href="/stats">
                 <a
                   className={`mt-0.5 flex items-center py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
@@ -100,6 +101,7 @@ export function MainSidebar({
                   Admin & Stats
                 </a>
               </Link>
+              )}
               <Link href="/custom-tools">
                 <a
                   className={`mt-0.5 flex items-center py-2 px-3 rounded-lg text-sm font-medium transition-colors ${

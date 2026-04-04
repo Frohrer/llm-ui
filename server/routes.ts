@@ -255,12 +255,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register admin routes (require admin role)
   app.use('/api/admin/models', requireAdmin, adminModelsRouter);
 
-  // Statistics endpoint: latency per model and token counts
-  app.get('/api/stats', async (req: Request, res: Response) => {
+  // Statistics endpoint: admin only
+  app.get('/api/stats', requireAdmin, async (req: Request, res: Response) => {
     try {
-      if (!req.user) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
 
       // Import inside to avoid top-level cycles
       const { conversations, messages } = await import('@db/schema');

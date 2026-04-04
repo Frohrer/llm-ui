@@ -32,7 +32,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/stats" component={StatsPage} />
+      <Route path="/stats">{user.is_admin ? <StatsPage /> : <Home />}</Route>
       <Route path="/custom-tools" component={CustomToolsPage} />
       <Route path="/voice-chat" component={VoiceChat} />
       <Route path="/voice-chat/:id" component={VoiceChat} />
