@@ -207,14 +207,27 @@ export function ChatWindow({
     (pendingKnowledgeSources && pendingKnowledgeSources.length > 0)
   );
 
-  // Update messages when conversation changes
+  // Fetch full conversation with messages when a conversation is selected
+  const { data: fullConversation } = useQuery<Conversation>({
+    queryKey: ["/api/conversations", conversation?.id, "messages"],
+    queryFn: async () => {
+      const response = await fetch(`/api/conversations/${conversation!.id}/messages`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch conversation messages");
+      return response.json();
+    },
+    enabled: !!conversation?.id,
+  });
+
+  // Update messages when conversation changes or full messages load
   useEffect(() => {
-    const sortedMessages = transformMessages(conversation);
+    // Prefer the full conversation (with messages) from the query
+    const source = fullConversation?.id === conversation?.id ? fullConversation : conversation;
+    const sortedMessages = transformMessages(source);
     setMessages(sortedMessages);
     if (conversation) {
       setSelectedModel(conversation.model);
     }
-  }, [conversation]);
+  }, [conversation?.id, fullConversation]);
 
   // Helper to get the Radix scroll viewport element
   const getViewport = useCallback(() => {
@@ -764,11 +777,7 @@ export function ChatWindow({
             activeConversation={conversation}
             onSelectConversation={(conv) => {
               onSelectConversation?.(conv);
-              // Only close sheet on intentional selection (different conversation),
-              // not when ConversationList re-fires for the current conversation's messages
-              if (!conv || conv.id !== conversation?.id) {
-                setShowHistorySheet(false);
-              }
+              setShowHistorySheet(false);
             }}
             hideNsfw={hideNsfw}
           />

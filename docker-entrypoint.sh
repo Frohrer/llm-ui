@@ -70,6 +70,13 @@ if [ $? -ne 0 ]; then
     echo "Failed to create model_settings table (may already be applied)"
 fi
 
+# Add performance indexes for conversation/message queries
+echo "Adding performance indexes..."
+psql -f migrations/0008_add_performance_indexes.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to add performance indexes (may already be applied)"
+fi
+
 echo "Database schema setup completed!"
 
 # Start the application

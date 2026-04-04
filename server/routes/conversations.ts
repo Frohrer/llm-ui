@@ -7,19 +7,32 @@ import { cleanupDocumentFile, cleanupImageFile, cleanupGeneratedImage } from "..
 
 const router = express.Router();
 
-// Get all conversations for the current user
+// Get conversations for the current user (paginated)
 router.get("/", async (req: Request, res: Response) => {
   try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+    const before = req.query.before as string | undefined;
+
+    const conditions = [eq(conversations.user_id, req.user!.id)];
+    if (before) {
+      conditions.push(sql`${conversations.last_message_at} < ${before}`);
+    }
+
     const userConversations = await db.query.conversations.findMany({
-      where: eq(conversations.user_id, req.user!.id),
+      where: and(...conditions),
       orderBy: [desc(conversations.last_message_at)],
+      limit: limit + 1, // fetch one extra to detect if there's a next page
     });
 
-    const transformedConversations = userConversations.map(
-      transformDatabaseConversation,
-    );
+    const hasMore = userConversations.length > limit;
+    const page = hasMore ? userConversations.slice(0, limit) : userConversations;
 
-    res.json(transformedConversations);
+    const transformedConversations = page.map(transformDatabaseConversation);
+
+    res.json({
+      conversations: transformedConversations,
+      nextCursor: hasMore ? page[page.length - 1].last_message_at.toISOString() : null,
+    });
   } catch (error) {
     console.error("Database error:", error);
     res.status(500).json({ error: "Failed to fetch conversations" });

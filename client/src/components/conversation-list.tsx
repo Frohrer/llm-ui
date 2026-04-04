@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -29,9 +29,6 @@ export function ConversationList({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
 
   const isVoiceConversation = (conv: Conversation) => conv.provider === 'openai-realtime';
-  // Track which conversation the user intentionally clicked, so the
-  // messages-loaded effect doesn't race with subsequent clicks.
-  const pendingSelectRef = useRef<number | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -41,12 +38,29 @@ export function ConversationList({
   }, [searchQuery]);
 
   const {
-    data: conversations,
+    data: conversationsData,
     isLoading,
     error,
-  } = useQuery<Conversation[]>({
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<{ conversations: Conversation[]; nextCursor: string | null }>({
     queryKey: ["/api/conversations"],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: "50" });
+      if (pageParam) params.set("before", pageParam as string);
+      const response = await fetch(`/api/conversations?${params}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch conversations");
+      return response.json();
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    initialPageParam: undefined as string | undefined,
   });
+
+  const conversations = useMemo(
+    () => conversationsData?.pages.flatMap((p) => p.conversations) ?? [],
+    [conversationsData],
+  );
 
   const {
     data: searchResults,
@@ -62,19 +76,6 @@ export function ConversationList({
       return response.json();
     },
     enabled: debouncedSearchQuery.trim().length > 0,
-  });
-
-  const { data: activeConversationWithMessages } = useQuery<Conversation>({
-    queryKey: ["/api/conversations", activeConversation?.id, "messages"],
-    queryFn: async () => {
-      if (!activeConversation?.id) return undefined;
-      const response = await fetch(`/api/conversations/${activeConversation.id}/messages`);
-      if (!response.ok) {
-        throw new Error("Failed to fetch conversation messages");
-      }
-      return response.json();
-    },
-    enabled: !!activeConversation?.id,
   });
 
   const deleteMutation = useMutation({
@@ -145,17 +146,6 @@ export function ConversationList({
     );
   }, [conversations, searchResults, debouncedSearchQuery, hideNsfw]);
 
-  useEffect(() => {
-    if (
-      activeConversationWithMessages &&
-      pendingSelectRef.current != null &&
-      activeConversationWithMessages.id === pendingSelectRef.current
-    ) {
-      pendingSelectRef.current = null;
-      onSelectConversation(activeConversationWithMessages);
-    }
-  }, [activeConversationWithMessages]); // intentionally omit onSelectConversation — it's an inline closure that changes every render
-
   const clearSearch = useCallback(() => {
     setSearchQuery("");
     setDebouncedSearchQuery("");
@@ -165,7 +155,6 @@ export function ConversationList({
     if (isVoiceConversation(conv)) {
       setLocation(`/voice-chat/${conv.id}`);
     } else {
-      pendingSelectRef.current = conv.id;
       onSelectConversation(conv);
     }
   };
@@ -345,6 +334,19 @@ export function ConversationList({
               {renderCategory("This Week", categorizedConversations.thisWeek)}
               {renderCategory("This Month", categorizedConversations.thisMonth)}
               {renderCategory("Older", categorizedConversations.older)}
+              {!isShowingSearchResults && hasNextPage && (
+                <div className="px-2 py-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-xs text-muted-foreground"
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                  >
+                    {isFetchingNextPage ? "Loading..." : "Load more"}
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </div>
