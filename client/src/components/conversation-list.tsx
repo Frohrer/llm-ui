@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,9 @@ export function ConversationList({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
 
   const isVoiceConversation = (conv: Conversation) => conv.provider === 'openai-realtime';
+  // Track which conversation the user intentionally clicked, so the
+  // messages-loaded effect doesn't race with subsequent clicks.
+  const pendingSelectRef = useRef<number | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -143,10 +146,15 @@ export function ConversationList({
   }, [conversations, searchResults, debouncedSearchQuery, hideNsfw]);
 
   useEffect(() => {
-    if (activeConversationWithMessages) {
+    if (
+      activeConversationWithMessages &&
+      pendingSelectRef.current != null &&
+      activeConversationWithMessages.id === pendingSelectRef.current
+    ) {
+      pendingSelectRef.current = null;
       onSelectConversation(activeConversationWithMessages);
     }
-  }, [activeConversationWithMessages, onSelectConversation]);
+  }, [activeConversationWithMessages]); // intentionally omit onSelectConversation — it's an inline closure that changes every render
 
   const clearSearch = useCallback(() => {
     setSearchQuery("");
@@ -157,6 +165,7 @@ export function ConversationList({
     if (isVoiceConversation(conv)) {
       setLocation(`/voice-chat/${conv.id}`);
     } else {
+      pendingSelectRef.current = conv.id;
       onSelectConversation(conv);
     }
   };

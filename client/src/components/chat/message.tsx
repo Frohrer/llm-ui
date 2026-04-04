@@ -204,7 +204,7 @@ const MessageComponent = ({ message }: MessageProps) => {
             "prose-tr:border-b prose-tr:border-border",
             "prose-th:p-2 prose-th:text-left",
             "prose-td:p-2",
-            "prose-img:max-w-full prose-img:h-auto prose-img:mx-auto",
+            "prose-img:max-w-full prose-img:h-auto prose-img:mx-auto prose-img:!my-0",
             "prose-pre:max-w-full prose-pre:overflow-x-auto",
             "prose-code:max-w-full prose-code:break-all",
             "prose-p:break-words",
@@ -287,12 +287,12 @@ const MessageComponent = ({ message }: MessageProps) => {
               }
 
               return (
-                <div className="my-4 flex justify-center">
+                <span className="block !my-0 !p-0 flex justify-center">
                   <a href={src} target="_blank" rel="noopener noreferrer" className="block">
                     <img
                       src={src}
                       alt={alt || "Generated image"}
-                      className="max-w-full h-auto rounded-lg cursor-zoom-in hover:opacity-95 transition-opacity"
+                      className="max-w-full h-auto rounded-lg cursor-zoom-in hover:opacity-95 transition-opacity !my-0 !mt-0 !mb-0"
                       style={{ 
                         maxHeight: "80vh",
                         imageRendering: "auto",
@@ -304,10 +304,16 @@ const MessageComponent = ({ message }: MessageProps) => {
                       }}
                     />
                   </a>
-                </div>
+                </span>
               );
             },
-            p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
+            p: ({ children }) => {
+                          // If the paragraph only contains an image, strip the paragraph margins
+                          const childArray = Array.isArray(children) ? children : [children];
+                          const hasOnlyImage = childArray.length === 1 &&
+                            typeof childArray[0] === 'object' && childArray[0]?.type === 'span';
+                          return <p className={hasOnlyImage ? "!my-0 !p-0 leading-none" : "mb-4 last:mb-0"}>{children}</p>;
+                        },
             ul: ({ children }) => (
               <ul className="list-disc pl-6 mb-4">{children}</ul>
             ),
