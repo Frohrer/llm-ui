@@ -8,12 +8,9 @@ import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { saveGeneratedImage } from "../../file-handler";
-import { getToolDefinitions, handleToolCalls } from "../../tools";
 import { runAgenticLoop } from "../../agentic-workflow";
 import { getGoogleModel } from "../../ai-sdk-providers";
-import { generateText, tool } from "ai";
-import { z, ZodTypeAny, ZodObject, ZodRawShape } from "zod";
-import { prepareContext, isContextLengthError, truncateToolResult } from "../../context-manager";
+import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
 
 const router = express.Router();
@@ -54,114 +51,6 @@ function convertToAgentMessages(messages: any[]): Array<{ role: 'user' | 'assist
     });
 }
 
-/**
- * Convert a JSON Schema property to a Zod type
- */
-function jsonSchemaPropertyToZod(prop: any): ZodTypeAny {
-  if (!prop || !prop.type) {
-    return z.any();
-  }
-
-  let zodType: ZodTypeAny;
-
-  switch (prop.type) {
-    case 'string':
-      if (prop.enum && Array.isArray(prop.enum)) {
-        zodType = z.enum(prop.enum as [string, ...string[]]);
-      } else {
-        zodType = z.string();
-      }
-      break;
-    case 'number':
-    case 'integer':
-      zodType = z.number();
-      break;
-    case 'boolean':
-      zodType = z.boolean();
-      break;
-    case 'array':
-      if (prop.items) {
-        zodType = z.array(jsonSchemaPropertyToZod(prop.items));
-      } else {
-        zodType = z.array(z.any());
-      }
-      break;
-    case 'object':
-      if (prop.properties) {
-        const shape: ZodRawShape = {};
-        for (const [key, value] of Object.entries(prop.properties)) {
-          shape[key] = jsonSchemaPropertyToZod(value);
-        }
-        zodType = z.object(shape);
-      } else {
-        zodType = z.record(z.any());
-      }
-      break;
-    default:
-      zodType = z.any();
-  }
-
-  if (prop.description) {
-    zodType = zodType.describe(prop.description);
-  }
-
-  return zodType;
-}
-
-/**
- * Convert a JSON Schema object to a Zod schema
- */
-function jsonSchemaToZod(schema: any): ZodObject<ZodRawShape> {
-  const shape: ZodRawShape = {};
-  const properties = schema.properties || {};
-  const required = schema.required || [];
-
-  for (const [key, prop] of Object.entries(properties)) {
-    let zodProp = jsonSchemaPropertyToZod(prop);
-    
-    if (!required.includes(key)) {
-      zodProp = zodProp.optional();
-    }
-    
-    shape[key] = zodProp;
-  }
-
-  return z.object(shape);
-}
-
-// Get AI SDK tools from tool definitions
-async function getAISDKTools(userId?: number): Promise<Record<string, any>> {
-  const { executeTool } = await import('../../tools');
-  const toolDefinitions = await getToolDefinitions();
-  const tools: Record<string, any> = {};
-
-  for (const toolDef of toolDefinitions) {
-    const func = toolDef.function;
-    
-    // Convert JSON Schema to Zod schema
-    const zodSchema = jsonSchemaToZod(func.parameters);
-    
-    tools[func.name] = tool({
-      description: func.description,
-      inputSchema: zodSchema,
-      execute: async (params: any) => {
-        try {
-          const result = await executeTool(func.name, params, userId);
-          return result;
-        } catch (error) {
-          console.error(`Error executing tool ${func.name}:`, error);
-          return {
-            error: error instanceof Error ? error.message : 'Unknown error',
-            success: false
-          };
-        }
-      }
-    });
-  }
-
-  return tools;
-}
-
 // Create or continue a Gemini chat conversation
 router.post("/", async (req: Request, res: Response) => {
   try {
@@ -176,7 +65,6 @@ router.post("/", async (req: Request, res: Response) => {
       useKnowledge = false,
       pendingKnowledgeSources = [],
       useTools = false,
-      useAgenticMode = false,
       skipSystemPrompt = false,
     } = req.body;
     
@@ -496,21 +384,23 @@ router.post("/", async (req: Request, res: Response) => {
     let ttftMs: number | null = null;
 
     try {
-      // Check if using agentic mode or tools mode with AI SDK
-      if (useAgenticMode && useTools) {
+      // Check if using tools with AI SDK agentic loop
+      if (useTools) {
         console.log('[Gemini] Using agentic mode with AI SDK');
-        
+
         // Get the AI SDK model instance
         const aiModel = getGoogleModel(model);
-        
+
+        // Build system prompt directly (it's stored in modelConfig.systemInstruction, not in contextManagedMessages)
+        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id) : undefined;
+
         // Use context-managed messages which have already been truncated if needed
-        // contextManagedMessages is in standard format, add current user message
         const agentApiMessages = [...contextManagedMessages];
         agentApiMessages.push({ role: 'user', content: userText });
-        
+
         // Convert to simple format for agent
         const agentMessages = convertToAgentMessages(agentApiMessages);
-        
+
         // Run the agentic loop with AI SDK v6 ToolLoopAgent
         const finalResponse = await runAgenticLoop(
           agentMessages,
@@ -518,10 +408,11 @@ router.post("/", async (req: Request, res: Response) => {
             maxIterations: 20,
             conversationId: dbConversation.id,
             model: aiModel,
+            systemPrompt: agentSystemPrompt,
             userId: req.user!.id
           }
         );
-        
+
         // Stream the final response to the user
         if (finalResponse) {
           ttftMs = Date.now() - requestStart;
@@ -531,9 +422,9 @@ router.post("/", async (req: Request, res: Response) => {
             res.write(`data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`);
             await new Promise(resolve => setTimeout(resolve, 20));
           }
-          
+
           streamedResponse = finalResponse;
-          
+
           // Save the final response
           await db.insert(messages).values({
             conversation_id: dbConversation.id,
@@ -547,90 +438,6 @@ router.post("/", async (req: Request, res: Response) => {
             created_at: new Date(),
           });
         }
-      } else if (useTools) {
-        console.log('[Gemini] Using tools mode with AI SDK');
-        
-        // Get the AI SDK model instance
-        const aiModel = getGoogleModel(model);
-        
-        // Use context-managed messages which have already been truncated if needed
-        const toolsApiMessages = [...contextManagedMessages];
-        toolsApiMessages.push({ role: 'user', content: userText });
-        
-        // Convert to agent message format
-        const agentMessages = convertToAgentMessages(toolsApiMessages);
-        
-        // Get tools
-        const tools = await getAISDKTools(req.user!.id);
-        console.log(`[Gemini] Loaded ${Object.keys(tools).length} tools:`, Object.keys(tools).join(', '));
-        
-        // Use AI SDK generateText with tools
-        const result = await generateText({
-          model: aiModel,
-          messages: agentMessages,
-          tools,
-          maxSteps: 5, // Allow up to 5 tool calling rounds
-        });
-        
-        ttftMs = Date.now() - requestStart;
-        
-        // Stream the response
-        if (result.text) {
-          const chunkSize = 50;
-          for (let i = 0; i < result.text.length; i += chunkSize) {
-            const chunk = result.text.slice(i, i + chunkSize);
-            res.write(`data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`);
-            await new Promise(resolve => setTimeout(resolve, 20));
-          }
-          
-          streamedResponse = result.text;
-        }
-        
-        // Log tool usage if any
-        if (result.toolCalls && result.toolCalls.length > 0) {
-          console.log(`[Gemini] Used ${result.toolCalls.length} tools:`, result.toolCalls.map(tc => tc.toolName).join(', '));
-          
-          // Store tool calls as internal messages
-          await db.insert(messages).values({
-            conversation_id: dbConversation.id,
-            role: "tool",
-            content: JSON.stringify(result.toolCalls.map(tc => ({
-              id: tc.toolCallId,
-              name: tc.toolName,
-              arguments: tc.args
-            }))),
-            metadata: { type: 'tool_calls' },
-            created_at: new Date(),
-          });
-          
-          // Store tool results
-          if (result.toolResults && result.toolResults.length > 0) {
-            await db.insert(messages).values({
-              conversation_id: dbConversation.id,
-              role: "tool",
-              content: JSON.stringify(result.toolResults.map((r, i) => ({
-                toolCallId: result.toolCalls![i].toolCallId,
-                toolName: result.toolCalls![i].toolName,
-                result: r
-              }))),
-              metadata: { type: 'tool_results' },
-              created_at: new Date(),
-            });
-          }
-        }
-        
-        // Save the response
-        await db.insert(messages).values({
-          conversation_id: dbConversation.id,
-          role: "assistant",
-          content: streamedResponse,
-          metadata: {
-            tools_used: result.toolCalls?.length || 0,
-            ai_sdk: true,
-            ttft_ms: ttftMs
-          },
-          created_at: new Date(),
-        });
       } else {
         // Original non-tool streaming logic
         let result;

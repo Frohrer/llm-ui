@@ -532,9 +532,8 @@ router.post("/", async (req: Request, res: Response) => {
         // Get the AI SDK model instance
         const aiModel = getAnthropicModel(model);
         
-        // Extract system prompt from contextManagedMessages (which has been truncated if needed)
-        const systemMessage = contextManagedMessages.find((msg: any) => msg.role === 'system');
-        const systemPrompt = systemMessage?.content || undefined;
+        // Build system prompt directly (it's stored in requestOptions.system, not in contextManagedMessages)
+        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id) : undefined;
         
         // Convert messages to simple format for agent - use contextManagedMessages which has been truncated
         const agentMessages = convertToAgentMessages(contextManagedMessages);
@@ -546,7 +545,7 @@ router.post("/", async (req: Request, res: Response) => {
             maxIterations: 20,
             conversationId: dbConversation.id,
             model: aiModel,
-            systemPrompt,
+            systemPrompt: agentSystemPrompt,
             userId: req.user!.id
           }
         );
