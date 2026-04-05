@@ -6,7 +6,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
 import type { Message as MessageType } from "@/lib/llm/types";
 import { Button } from "@/components/ui/button";
-import { Copy, Check, FileText, ExternalLink, Wrench, Play } from "lucide-react";
+import { Copy, Check, FileText, ExternalLink, Wrench, Play, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { useCodeExecution } from "@/hooks/use-code-execution";
@@ -506,6 +506,8 @@ const MessageComponent = ({ message }: MessageProps) => {
     );
   };
 
+  const isQueued = typeof message.id === "string" && message.id.startsWith("queued-");
+
   // Format timestamp with relative day labels
   const formatTimestamp = () => {
     if (!message.timestamp) return '';
@@ -533,8 +535,14 @@ const MessageComponent = ({ message }: MessageProps) => {
             </div>
             {renderAttachments()}
           </div>
-          <div className="text-xs text-muted-foreground text-right mt-1 px-1">
-            {formatTimestamp()}
+          <div className="text-xs text-muted-foreground text-right mt-1 px-1 flex items-center justify-end gap-1">
+            {isQueued && (
+              <span className="inline-flex items-center gap-0.5 text-muted-foreground/70">
+                <Clock className="h-3 w-3" />
+                <span>Queued</span>
+              </span>
+            )}
+            {!isQueued && formatTimestamp()}
           </div>
         </div>
       </div>
