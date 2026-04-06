@@ -5,14 +5,22 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { formatDistanceToNow, isToday, isThisWeek, isThisMonth, parseISO } from "date-fns";
-import { Trash2, Search, X, MessageSquare } from "lucide-react";
+import { Trash2, Search, X, MessageSquare, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Conversation } from "@/lib/llm/types";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ConversationListProps {
   activeConversation?: Conversation;
   onSelectConversation: (conversation: Conversation | undefined) => void;
   hideNsfw?: boolean;
+  onToggleHideNsfw?: () => void;
   compact?: boolean;
 }
 
@@ -20,6 +28,7 @@ export function ConversationList({
   activeConversation,
   onSelectConversation,
   hideNsfw = false,
+  onToggleHideNsfw,
   compact = false,
 }: ConversationListProps) {
   const queryClient = useQueryClient();
@@ -172,23 +181,44 @@ export function ConversationList({
 
   const searchInput = (
     <div className="shrink-0">
-      <div className="relative px-3 pr-10 py-2.5">
-        <Search className="absolute left-5.5 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-        <Input
-          placeholder="Search..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-8 pr-8 h-9 text-sm border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 bg-transparent outline-none"
-        />
-        {searchQuery && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="absolute right-3 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-            onClick={clearSearch}
-          >
-            <X className="h-3 w-3" />
-          </Button>
+      <div className="relative px-3 pr-10 py-2.5 flex items-center gap-1">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+          <Input
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8 pr-8 h-9 text-sm border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 bg-transparent outline-none"
+          />
+          {searchQuery && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute right-0 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+              onClick={clearSearch}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+        {onToggleHideNsfw && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-8 w-8 shrink-0 ${!hideNsfw ? "text-primary" : "text-muted-foreground"}`}
+                  onClick={onToggleHideNsfw}
+                >
+                  {hideNsfw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {hideNsfw ? "Show hidden conversations" : "Hide hidden conversations"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
       </div>
       <hr className="border-border" />

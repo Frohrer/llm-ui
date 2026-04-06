@@ -780,6 +780,11 @@ export function ChatWindow({
               setShowHistorySheet(false);
             }}
             hideNsfw={hideNsfw}
+            onToggleHideNsfw={() => {
+              const next = !hideNsfw;
+              setHideNsfw(next);
+              localStorage.setItem("nsfw-visibility", next ? "hide" : "show");
+            }}
           />
         </div>
       </SheetContent>
