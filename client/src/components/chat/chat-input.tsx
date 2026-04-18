@@ -82,6 +82,16 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
     }
   }, [message]);
 
+  // Keep the textarea focused after a response finishes streaming,
+  // so the user can immediately type the next prompt.
+  const wasLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    if (wasLoadingRef.current && !isLoading && speechState === 'idle') {
+      textareaRef.current?.focus();
+    }
+    wasLoadingRef.current = isLoading;
+  }, [isLoading, speechState]);
+
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim()) {
@@ -89,6 +99,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
       const primaryAttachment = attachments.length > 0 ? attachments[0] : undefined;
       pendingAttachmentRef.current = primaryAttachment;
       setMessage('');
+      textareaRef.current?.focus();
 
       try {
         const success = await onSendMessage(pendingMessageRef.current, primaryAttachment, attachments);
@@ -338,6 +349,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
             <button
               type="submit"
               disabled={isLoading}
+              onMouseDown={(e) => e.preventDefault()}
               className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl bg-foreground text-background hover:bg-foreground/90 transition-colors disabled:opacity-50"
             >
               <SendHorizonal className="h-4 w-4" />
