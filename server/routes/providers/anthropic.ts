@@ -16,6 +16,11 @@ import { buildSystemPrompt } from "../../user-preferences-service";
 const router = express.Router();
 let client: Anthropic | null = null;
 
+// Opus 4.7+ deprecated the `temperature` parameter.
+function supportsTemperature(model: string): boolean {
+  return !/claude-opus-4-[7-9]|claude-opus-[5-9]/.test(model);
+}
+
 // Initialize the Anthropic client
 export function initializeAnthropic(apiKey?: string) {
   if (apiKey || process.env.ANTHROPIC_API_KEY) {
@@ -189,7 +194,7 @@ async function executeToolsAndGetResponse(
     const toolCompletionResponse = await client.messages.create({
       model: model,
       messages: toolResponseMessages,
-      temperature: 0.7,
+      ...(supportsTemperature(model) ? { temperature: 0.7 } : {}),
       max_tokens: 4096,
     });
     
@@ -448,7 +453,7 @@ router.post("/", async (req: Request, res: Response) => {
       messages: [],
       model,
       max_tokens: 4096,
-      temperature: 0.7,
+      ...(supportsTemperature(model) ? { temperature: 0.7 } : {}),
       stream: true,
     };
 
