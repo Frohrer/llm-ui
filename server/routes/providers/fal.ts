@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { fal } from "@fal-ai/client";
 import { db } from "@db";
-import { conversations, messages } from "@db/schema";
-import { eq } from "drizzle-orm";
+import { conversations, messages, modelSettings } from "@db/schema";
+import { eq, and } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import * as falConfig from "../../config/providers/falai.json";
@@ -40,6 +40,52 @@ interface ModelConfig {
   contextLength: number;
   defaultModel: boolean;
   parameters: Record<string, any>;
+}
+
+// Default parameters for text-to-image models when no specific config exists
+const DEFAULT_IMAGE_PARAMS: Record<string, any> = {
+  num_images: 1,
+  enable_safety_checker: false,
+  output_format: "png",
+  sync_mode: true,
+  image_size: { width: 1024, height: 1024 },
+};
+
+/**
+ * Get parameters for a fal.ai model. Checks:
+ * 1. Database model_settings (parameters column)
+ * 2. Static falai.json config
+ * 3. Default image parameters
+ */
+async function getModelParameters(modelId: string): Promise<Record<string, any>> {
+  // Check DB first (covers both seeded static models and API-discovered ones)
+  try {
+    const dbModel = await db
+      .select({ parameters: modelSettings.parameters })
+      .from(modelSettings)
+      .where(
+        and(
+          eq(modelSettings.provider_id, "falai"),
+          eq(modelSettings.model_id, modelId),
+        ),
+      )
+      .limit(1);
+
+    if (dbModel.length > 0 && dbModel[0].parameters) {
+      return dbModel[0].parameters as Record<string, any>;
+    }
+  } catch (err) {
+    console.error("Error fetching model parameters from DB:", err);
+  }
+
+  // Fall back to static config
+  const staticModel = (falConfig as any).models?.find((m: ModelConfig) => m.id === modelId);
+  if (staticModel?.parameters) {
+    return staticModel.parameters;
+  }
+
+  // Final fallback: default image parameters
+  return { ...DEFAULT_IMAGE_PARAMS };
 }
 
 const router = Router();
@@ -153,40 +199,50 @@ router.post("/", async (req: Request, res: Response) => {
       res.write(`data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`);
 
       // Check if this is an image generation request
-      const isImageRequest = userMessage.toLowerCase().includes("generate") || 
-                           userMessage.toLowerCase().includes("create") || 
+      // For fal.ai, most models are image generators. Check model name patterns
+      // and also check if the model exists in DB with image parameters.
+      const modelLower = model.toLowerCase();
+      const isImageModel = modelLower.includes("hidream") ||
+                          modelLower.includes("stable") ||
+                          modelLower.includes("sd") ||
+                          modelLower.includes("diffusion") ||
+                          modelLower.includes("flux") ||
+                          modelLower.includes("reve") ||
+                          modelLower.includes("nano") ||
+                          modelLower.includes("banana") ||
+                          modelLower.includes("seedream") ||
+                          modelLower.includes("dreamina") ||
+                          modelLower.includes("bytedance") ||
+                          modelLower.includes("text-to-image") ||
+                          modelLower.includes("ideogram") ||
+                          modelLower.includes("recraft") ||
+                          modelLower.includes("kolors") ||
+                          modelLower.includes("aura") ||
+                          modelLower.includes("kandinsky") ||
+                          modelLower.includes("playground") ||
+                          modelLower.includes("realvis") ||
+                          modelLower.includes("pixart") ||
+                          modelLower.includes("fal-ai/"); // Most fal-ai/ prefixed models are image gen
+
+      const isImageRequest = isImageModel ||
+                           userMessage.toLowerCase().includes("generate") ||
+                           userMessage.toLowerCase().includes("create") ||
                            userMessage.toLowerCase().includes("draw") ||
                            userMessage.toLowerCase().includes("image") ||
                            userMessage.toLowerCase().includes("picture") ||
-                           userMessage.toLowerCase().includes("photo") ||
-                           // Also check if the model is an image model
-                           model.toLowerCase().includes("hidream") ||
-                           model.toLowerCase().includes("stable") ||
-                           model.toLowerCase().includes("sd") ||
-                           model.toLowerCase().includes("diffusion") ||
-                           model.toLowerCase().includes("flux") ||
-                           model.toLowerCase().includes("reve") ||
-                           model.toLowerCase().includes("nano") ||
-                           model.toLowerCase().includes("banana") ||
-                           model.toLowerCase().includes("seedream") ||
-                           model.toLowerCase().includes("dreamina") ||
-                           model.toLowerCase().includes("bytedance") ||
-                           model.toLowerCase().includes("text-to-image"); // Match any text-to-image endpoint
+                           userMessage.toLowerCase().includes("photo");
 
       if (isImageRequest) {
         // Send a single initial progress message
         res.write(`data: ${JSON.stringify({ type: "chunk", content: "Starting image generation...\n" })}\n\n`);
 
         try {
-          // Find model configuration
-          const modelConfig = (falConfig as any).models.find((m: ModelConfig) => m.id === model);
-          if (!modelConfig) {
-            throw new Error(`Model configuration not found for ${model}`);
-          }
+          // Get model parameters from DB, static config, or defaults
+          const modelParams = await getModelParameters(model);
 
           const inputParams = {
             prompt: userMessage,
-            ...modelConfig.parameters
+            ...modelParams
           };
           
           console.log(`Calling FAL model ${model} with parameters:`, JSON.stringify(inputParams, null, 2));
@@ -237,16 +293,12 @@ router.post("/", async (req: Request, res: Response) => {
 
           // Insert the assistant message
           const timestamp = new Date();
-          // Approximate input tokens from formattedMessages
+          // Approximate input tokens from the user message
           let approxInputTokens = 0;
           try {
-            const texts: string[] = formattedMessages.map((m: any) => m.content || '').filter(Boolean);
             const EULER = 2.7182818284590;
-            const combined = texts.join('\n');
-            if (combined) {
-              const len = combined.length;
-              approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
-            }
+            const len = userMessage.length;
+            approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
           } catch {}
           await db.insert(messages).values({
             conversation_id: dbConversation.id,

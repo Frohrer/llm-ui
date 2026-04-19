@@ -2,10 +2,17 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Image, SendHorizonal, X } from 'lucide-react';
+import { FileText, Image, SendHorizonal, X, Plus, Mic, Loader2, Check as CheckIcon, BookOpen } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { estimateTokenCount } from '@/lib/llm/token-counter';
 import type { Message as MessageType } from '@/lib/llm/types';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useSpeechToText } from '@/hooks/use-speech-to-text';
 
 type Attachment = {
   type: 'document' | 'image';
@@ -17,16 +24,18 @@ type Attachment = {
 interface ChatInputProps {
   onSendMessage: (message: string, attachment?: Attachment, allAttachments?: Attachment[]) => Promise<boolean | void>;
   isLoading: boolean;
-  /** The context length of the current model in tokens (default: 128000) */
   modelContextLength?: number;
-  /** Entire conversation messages to include in token counting */
   contextMessages?: MessageType[];
+  isNsfw?: boolean;
+  onToggleNsfw?: () => void;
+  queueSize?: number;
+  onClearQueue?: () => void;
+  onAddKnowledge?: () => void;
 }
 
-export function ChatInput({ onSendMessage, isLoading, modelContextLength = 128000, contextMessages = [] }: ChatInputProps) {
+export function ChatInput({ onSendMessage, isLoading, modelContextLength = 128000, contextMessages = [], isNsfw, onToggleNsfw, queueSize = 0, onClearQueue, onAddKnowledge }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
-  // Store an array of attachments - all are always sent with the message
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [tokenCount, setTokenCount] = useState(0);
   const [isOverLimit, setIsOverLimit] = useState(false);
@@ -36,19 +45,12 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   const pendingMessageRef = useRef<string>('');
   const pendingAttachmentRef = useRef<Attachment | undefined>(undefined);
   const { toast } = useToast();
-  
-  // Log the model context length for debugging
-  console.log('Model context length:', modelContextLength);
-  
-  // We're now displaying the full context length in the UI instead of the 1/4 reserved for user messages
-  // This gives users a better understanding of the model's total capacity
+  const { state: speechState, audioLevels, startRecording, stopRecording, cancelRecording } = useSpeechToText();
+
   const userTokenLimit = modelContextLength || 20000;
-  
-  // Calculate token count based on entire conversation, current message, and all document attachments
+
   const calculateTokenCount = useCallback(() => {
     let totalTokens = 0;
-
-    // Include all previous conversation messages
     if (Array.isArray(contextMessages) && contextMessages.length > 0) {
       for (const m of contextMessages) {
         if (typeof m.content === 'string') {
@@ -56,69 +58,65 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         }
       }
     }
-
-    // Include current message being typed
     totalTokens += estimateTokenCount(message);
-    
-    // Add token count for all document attachments
     for (const attachment of attachments) {
       if (attachment.type === 'document' && attachment.text) {
         totalTokens += estimateTokenCount(attachment.text);
       }
     }
-    
     return totalTokens;
   }, [message, attachments, contextMessages]);
-  
-  // Recalculate token limits when relevant values change
+
   useEffect(() => {
     const totalTokens = calculateTokenCount();
     setTokenCount(totalTokens);
     setIsOverLimit(totalTokens > userTokenLimit);
   }, [modelContextLength, message, attachments, calculateTokenCount, userTokenLimit, contextMessages]);
 
+  // Auto-grow textarea
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+    }
+  }, [message]);
+
+  // Keep the textarea focused after a response finishes streaming,
+  // so the user can immediately type the next prompt.
+  const wasLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    if (wasLoadingRef.current && !isLoading && speechState === 'idle') {
+      textareaRef.current?.focus();
+    }
+    wasLoadingRef.current = isLoading;
+  }, [isLoading, speechState]);
+
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (message.trim() && !isLoading) {
-      // Store the current message in memory before clearing the input
+    if (message.trim()) {
       pendingMessageRef.current = message;
-      
-      // Use the first attachment as primary for display purposes
       const primaryAttachment = attachments.length > 0 ? attachments[0] : undefined;
       pendingAttachmentRef.current = primaryAttachment;
-      
-      // Clear the input immediately for better UX
       setMessage('');
-      
-      // Send the message
+      textareaRef.current?.focus();
+
       try {
-        // Send the message with all attachments
-        const success = await onSendMessage(
-          pendingMessageRef.current, 
-          primaryAttachment, 
-          attachments  // Pass all attachments as an additional parameter
-        );
-        
+        const success = await onSendMessage(pendingMessageRef.current, primaryAttachment, attachments);
         if (!success) {
-          // If sending failed for some reason, restore the message
           setMessage(pendingMessageRef.current);
         } else {
-          // Clear attachments after successful message submission
-          // This ensures they're only used once and not included in future messages
           setAttachments([]);
         }
-        
-        // Clear the pending refs if successful or if we've already restored the content
         pendingMessageRef.current = '';
         pendingAttachmentRef.current = undefined;
       } catch (error) {
-        // If an error occurs, restore the message
         setMessage(pendingMessageRef.current);
         pendingMessageRef.current = '';
         pendingAttachmentRef.current = undefined;
       }
     }
-  }, [message, isLoading, onSendMessage, attachments]);
+  }, [message, onSendMessage, attachments]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -128,62 +126,17 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
   }, [handleSubmit]);
 
   const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newMessage = e.target.value;
-    setMessage(newMessage);
-    
-    // Calculate token count and check if it exceeds the limit
-    const totalTokens = calculateTokenCount();
-    
-    setTokenCount(totalTokens);
-    setIsOverLimit(totalTokens > userTokenLimit);
-    
-    if (totalTokens > userTokenLimit) {
-      toast({
-        title: "Token limit exceeded",
-        description: `Your message exceeds the model's context length of ${userTokenLimit.toLocaleString()} tokens. The AI might truncate very long inputs.`,
-        variant: "destructive",
-        duration: 3000,
-      });
-    }
-  }, [calculateTokenCount, userTokenLimit, toast]);
+    setMessage(e.target.value);
+  }, []);
 
-  const renderUploadButton = useCallback(() => (
-    <Button
-      type="button"
-      size="icon"
-      variant="secondary"
-      onClick={() => fileInputRef.current?.click()}
-      disabled={uploadingFile}
-      title="Upload multiple files"
-    >
-      <FileText className="h-4 w-4" />
-    </Button>
-  ), [uploadingFile]);
-
-  const renderSendButton = useCallback(() => (
-    <Button type="submit" size="icon" disabled={isLoading || !message.trim()}>
-      <SendHorizonal className="h-4 w-4" />
-    </Button>
-  ), [isLoading, message]);
-
-  // Shared file upload processing logic
+  // Shared file upload processing
   const processFile = async (file: File) => {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error('File upload failed');
-      }
-      
+      const response = await fetch('/api/upload', { method: 'POST', body: formData });
+      if (!response.ok) throw new Error('File upload failed');
       const data = await response.json();
-      
-      // Set the attachment data based on the file type
       const isImage = file.type.startsWith('image/');
       const attachmentData: Attachment = {
         type: isImage ? 'image' : 'document',
@@ -191,29 +144,7 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
         text: isImage ? undefined : data.file.text,
         name: file.name
       };
-      
-      // Add the new attachment to the attachments array
       setAttachments(prev => [...prev, attachmentData]);
-      
-      // If it's a document, update the token count 
-      if (!isImage && attachmentData.text) {
-        // Calculate tokens for all documents, including the new one
-        let documentTokens = 0;
-        for (const att of [...attachments, attachmentData]) {
-          if (att.type === 'document' && att.text) {
-            documentTokens += estimateTokenCount(att.text);
-          }
-        }
-        
-        if (documentTokens + estimateTokenCount(message) > userTokenLimit) {
-          toast({
-            title: "Document size warning",
-            description: `The uploaded documents contain approximately ${documentTokens.toLocaleString()} tokens, which may exceed the model's context length of ${userTokenLimit.toLocaleString()} tokens.`,
-            variant: "destructive"
-          });
-        }
-      }
-      
       return { success: true, fileName: file.name };
     } catch (error) {
       console.error('Error uploading file:', error);
@@ -221,198 +152,252 @@ export function ChatInput({ onSendMessage, isLoading, modelContextLength = 12800
     }
   };
 
-  // Process multiple files
   const processFiles = async (files: FileList | File[]) => {
     if (files.length === 0) return;
-    
     setUploadingFile(true);
-    
     try {
-      // Convert FileList to array
       const fileArray = Array.from(files);
-      
       if (fileArray.length > 5) {
-        toast({
-          title: "Too many files",
-          description: "You can upload a maximum of 5 files at once.",
-          variant: "destructive"
-        });
-        // Process only the first 5 files
+        toast({ title: "Too many files", description: "Maximum 5 files at once.", variant: "destructive" });
         fileArray.length = 5;
       }
-      
-      // Process each file
       const results = await Promise.all(fileArray.map(processFile));
-      
-      // Count successes and failures
       const successes = results.filter(r => r.success).length;
       const failures = results.filter(r => !r.success).length;
-      
-      // Notify user of results
       if (successes > 0 && failures === 0) {
-        toast({
-          title: 'Files uploaded',
-          description: `${successes} ${successes === 1 ? 'file' : 'files'} uploaded successfully`,
-        });
-      } else if (successes > 0 && failures > 0) {
-        toast({
-          title: 'Some files uploaded',
-          description: `${successes} of ${successes + failures} files uploaded successfully.`,
-          variant: 'destructive'
-        });
-      } else {
-        toast({
-          title: 'Upload failed',
-          description: 'All file uploads failed. Supported formats include documents (.pdf, .doc, .docx, .odt, .rtf, .txt), spreadsheets (.xlsx, .xls, .ods, .csv), presentations (.pptx, .ppt, .odp), and images (.jpg, .png, .gif, .svg).',
-          variant: 'destructive'
-        });
+        toast({ title: 'Files uploaded', description: `${successes} file${successes > 1 ? 's' : ''} uploaded` });
+      } else if (failures > 0) {
+        toast({ title: 'Upload issue', description: `${successes} of ${successes + failures} uploaded`, variant: 'destructive' });
       }
     } catch (error) {
-      console.error('Error processing files:', error);
-      toast({
-        title: 'Upload failed',
-        description: 'Failed to upload files. Please try again.',
-        variant: 'destructive'
-      });
+      toast({ title: 'Upload failed', description: 'Please try again.', variant: 'destructive' });
     } finally {
       setUploadingFile(false);
-      // Reset the input value so the same file can be selected again
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  // Handle file input change (from button click)
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     processFiles(e.target.files);
   };
-  
+
   const removeAttachment = (index: number) => {
-    // Create new attachment array without the removed item
-    const newAttachments = attachments.filter((_, i) => i !== index);
-    
-    // Update attachments array
-    setAttachments(newAttachments);
-    
-    toast({
-      title: "Attachment removed",
-      description: "The attachment has been removed.",
-    });
+    setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Drag and drop handlers
-  const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  }, [setIsDragging]);
-
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+  // Drag and drop
+  const handleDragEnter = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }, []);
+  const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); }, []);
+  const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }, []);
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation(); setIsDragging(false);
+    if (e.dataTransfer.files?.length) processFiles(e.dataTransfer.files);
   }, []);
 
-  const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  }, [setIsDragging]);
+  // Speech-to-text handlers
+  const handleMicClick = async () => {
+    try {
+      await startRecording();
+    } catch {
+      toast({ title: 'Microphone error', description: 'Could not access microphone.', variant: 'destructive' });
+    }
+  };
 
-  const handleDrop = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    
-    if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
-    
-    processFiles(e.dataTransfer.files);
-  }, [processFiles, setIsDragging]);
+  const handleConfirmRecording = async () => {
+    try {
+      const text = await stopRecording();
+      if (text) {
+        setMessage(prev => prev ? prev + ' ' + text : text);
+        // Focus textarea after transcription
+        setTimeout(() => textareaRef.current?.focus(), 100);
+      }
+    } catch {
+      toast({ title: 'Transcription failed', description: 'Could not transcribe audio.', variant: 'destructive' });
+    }
+  };
 
   return (
-    <div className="w-full h-full flex flex-col">
-      {attachments.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 p-2 mb-2 bg-muted rounded">
-          {attachments.map((attachment, index) => (
-            <Badge
-              key={`${attachment.url}-${index}`}
-              variant="outline"
-              className="flex items-center gap-1 py-1.5 max-w-full"
-            >
-              {attachment.type === 'image' ? (
-                <Image className="h-4 w-4 shrink-0" />
-              ) : (
-                <FileText className="h-4 w-4 shrink-0" />
-              )}
-              <span className="truncate max-w-[120px] sm:max-w-[200px]">{attachment.name}</span>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-5 w-5 rounded-full ml-1 shrink-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeAttachment(index);
-                }}
+    <div className="w-full">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileInputChange}
+        className="hidden"
+        multiple
+        accept="image/*,.pdf,.doc,.docx,.odt,.rtf,.txt,.xlsx,.xls,.ods,.csv,.pptx,.ppt,.odp"
+      />
+
+      {/* Pill container */}
+      <div
+        className={`rounded-2xl border bg-background shadow-sm transition-colors ${
+          isDragging ? 'border-primary ring-2 ring-primary/30' : 'border-border focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30'
+        }`}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {/* Attachment badges inside pill */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
+            {attachments.map((attachment, index) => (
+              <Badge
+                key={`${attachment.url}-${index}`}
+                variant="secondary"
+                className="flex items-center gap-1 py-1 text-xs"
               >
-                <X className="h-3 w-3" />
-              </Button>
-            </Badge>
-          ))}
-        </div>
-      )}
-      
-      <form onSubmit={handleSubmit} className="flex flex-col flex-1">
-        <input 
-          type="file" 
-          ref={fileInputRef} 
-          onChange={handleFileInputChange} 
-          className="hidden" 
-          multiple
-          accept="image/*,.pdf,.doc,.docx,.odt,.rtf,.txt,.xlsx,.xls,.ods,.csv,.pptx,.ppt,.odp"
-        />
-        
-        <div className="relative flex-1 mb-2">
-          <Textarea
-            ref={textareaRef}
-            value={message}
-            onChange={handleTextChange}
-            placeholder="Type your message..."
-            className={`min-h-[60px] h-full resize-none transition-all duration-200 ${isDragging ? 'border-primary border-2 shadow-lg shadow-primary/20' : 'focus:shadow-md'}`}
-            onKeyDown={handleKeyDown}
-            style={{ height: '100%' }}
-            onDragEnter={handleDragEnter}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          />
-          
-          {/* Drop zone indicator overlay */}
-          {isDragging && (
-            <div 
-              className="absolute inset-0 bg-primary/10 flex items-center justify-center pointer-events-none border-2 border-primary rounded-md"
-            >
-              <div className="flex flex-col items-center gap-2 text-center">
-                <FileText className="h-8 w-8 text-primary" />
-                <p className="font-medium text-sm">Drop files here to upload (up to 5)</p>
+                {attachment.type === 'image' ? <Image className="h-3 w-3 shrink-0" /> : <FileText className="h-3 w-3 shrink-0" />}
+                <span className="truncate max-w-[100px] sm:max-w-[160px]">{attachment.name}</span>
+                <button
+                  onClick={() => removeAttachment(index)}
+                  className="ml-0.5 hover:text-destructive"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+            {uploadingFile && (
+              <Badge variant="outline" className="flex items-center gap-1 py-1 text-xs">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Uploading...
+              </Badge>
+            )}
+          </div>
+        )}
+
+        {/* Input row */}
+        <form onSubmit={handleSubmit} className="flex items-center gap-1 p-2">
+          {/* [+] Attach button */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                disabled={speechState === 'recording' || uploadingFile}
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="min-w-[180px]">
+              <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                <FileText className="h-4 w-4 mr-2" />
+                Upload file
+              </DropdownMenuItem>
+              {onAddKnowledge && (
+                <DropdownMenuItem onClick={onAddKnowledge}>
+                  <BookOpen className="h-4 w-4 mr-2" />
+                  Add Knowledge
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Recording / transcribing / textarea */}
+          {speechState === 'recording' ? (
+            <div className="flex-1 flex items-center gap-1 h-10 px-2">
+              {/* Waveform */}
+              <div className="flex items-center gap-[2px] flex-1 h-8 overflow-hidden">
+                {audioLevels.map((level, i) => (
+                  <div
+                    key={i}
+                    className="w-[3px] bg-primary rounded-full transition-all duration-75"
+                    style={{ height: `${Math.max(3, level * 28)}px` }}
+                  />
+                ))}
               </div>
             </div>
+          ) : speechState === 'transcribing' ? (
+            <div className="flex-1 flex items-center justify-center h-10 text-sm text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Transcribing...
+            </div>
+          ) : (
+            <Textarea
+              ref={textareaRef}
+              value={message}
+              onChange={handleTextChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask anything"
+              className="flex-1 border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none min-h-[40px] max-h-[200px] py-2 px-1 text-sm"
+              style={{ outline: 'none' }}
+              rows={1}
+            />
           )}
+
+          {/* Right button: context-dependent */}
+          {speechState === 'recording' ? (
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={cancelRecording}
+                className="h-9 w-9 flex items-center justify-center rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                title="Cancel recording"
+              >
+                <X className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRecording}
+                className="h-9 w-9 flex items-center justify-center rounded-xl text-primary hover:bg-primary/10 transition-colors"
+                title="Stop and transcribe"
+              >
+                <CheckIcon className="h-5 w-5" />
+              </button>
+            </div>
+          ) : speechState === 'transcribing' ? null : message.trim() ? (
+            <button
+              type="submit"
+              disabled={isLoading}
+              onMouseDown={(e) => e.preventDefault()}
+              className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl bg-foreground text-background hover:bg-foreground/90 transition-colors disabled:opacity-50"
+            >
+              <SendHorizonal className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleMicClick}
+              className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Voice input"
+            >
+              <Mic className="h-5 w-5" />
+            </button>
+          )}
+        </form>
+      </div>
+
+      {/* Info row below pill */}
+      <div className="flex items-center gap-2 mt-1.5 px-2 text-xs text-muted-foreground">
+        {onToggleNsfw && (
+          <button
+            type="button"
+            onClick={onToggleNsfw}
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${
+              isNsfw ? "text-destructive font-medium" : "hover:text-foreground"
+            }`}
+          >
+            {isNsfw ? "Hidden" : "Hide"}
+          </button>
+        )}
+        {queueSize > 0 && (
+          <button
+            type="button"
+            onClick={onClearQueue}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20"
+          >
+            {queueSize} queued <X className="h-3 w-3" />
+          </button>
+        )}
+        <div className="ml-auto">
+          <span className={isOverLimit ? "text-destructive font-medium" : ""}>
+            {tokenCount.toLocaleString()}
+          </span>
+          {' / '}
+          <span className="hidden sm:inline">{userTokenLimit.toLocaleString()} tokens</span>
+          <span className="sm:hidden">{(userTokenLimit / 1000).toFixed(0)}k</span>
         </div>
-        
-        <div className="flex flex-row gap-2 items-center justify-end">
-          <div className="text-xs text-muted-foreground mr-auto sm:mr-2">
-            <span className={isOverLimit ? "text-destructive font-medium" : ""}>
-              {tokenCount.toLocaleString()}
-            </span>
-            <span className="hidden sm:inline"> / </span>
-            <span className="sm:hidden">/</span>
-            <span className="hidden sm:inline">{userTokenLimit.toLocaleString()}</span>
-            <span className="sm:hidden">{(userTokenLimit / 1000).toFixed(0)}k</span>
-            <span className="hidden sm:inline"> tokens</span>
-          </div>
-          {renderUploadButton()}
-          {renderSendButton()}
-        </div>
-      </form>
+      </div>
     </div>
   );
 }

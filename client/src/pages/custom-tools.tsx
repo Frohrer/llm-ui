@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, Edit2, Play, Code, Settings, Sparkles, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Edit2, Play, Code, Settings, Sparkles, Loader2, ArrowLeft } from 'lucide-react';
 
 interface CustomTool {
   id: number;
@@ -399,12 +399,14 @@ export default function CustomToolsPage() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Custom Tools</h1>
-        <Button asChild variant="outline"><Link href="/">Back to Chat</Link></Button>
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6 overflow-x-hidden">
+      <div className="flex items-center gap-2 sm:gap-4">
+        <Button variant="ghost" size="icon" asChild className="shrink-0">
+          <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
+        </Button>
+        <h1 className="text-2xl sm:text-3xl font-bold">Custom Tools</h1>
       </div>
-      <p className="text-muted-foreground">
+      <p className="text-sm sm:text-base text-muted-foreground">
         Create and manage custom Python tools for your AI assistants
       </p>
       <div className="flex justify-end items-center">
@@ -795,7 +797,7 @@ export default function CustomToolsPage() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-12">Loading tools...</div>
+        <div className="text-center py-12"><span className="loading-dots text-muted-foreground"><span>.</span><span>.</span><span>.</span></span></div>
       ) : tools.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
@@ -811,15 +813,15 @@ export default function CustomToolsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 overflow-hidden">
           {tools.map((tool) => (
             <Card key={tool.id} className={!tool.is_enabled ? 'opacity-60' : ''}>
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <CardTitle className="flex items-center gap-2">
-                      <Code className="h-4 w-4" />
-                      {tool.name}
+                    <CardTitle className="flex items-center gap-2 min-w-0">
+                      <Code className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{tool.name}</span>
                     </CardTitle>
                     <CardDescription className="mt-2">
                       {tool.description}

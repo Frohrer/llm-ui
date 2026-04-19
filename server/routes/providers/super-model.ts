@@ -7,6 +7,7 @@ import { getAnthropicClient } from './anthropic';
 import { getOpenAIClient } from './openai';
 import { getGeminiClient } from './gemini';
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
+import { buildSystemPrompt } from "../../user-preferences-service";
 
 const router = express.Router();
 
@@ -124,6 +125,7 @@ router.post("/", async (req: Request, res: Response) => {
     useKnowledge = false,
     pendingKnowledgeSources = [],
     useTools = false,
+    skipSystemPrompt = false,
   } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -256,12 +258,6 @@ router.post("/", async (req: Request, res: Response) => {
       .map((msg: any) => {
         let content = msg.content;
 
-        // Add timestamp so LLM understands time passage between messages
-        if (msg.timestamp) {
-          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-          content = `[${msgTime}] ${content}`;
-        }
-
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -287,9 +283,8 @@ router.post("/", async (req: Request, res: Response) => {
       knowledgeContent = await prepareKnowledgeContentForConversation(dbConversation.id);
     }
 
-    // Prepare the current message with knowledge and timestamp
-    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
-    let currentMessage = currentTimeStr + message;
+    // Prepare the current message with knowledge
+    let currentMessage = message;
     if (knowledgeContent) {
       currentMessage += "\n\nKnowledge Sources:\n" + knowledgeContent;
     }
@@ -299,6 +294,14 @@ router.post("/", async (req: Request, res: Response) => {
       role: "user",
       content: currentMessage,
     });
+
+    // Build and add system prompt
+    if (!skipSystemPrompt) {
+      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      if (systemPrompt) {
+        apiMessages.unshift({ role: "system", content: systemPrompt });
+      }
+    }
 
     // Send initial conversation data
     res.write(

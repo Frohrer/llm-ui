@@ -4,7 +4,8 @@ services:
     build: .
     ports:
       - "5000:5000"
-    volumes: []
+    volumes:
+      - uploads_data:/app/uploads
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-chat_app}?sslmode=disable
@@ -17,8 +18,7 @@ services:
       - PGUSER=${POSTGRES_USER:-postgres}
       - PGPASSWORD=${POSTGRES_PASSWORD:-postgres}
       - PGDATABASE=${POSTGRES_DB:-chat_app}
-      - AZURE_SPEECH_KEY=${AZURE_SPEECH_KEY}
-      - AZURE_SPEECH_REGION=${AZURE_SPEECH_REGION}
+      - ADMIN_EMAILS=${ADMIN_EMAILS}
       - NEXT_PUBLIC_CUSTOMER_NAME=${NEXT_PUBLIC_CUSTOMER_NAME}
       - FAL_KEY=${FAL_KEY}
       - XAI_KEY=${XAI_KEY}
@@ -70,3 +70,4 @@ networks:
 
 volumes:
   postgres_data:
+  uploads_data:

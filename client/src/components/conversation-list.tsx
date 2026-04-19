@@ -1,50 +1,76 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
-import { formatDistanceToNow, isToday, isThisWeek, parseISO } from "date-fns";
-import { Trash2, Search, X, Mic } from "lucide-react";
+import { formatDistanceToNow, isToday, isThisWeek, isThisMonth, parseISO } from "date-fns";
+import { Trash2, Search, X, MessageSquare, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Conversation } from "@/lib/llm/types";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ConversationListProps {
   activeConversation?: Conversation;
   onSelectConversation: (conversation: Conversation | undefined) => void;
+  hideNsfw?: boolean;
+  onToggleHideNsfw?: () => void;
+  compact?: boolean;
 }
 
 export function ConversationList({
   activeConversation,
   onSelectConversation,
+  hideNsfw = false,
+  onToggleHideNsfw,
+  compact = false,
 }: ConversationListProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
-  
-  // Helper to check if a conversation is a voice chat
+
   const isVoiceConversation = (conv: Conversation) => conv.provider === 'openai-realtime';
 
-  // Debounce search query
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery);
     }, 300);
-
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
   const {
-    data: conversations,
+    data: conversationsData,
     isLoading,
     error,
-  } = useQuery<Conversation[]>({
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<{ conversations: Conversation[]; nextCursor: string | null }>({
     queryKey: ["/api/conversations"],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: "50" });
+      if (pageParam) params.set("before", pageParam as string);
+      const response = await fetch(`/api/conversations?${params}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch conversations");
+      return response.json();
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    initialPageParam: undefined as string | undefined,
   });
 
-  // Search query - only triggered when there's a search term
+  const conversations = useMemo(
+    () => conversationsData?.pages.flatMap((p) => p.conversations) ?? [],
+    [conversationsData],
+  );
+
   const {
     data: searchResults,
     isLoading: isSearching,
@@ -61,21 +87,6 @@ export function ConversationList({
     enabled: debouncedSearchQuery.trim().length > 0,
   });
 
-  // Query for messages when a conversation is selected
-  const { data: activeConversationWithMessages } = useQuery<Conversation>({
-    queryKey: ["/api/conversations", activeConversation?.id, "messages"],
-    queryFn: async () => {
-      if (!activeConversation?.id) return undefined;
-      const response = await fetch(`/api/conversations/${activeConversation.id}/messages`);
-      if (!response.ok) {
-        throw new Error("Failed to fetch conversation messages");
-      }
-      return response.json();
-    },
-    enabled: !!activeConversation?.id,
-  });
-
-  // Delete conversation mutation
   const deleteMutation = useMutation({
     mutationFn: async (conversationId: number) => {
       const response = await fetch(`/api/conversations/${conversationId}`, {
@@ -104,8 +115,6 @@ export function ConversationList({
     },
   });
 
-  // Removed handleNewChat function as it's now handled in the MainSidebar
-
   const handleDelete = async (
     conversationId: number,
     event: React.MouseEvent,
@@ -120,12 +129,13 @@ export function ConversationList({
   };
 
   const categorizedConversations = useMemo(() => {
-    // Use search results if searching, otherwise use all conversations
     const conversationsToUse = debouncedSearchQuery.trim().length > 0 ? searchResults : conversations;
-    
-    if (!conversationsToUse) return { today: [], thisWeek: [], older: [] };
 
-    return conversationsToUse.reduce(
+    if (!conversationsToUse) return { today: [], thisWeek: [], thisMonth: [], older: [] };
+
+    const filtered = hideNsfw ? conversationsToUse.filter(c => !c.isNsfw) : conversationsToUse;
+
+    return filtered.reduce(
       (acc, conv) => {
         const lastMessageDate = parseISO(conv.lastMessageAt);
 
@@ -133,55 +143,94 @@ export function ConversationList({
           acc.today = [...(acc.today || []), conv];
         } else if (isThisWeek(lastMessageDate)) {
           acc.thisWeek = [...(acc.thisWeek || []), conv];
+        } else if (isThisMonth(lastMessageDate)) {
+          acc.thisMonth = [...(acc.thisMonth || []), conv];
         } else {
           acc.older = [...(acc.older || []), conv];
         }
 
         return acc;
       },
-      { today: [], thisWeek: [], older: [] } as Record<"today" | "thisWeek" | "older", Conversation[]>,
+      { today: [], thisWeek: [], thisMonth: [], older: [] } as Record<"today" | "thisWeek" | "thisMonth" | "older", Conversation[]>,
     );
-  }, [conversations, searchResults, debouncedSearchQuery]);
-
-  // Update active conversation with messages when they are loaded
-  useEffect(() => {
-    if (activeConversationWithMessages) {
-      onSelectConversation(activeConversationWithMessages);
-    }
-  }, [activeConversationWithMessages, onSelectConversation]);
+  }, [conversations, searchResults, debouncedSearchQuery, hideNsfw]);
 
   const clearSearch = useCallback(() => {
     setSearchQuery("");
     setDebouncedSearchQuery("");
   }, []);
 
+  const handleConversationClick = (conv: Conversation) => {
+    if (isVoiceConversation(conv)) {
+      setLocation(`/voice-chat/${conv.id}`);
+    } else {
+      onSelectConversation(conv);
+    }
+  };
+
+  // Format model name for display
+  const formatModelName = (model: string) => {
+    if (!model) return "";
+    // Shorten common prefixes
+    return model
+      .replace(/^gpt-/, "")
+      .replace(/^claude-/, "")
+      .replace(/^gemini-/, "gem-")
+      .replace(/-(?:latest|preview)$/, "");
+  };
+
+  const searchInput = (
+    <div className="shrink-0">
+      <div className="relative px-3 pr-10 py-2.5 flex items-center gap-1">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+          <Input
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8 pr-8 h-9 text-sm border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 bg-transparent outline-none"
+          />
+          {searchQuery && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute right-0 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+              onClick={clearSearch}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+        {onToggleHideNsfw && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-8 w-8 shrink-0 ${!hideNsfw ? "text-primary" : "text-muted-foreground"}`}
+                  onClick={onToggleHideNsfw}
+                >
+                  {hideNsfw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {hideNsfw ? "Show hidden conversations" : "Hide hidden conversations"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
+      <hr className="border-border" />
+    </div>
+  );
+
   if (isLoading) {
     return (
       <div className="flex flex-col h-full">
-        {/* Search input even during loading */}
-        <div className="p-4 pb-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-            <Input
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-10"
-            />
-            {searchQuery && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                onClick={clearSearch}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            )}
-          </div>
-        </div>
-        <div className="p-4 pt-2 text-muted-foreground text-sm md:text-base">
-          Loading conversations...
+        {searchInput}
+        <div className="px-4 pt-2 text-muted-foreground text-sm">
+          <span className="loading-dots"><span>.</span><span>.</span><span>.</span></span>
         </div>
       </div>
     );
@@ -190,43 +239,69 @@ export function ConversationList({
   if (error) {
     return (
       <div className="flex flex-col h-full">
-        {/* Search input even during error */}
-        <div className="p-4 pb-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-            <Input
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-10"
-            />
-            {searchQuery && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                onClick={clearSearch}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            )}
-          </div>
-        </div>
-        <div className="p-4 pt-2 text-destructive text-sm md:text-base">
-          Error loading conversations. Please try again later.
+        {searchInput}
+        <div className="px-4 pt-2 text-destructive text-sm">
+          Failed to load conversations.
         </div>
       </div>
     );
   }
 
-  const handleConversationClick = (conv: Conversation) => {
-    if (isVoiceConversation(conv)) {
-      // Navigate to voice chat page for voice conversations
-      setLocation(`/voice-chat/${conv.id}`);
-    } else {
-      // Use the regular conversation selection for text chats
-      onSelectConversation(conv);
-    }
+  const renderConversationItem = (conv: Conversation) => {
+    const isVoice = isVoiceConversation(conv);
+    const isActive = conv.id === activeConversation?.id;
+    const modelLabel = formatModelName(conv.model);
+    const messageCount = conv.messages?.length;
+
+    return (
+      <div
+        key={conv.id}
+        className={`group relative px-2 py-0.5 rounded-md cursor-pointer transition-colors ${
+          isActive
+            ? "bg-accent text-accent-foreground"
+            : "hover:bg-accent/50"
+        }`}
+        onClick={() => handleConversationClick(conv)}
+      >
+        {/* Content */}
+        <div className="min-w-0 overflow-hidden" style={{ maxWidth: 'calc(100% - 1.5rem)' }}>
+          <p className="text-sm font-medium truncate">
+            {conv.title}
+          </p>
+          <div className="flex items-center gap-1.5">
+            {modelLabel && (
+              <span className="text-[11px] text-muted-foreground/70 truncate max-w-[100px]">
+                {modelLabel}
+              </span>
+            )}
+            {modelLabel && (
+              <span className="text-muted-foreground/40 text-[10px]">&middot;</span>
+            )}
+            <span className="text-[11px] text-muted-foreground/70 whitespace-nowrap">
+              {formatDistanceToNow(parseISO(conv.lastMessageAt), { addSuffix: true })}
+            </span>
+            {messageCount != null && messageCount > 0 && (
+              <>
+                <span className="text-muted-foreground/40 text-[10px]">&middot;</span>
+                <span className="text-[11px] text-muted-foreground/70 whitespace-nowrap">
+                  {messageCount} msg{messageCount !== 1 ? "s" : ""}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Delete button — visible on hover (desktop) or always subtly visible (mobile/touch) */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 flex-shrink-0 opacity-40 sm:opacity-0 group-hover:opacity-100 transition-opacity absolute right-1.5 top-1/2 -translate-y-1/2"
+          onClick={(e) => handleDelete(conv.id, e)}
+        >
+          <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+        </Button>
+      </div>
+    );
   };
 
   const renderCategory = (
@@ -236,55 +311,17 @@ export function ConversationList({
     if (!conversations.length) return null;
 
     return (
-      <div key={title} className="mb-6">
-        <h3 className="mb-2 px-2 text-xs md:text-sm font-semibold text-muted-foreground">
+      <div key={title} className="mb-1">
+        <h3 className="mb-1 px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
           {title}
         </h3>
-        <div className="space-y-1">
-          {conversations.map((conv) => {
-            const isVoice = isVoiceConversation(conv);
-            return (
-              <div key={conv.id} className="group grid grid-cols-[1fr,40px] items-center px-2 w-full">
-                <Button
-                  variant={
-                    conv.id === activeConversation?.id ? "secondary" : "ghost"
-                  }
-                  className="w-full justify-start text-left h-auto py-3 md:py-2 overflow-hidden pr-1"
-                  onClick={() => handleConversationClick(conv)}
-                >
-                  <div className="flex items-start gap-2 w-full overflow-hidden">
-                    {isVoice && (
-                      <Mic className="h-4 w-4 flex-shrink-0 mt-0.5 text-muted-foreground" />
-                    )}
-                    <div className="flex flex-col items-start w-full overflow-hidden">
-                      <span className="text-sm md:text-base truncate w-full inline-block">
-                        {conv.title}
-                      </span>
-                      <span className="text-xs text-muted-foreground truncate w-full inline-block">
-                        {isVoice ? '🎙️ ' : ''}{formatDistanceToNow(parseISO(conv.lastMessageAt), {
-                          addSuffix: true,
-                        })}
-                      </span>
-                    </div>
-                  </div>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 justify-self-end"
-                  onClick={(e) => handleDelete(conv.id, e)}
-                >
-                  <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                </Button>
-              </div>
-            );
-          })}
+        <div className="space-y-0.5">
+          {conversations.map(renderConversationItem)}
         </div>
       </div>
     );
   };
 
-  // Determine if we're showing search results
   const isShowingSearchResults = debouncedSearchQuery.trim().length > 0;
   const currentConversations = isShowingSearchResults ? searchResults : conversations;
   const hasNoResults = isShowingSearchResults && searchResults?.length === 0;
@@ -292,66 +329,54 @@ export function ConversationList({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Search Input */}
-      <div className="p-4 pb-2">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-          <Input
-            placeholder="Search conversations..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 pr-10"
-          />
-          {searchQuery && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-              onClick={clearSearch}
-            >
-              <X className="h-3 w-3" />
-            </Button>
-          )}
-        </div>
-      </div>
+      {searchInput}
 
-      {/* Results */}
-      <ScrollArea className="flex-1">
-        <div className="p-4 pt-2 space-y-2">
-          {/* Loading state for search */}
+      <ScrollArea className="flex-1 [&>div>div]:!block">
+        <div className="px-1 pb-2 overflow-hidden">
           {isSearching && isShowingSearchResults && (
-            <div className="text-center text-muted-foreground text-sm md:text-base">
-              Searching conversations...
+            <div className="text-center text-muted-foreground text-sm py-4">
+              Searching...
             </div>
           )}
 
-          {/* Search error */}
           {searchError && isShowingSearchResults && (
-            <div className="text-center text-destructive text-sm md:text-base">
-              Error searching conversations. Please try again.
+            <div className="text-center text-destructive text-sm py-4">
+              Search failed. Please try again.
             </div>
           )}
 
-          {/* No search results */}
           {hasNoResults && !isSearching && (
-            <div className="text-center text-muted-foreground text-sm md:text-base">
-              No conversations found matching "{debouncedSearchQuery}".
+            <div className="text-center text-muted-foreground text-sm py-8">
+              No results for "{debouncedSearchQuery}"
             </div>
           )}
 
-          {/* No conversations at all */}
           {hasNoConversations && (
-            <div className="text-center text-muted-foreground text-sm md:text-base">
-              No conversations yet. Start a new chat to begin.
+            <div className="flex flex-col items-center justify-center text-muted-foreground text-sm py-12 px-4">
+              <MessageSquare className="h-8 w-8 mb-3 opacity-30" />
+              <span className="text-center">No conversations yet</span>
             </div>
           )}
 
-          {/* Show categorized results */}
           {currentConversations && currentConversations.length > 0 && !isSearching && (
             <>
               {renderCategory("Today", categorizedConversations.today)}
               {renderCategory("This Week", categorizedConversations.thisWeek)}
-              {renderCategory("Previous", categorizedConversations.older)}
+              {renderCategory("This Month", categorizedConversations.thisMonth)}
+              {renderCategory("Older", categorizedConversations.older)}
+              {!isShowingSearchResults && hasNextPage && (
+                <div className="px-2 py-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-xs text-muted-foreground"
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                  >
+                    {isFetchingNextPage ? "Loading..." : "Load more"}
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </div>

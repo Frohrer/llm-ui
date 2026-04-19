@@ -48,6 +48,35 @@ if [ $? -ne 0 ]; then
     # Don't exit - migration might already be applied
 fi
 
+# Add NSFW flag to conversations
+echo "Adding NSFW flag to conversations..."
+psql -f migrations/0005_add_nsfw_flag.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to add NSFW flag (may already be applied)"
+    # Don't exit - migration might already be applied
+fi
+
+# Add is_admin column to users
+echo "Adding is_admin column to users..."
+psql -f migrations/0006_add_is_admin_to_users.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to add is_admin column (may already be applied)"
+fi
+
+# Create model_settings table
+echo "Creating model_settings table..."
+psql -f migrations/0007_create_model_settings.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to create model_settings table (may already be applied)"
+fi
+
+# Add performance indexes for conversation/message queries
+echo "Adding performance indexes..."
+psql -f migrations/0008_add_performance_indexes.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to add performance indexes (may already be applied)"
+fi
+
 echo "Database schema setup completed!"
 
 # Start the application

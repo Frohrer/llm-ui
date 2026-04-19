@@ -61,6 +61,7 @@
         "parameters": {
           "aspect_ratio": "1:1",
           "num_images": 1,
+          "enable_safety_checker": false,
           "output_format": "png",
           "sync_mode": true
         }
@@ -74,6 +75,7 @@
           "aspect_ratio": "1:1",
           "resolution": "1K",
           "num_images": 1,
+          "enable_safety_checker": false,
           "output_format": "png",
           "sync_mode": true
         }

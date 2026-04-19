@@ -25,24 +25,13 @@ export async function getUserCustomPrompt(userId: number): Promise<string> {
 }
 
 /**
- * Build a system message that includes the user's custom prompt
- * @param baseSystemPrompt - The base system prompt
+ * Build a system message from the user's custom prompt
  * @param userId - The user ID
- * @returns Combined system prompt
+ * @returns System prompt string or empty string
  */
 export async function buildSystemPrompt(
-  baseSystemPrompt: string,
   userId: number
 ): Promise<string> {
   const customPrompt = await getUserCustomPrompt(userId);
-
-  if (!customPrompt) {
-    return baseSystemPrompt;
-  }
-
-  // Combine base prompt with custom prompt
-  return `${baseSystemPrompt}
-
-## User Preferences and Context
-${customPrompt}`;
+  return customPrompt || "";
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { nanoid } from "nanoid";
 import { Message } from "@/components/chat/message";
 import { ChatInput } from "@/components/chat/chat-input";
@@ -53,14 +53,25 @@ export function MultiChatWindow({
   isMultiModelMode = true,
   onToggleMode,
 }: MultiChatWindowProps) {
+  type QueuedMessage = {
+    id: string;
+    content: string;
+    attachment?: { type: "document" | "image"; url: string; text?: string; name: string };
+    allAttachments?: { type: "document" | "image"; url: string; text?: string; name: string }[];
+  };
+
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [conversations, setConversations] = useState<Record<string, ModelConversation>>({});
   const [providers, setProviders] = useState<Record<string, any>>({});
   const [isLoadingProviders, setIsLoadingProviders] = useState(true);
   const [useTools, setUseTools] = useState<boolean>(false);
+  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
+  const isProcessingQueueRef = useRef(false);
+  const anyModelLoading = Object.values(conversations).some(conv => conv.isLoading);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const containerRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const shouldAutoScrollRefs = useRef<Record<string, boolean>>({});
 
   // Load providers on component mount
   useEffect(() => {
@@ -99,10 +110,19 @@ export function MultiChatWindow({
     loadProviders();
   }, []);
 
+  // Initialize auto-scroll state for new models
+  useEffect(() => {
+    selectedModels.forEach(id => {
+      if (shouldAutoScrollRefs.current[id] === undefined) {
+        shouldAutoScrollRefs.current[id] = true;
+      }
+    });
+  }, [selectedModels]);
+
   // Initialize conversations when models change
   useEffect(() => {
     const newConversations: Record<string, ModelConversation> = {};
-    
+
     selectedModels.forEach(modelId => {
       if (conversations[modelId]) {
         // Keep existing conversation
@@ -129,6 +149,34 @@ export function MultiChatWindow({
     setConversations(newConversations);
   }, [selectedModels]);
 
+  // Process queued messages when all models finish loading
+  useEffect(() => {
+    if (!anyModelLoading && messageQueue.length > 0 && !isProcessingQueueRef.current) {
+      isProcessingQueueRef.current = true;
+      const [next, ...rest] = messageQueue;
+      setMessageQueue(rest);
+
+      // Remove the optimistic queued user message
+      setConversations((prev) => {
+        const updated = { ...prev };
+        for (const modelId of selectedModels) {
+          if (updated[modelId]) {
+            updated[modelId] = {
+              ...updated[modelId],
+              messages: updated[modelId].messages.filter((m) => m.id !== `queued-${next.id}`),
+            };
+          }
+        }
+        return updated;
+      });
+
+      setTimeout(() => {
+        isProcessingQueueRef.current = false;
+        handleSendMessage(next.content, next.attachment, next.allAttachments);
+      }, 100);
+    }
+  }, [anyModelLoading, messageQueue]);
+
      const getProviderForModel = (modelId: string): string => {
      if (!providers) return "";
      for (const provider of Object.values(providers)) {
@@ -150,6 +198,15 @@ export function MultiChatWindow({
      return modelId;
    };
 
+     const getModelSkipSystemPrompt = (modelId: string): boolean => {
+     if (!providers) return false;
+     for (const provider of Object.values(providers)) {
+       const model = provider.config.models.find((m: any) => m.id === modelId);
+       if (model) return model.skipSystemPrompt || false;
+     }
+     return false;
+   };
+
      const getModelContextLength = (modelId: string): number => {
      if (!providers) return 128000;
      for (const provider of Object.values(providers)) {
@@ -161,32 +218,23 @@ export function MultiChatWindow({
      return 128000;
    };
 
-  const scrollToBottom = (modelId: string) => {
+  // Get the scroll viewport for a given model panel
+  const getViewportForModel = useCallback((modelId: string) => {
     const container = containerRefs.current[modelId];
-    if (!container) return;
-
-    const viewport = container
-      .closest('.relative.h-full')
+    if (!container) return null;
+    return container.closest('.relative.h-full')
       ?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+  }, []);
 
-    // Anchor: last rendered element acts as bottom. If absent, fallback to viewport.
-    const bottomAnchor = container.lastElementChild as HTMLElement | null;
-
-    const doScroll = () => {
-      if (bottomAnchor) {
-        bottomAnchor.scrollIntoView({ block: 'end', behavior: 'auto' });
-      } else if (viewport) {
-        viewport.scrollTop = viewport.scrollHeight;
+  // Auto-scroll all panels whose auto-scroll is enabled whenever conversations state changes
+  useLayoutEffect(() => {
+    selectedModels.forEach(modelId => {
+      if (shouldAutoScrollRefs.current[modelId]) {
+        const viewport = getViewportForModel(modelId);
+        if (viewport) viewport.scrollTop = viewport.scrollHeight;
       }
-    };
-
-    // Triple rAF to ensure all DOM updates and layout changes have completed
-    requestAnimationFrame(() => 
-      requestAnimationFrame(() => 
-        requestAnimationFrame(doScroll)
-      )
-    );
-  };
+    });
+  }, [conversations, selectedModels, getViewportForModel]);
 
   const handleSendMessage = async (
     content: string,
@@ -210,6 +258,41 @@ export function MultiChatWindow({
         description: "Please select at least one model before sending a message.",
       });
       return;
+    }
+
+    // If any model is still loading, queue the message
+    if (anyModelLoading) {
+      const queued: QueuedMessage = {
+        id: nanoid(),
+        content,
+        attachment,
+        allAttachments,
+      };
+      setMessageQueue((prev) => [...prev, queued]);
+
+      // Show the queued message in all conversations immediately
+      const queuedUserMessage: MessageType = {
+        id: `queued-${queued.id}`,
+        role: "user",
+        content,
+        timestamp: Date.now(),
+        attachment,
+        attachments: allAttachments,
+      };
+      setConversations((prev) => {
+        const updated = { ...prev };
+        for (const modelId of selectedModels) {
+          if (updated[modelId]) {
+            updated[modelId] = {
+              ...updated[modelId],
+              messages: [...updated[modelId].messages, queuedUserMessage],
+            };
+          }
+        }
+        return updated;
+      });
+      selectedModels.forEach(id => { shouldAutoScrollRefs.current[id] = true; });
+      return true;
     }
 
     const timestamp = Date.now();
@@ -258,10 +341,8 @@ export function MultiChatWindow({
 
     setConversations(updatedConversations);
 
-    // Scroll to bottom for all conversations
-    selectedModels.forEach(modelId => {
-      setTimeout(() => scrollToBottom(modelId), 0);
-    });
+    // Force auto-scroll for all models — useLayoutEffect handles the actual scrolling
+    selectedModels.forEach(id => { shouldAutoScrollRefs.current[id] = true; });
 
     // Wait for all streams to complete
     try {
@@ -295,6 +376,7 @@ export function MultiChatWindow({
           model: modelId,
           attachment,
           allAttachments: allAttachments || [],
+          skipSystemPrompt: getModelSkipSystemPrompt(modelId),
           useKnowledge: true,
           pendingKnowledgeSources: [],
           useTools,
@@ -417,8 +499,7 @@ export function MultiChatWindow({
               return prev;
             });
 
-            // Auto-scroll with delay to ensure DOM updates
-            setTimeout(() => scrollToBottom(modelId), 50);
+            // useLayoutEffect on conversations handles the scroll
           } catch (error) {
             console.error("Error processing SSE data:", error);
             isStreamActive = false;
@@ -478,8 +559,7 @@ export function MultiChatWindow({
     }
   };
 
-  const anyModelLoading = Object.values(conversations).some(conv => conv.isLoading);
-  const minContextLength = selectedModels.length > 0 
+  const minContextLength = selectedModels.length > 0
     ? Math.min(...selectedModels.map(getModelContextLength))
     : 128000;
 
@@ -499,34 +579,16 @@ export function MultiChatWindow({
     return best;
   };
 
-  const getRandomThinkingMessage = () => {
-    const messages = [
-      "Getting the ducks in a row",
-      "Thinking about it", 
-      "Being lazy",
-      "Hopefully we don't hit rate limits",
-      "You should be working/sleeping/going outside",
-      "Sponsored by Sam Altman",
-      "If you're reading this, you're probably not a duck",
-      "I'm not a duck",
-      "This chat exists in a quantum superposition of all possible conversations",
-      "Doing a lot of math really fast",
-      "Reticulating splines",
-      "Please tip your system administrator"
-    ];
-    return messages[Math.floor(Math.random() * messages.length)];
-  };
-
   return (
     <div className="flex flex-col h-screen bg-background">
-      <div className="p-2 md:p-4 border-b flex items-center justify-between gap-2">
+      <div className="px-2 py-2 md:p-4 border-b flex items-center justify-between gap-1 sm:gap-2">
         <div className="flex items-center gap-1 md:gap-2 min-w-0">
           {mobileMenuTrigger}
-          <h2 className="font-semibold text-sm md:text-lg hidden md:block truncate">
-            Multi-Model Chat
+          <h2 className="font-semibold text-sm md:text-lg hidden sm:block truncate">
+            Multi-Model
           </h2>
         </div>
-        <div className="flex items-center gap-1 md:gap-2 shrink-0">
+        <div className="flex items-center gap-1 md:gap-2 shrink-0 min-w-0">
           <MultiModelSelector
             selectedModels={selectedModels}
             onModelChange={setSelectedModels}
@@ -599,19 +661,15 @@ export function MultiChatWindow({
                     {renderModelChat(selectedModels[0])}
                   </div>
                 ) : (
-                  // Grid for multiple models - stack on mobile
+                  // Grid for multiple models - stack on mobile via CSS
                   <div
-                    className="h-full grid gap-2 p-2"
-                    style={{
-                      gridTemplateColumns:
-                        window.innerWidth < 768
-                          ? "1fr" // Stack on mobile
-                          : selectedModels.length === 2
-                          ? "1fr 1fr"
-                          : selectedModels.length === 3
-                          ? "1fr 1fr 1fr"
-                          : "repeat(auto-fit, minmax(300px, 1fr))"
-                    }}
+                    className={`h-full grid gap-2 p-2 ${
+                      selectedModels.length === 2
+                        ? "grid-cols-1 md:grid-cols-2"
+                        : selectedModels.length === 3
+                        ? "grid-cols-1 md:grid-cols-3"
+                        : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
+                    }`}
                   >
                     {selectedModels.map(modelId => (
                       <div key={modelId} className="min-h-0">
@@ -633,6 +691,23 @@ export function MultiChatWindow({
                   isLoading={anyModelLoading}
                   modelContextLength={minContextLength}
                   contextMessages={getLongestConversationMessages()}
+                  queueSize={messageQueue.length}
+                  onClearQueue={() => {
+                    const queuedIds = new Set(messageQueue.map((q) => `queued-${q.id}`));
+                    setConversations((prev) => {
+                      const updated = { ...prev };
+                      for (const modelId of selectedModels) {
+                        if (updated[modelId]) {
+                          updated[modelId] = {
+                            ...updated[modelId],
+                            messages: updated[modelId].messages.filter((m) => !queuedIds.has(m.id)),
+                          };
+                        }
+                      }
+                      return updated;
+                    });
+                    setMessageQueue([]);
+                  }}
                 />
               </div>
             </ResizablePanel>
@@ -666,7 +741,12 @@ export function MultiChatWindow({
         </CardHeader>
         <CardContent className="flex-1 p-2 min-h-0">
           <div className="relative h-full">
-            <ScrollArea className="h-full w-full">
+            <ScrollArea className="h-full w-full" onScrollCapture={() => {
+              const viewport = getViewportForModel(modelId);
+              if (!viewport) return;
+              const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 80;
+              shouldAutoScrollRefs.current[modelId] = atBottom;
+            }}>
               <div
                 className="p-2 space-y-4 max-w-full overflow-x-hidden"
                 ref={(el) => containerRefs.current[modelId] = el}
@@ -687,8 +767,8 @@ export function MultiChatWindow({
                   />
                 )}
                 {conversation.isLoading && !conversation.streamedText && (
-                  <div className="animate-pulse text-sm text-muted-foreground">
-                    {getRandomThinkingMessage()}
+                  <div className="loading-dots text-muted-foreground">
+                    <span>.</span><span>.</span><span>.</span>
                   </div>
                 )}
               </div>

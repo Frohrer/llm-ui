@@ -1,0 +1,1 @@
+ALTER TABLE conversations ADD COLUMN is_nsfw BOOLEAN NOT NULL DEFAULT false;

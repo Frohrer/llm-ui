@@ -9,6 +9,7 @@ const ModelConfigSchema = z.object({
   name: z.string(),
   contextLength: z.number(),
   defaultModel: z.boolean(),
+  supportsResponsesAPI: z.boolean().optional(),
 });
 
 const ProviderConfigSchema = z.object({

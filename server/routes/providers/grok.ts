@@ -9,6 +9,7 @@ import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } fr
 import OpenAI from "openai";
 import { getToolDefinitions, getTools, handleToolCalls } from "../../tools";
 import { prepareContext, isContextLengthError } from "../../context-manager";
+import { buildSystemPrompt } from "../../user-preferences-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -45,6 +46,7 @@ router.post("/", async (req: Request, res: Response) => {
       useKnowledge = false,
       pendingKnowledgeSources = [],
       useTools = false, // New parameter to enable/disable tool calling
+      skipSystemPrompt = false,
     } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -180,12 +182,6 @@ router.post("/", async (req: Request, res: Response) => {
       .map((msg: any) => {
         let content = msg.content;
 
-        // Add timestamp so LLM understands time passage between messages
-        if (msg.timestamp) {
-          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-          content = `[${msgTime}] ${content}`;
-        }
-
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -284,24 +280,21 @@ router.post("/", async (req: Request, res: Response) => {
     const isVisionModel = model === "grok-2-vision" || model === "grok-2-image";
     const useVisionModel = hasImageAttachment && isVisionModel;
 
-    // Add current timestamp to the user message so LLM understands time passage
-    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
-
     // Create the message based on what we have
     if (hasImageAttachment && useVisionModel) {
       // For Grok with images, create a message with text and image attachments
-      let textContent = currentTimeStr + message;
-      
+      let textContent = message;
+
       // Add document content
       if (documentTexts.length > 0) {
         textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
       }
-      
+
       // Add knowledge content if available
       if (knowledgeContent) {
         textContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
       }
-      
+
       // Push the user message with text and image content
       apiMessages.push({
         role: "user",
@@ -313,12 +306,12 @@ router.post("/", async (req: Request, res: Response) => {
           ...imageAttachments
         ]
       });
-      
+
       console.log("Multimodal message with images, documents, and knowledge added for Grok");
-    } 
+    }
     else if (documentTexts.length > 0 || knowledgeContent) {
       // Text-only message with documents or knowledge
-      let userContent = currentTimeStr + message;
+      let userContent = message;
 
       if (documentTexts.length > 0) {
         userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
@@ -333,15 +326,23 @@ router.post("/", async (req: Request, res: Response) => {
     }
     else {
       // Regular text message without attachments or knowledge
-      apiMessages.push({ role: "user", content: currentTimeStr + message });
+      apiMessages.push({ role: "user", content: message });
       console.log("Plain text message added for Grok");
+    }
+
+    // Build and add system prompt with user custom prompt
+    if (!skipSystemPrompt) {
+      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      if (systemPrompt) {
+        apiMessages.unshift({ role: "system", content: systemPrompt });
+      }
     }
 
     // Pre-emptively manage context to avoid exceeding model limits
     const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
       apiMessages,
       model,
-      { 
+      {
         maxTokens: modelContextLength, // Use context length from model config
         reserveForTools: useTools ? 8000 : 0,  // Only reserve for tools if enabled
       }

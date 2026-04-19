@@ -25,11 +25,13 @@ export interface Conversation {
   model: string;
   lastMessageAt: string;
   createdAt: string;
+  isNsfw?: boolean;
   messages: {
     id: number;
     role: 'user' | 'assistant';
     content: string;
     created_at: string;
+    metadata?: Record<string, any>;
   }[];
 }
 
@@ -157,6 +159,7 @@ export function transformDatabaseConversation(dbConv: SelectConversation & { mes
     model: dbConv.model,
     lastMessageAt: dbConv.last_message_at.toISOString(),
     createdAt: dbConv.created_at.toISOString(),
+    isNsfw: dbConv.is_nsfw ?? false,
     messages: dbConv.messages 
       ? dbConv.messages
           .filter(msg => msg.role !== 'tool') // Filter out tool messages
@@ -165,7 +168,8 @@ export function transformDatabaseConversation(dbConv: SelectConversation & { mes
             id: msg.id,
             role: msg.role as 'user' | 'assistant',
             content: msg.content,
-            created_at: msg.created_at.toISOString()
+            created_at: msg.created_at.toISOString(),
+            metadata: msg.metadata as Record<string, any> | undefined,
           }))
       : []
   };

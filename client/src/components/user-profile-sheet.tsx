@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Palette } from "lucide-react";
+import { Save, Palette, Download } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface UserProfileSheetProps {
@@ -54,6 +54,7 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
   const [open, setOpen] = useState(false);
   const [selectedColor, setSelectedColor] = useState("hsl(250 100% 60%)");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   // Fetch user preferences
   const { data: preferences } = useQuery<UserPreferences>({
@@ -136,10 +137,44 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
     setSelectedColor(color);
   };
 
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const response = await fetch("/api/conversations/export", {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Export failed");
+
+      const data = await response.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `chat-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "Export complete",
+        description: `Exported ${data.length} conversation${data.length === 1 ? "" : "s"}.`,
+      });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Export failed",
+        description: "Failed to export chat history. Please try again.",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>{trigger}</SheetTrigger>
-      <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-md overflow-y-auto px-4 sm:px-6">
         <SheetHeader>
           <SheetTitle>Profile Settings</SheetTitle>
           <SheetDescription>
@@ -153,7 +188,7 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
             <Label className="text-sm font-medium">Account</Label>
             <div className="p-4 bg-muted/50 rounded-lg border">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center text-primary-foreground shadow-md shadow-primary/20 font-semibold text-lg">
+                <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-semibold text-lg">
                   {user?.email?.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex flex-col">
@@ -173,16 +208,16 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
             <p className="text-xs text-muted-foreground">
               Choose a color theme for your interface
             </p>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-4 gap-2 sm:gap-3">
               {PRESET_COLORS.map((color) => (
                 <button
                   key={color.value}
                   type="button"
                   onClick={() => handleColorSelect(color.value)}
-                  className={`relative aspect-square rounded-lg transition-all duration-200 hover:scale-105 ${
+                  className={`relative aspect-square rounded-lg transition-all duration-150 ${
                     selectedColor === color.value
-                      ? "ring-2 ring-offset-2 ring-primary shadow-lg"
-                      : "hover:shadow-md"
+                      ? "ring-2 ring-offset-2 ring-offset-background ring-foreground scale-105"
+                      : "hover:scale-105 opacity-80 hover:opacity-100"
                   }`}
                   style={{ backgroundColor: color.value }}
                   title={color.name}
@@ -220,7 +255,7 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
           </div>
 
           {/* Save Button */}
-          <div className="pt-4 border-t">
+          <div className="pt-4 border-t space-y-2">
             <Button
               onClick={handleSave}
               disabled={savePreferences.isPending}
@@ -228,6 +263,15 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
             >
               <Save className="h-4 w-4" />
               {savePreferences.isPending ? "Saving..." : "Save Settings"}
+            </Button>
+            <Button
+              onClick={handleExport}
+              disabled={isExporting}
+              variant="outline"
+              className="w-full gap-2"
+            >
+              <Download className="h-4 w-4" />
+              {isExporting ? "Exporting..." : "Export Chat History"}
             </Button>
           </div>
         </div>

@@ -16,6 +16,11 @@ import { buildSystemPrompt } from "../../user-preferences-service";
 const router = express.Router();
 let client: Anthropic | null = null;
 
+// Opus 4.7+ deprecated the `temperature` parameter.
+function supportsTemperature(model: string): boolean {
+  return !/claude-opus-4-[7-9]|claude-opus-[5-9]/.test(model);
+}
+
 // Initialize the Anthropic client
 export function initializeAnthropic(apiKey?: string) {
   if (apiKey || process.env.ANTHROPIC_API_KEY) {
@@ -189,7 +194,7 @@ async function executeToolsAndGetResponse(
     const toolCompletionResponse = await client.messages.create({
       model: model,
       messages: toolResponseMessages,
-      temperature: 0.7,
+      ...(supportsTemperature(model) ? { temperature: 0.7 } : {}),
       max_tokens: 4096,
     });
     
@@ -283,6 +288,7 @@ router.post("/", async (req: Request, res: Response) => {
       pendingKnowledgeSources = [],
       useTools = false,
       useAgenticMode = false,
+      skipSystemPrompt = false,
     } = req.body;
     
     if (!message || typeof message !== "string") {
@@ -409,12 +415,6 @@ router.post("/", async (req: Request, res: Response) => {
       .map((msg: any) => {
         let content = msg.content;
 
-        // Add timestamp so LLM understands time passage between messages
-        if (msg.timestamp) {
-          const msgTime = new Date(msg.timestamp).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-          content = `[${msgTime}] ${content}`;
-        }
-
         // Include attachment content from metadata for historical messages
         if (msg.metadata && msg.metadata.attachments) {
           const attachments = msg.metadata.attachments;
@@ -453,7 +453,7 @@ router.post("/", async (req: Request, res: Response) => {
       messages: [],
       model,
       max_tokens: 4096,
-      temperature: 0.7,
+      ...(supportsTemperature(model) ? { temperature: 0.7 } : {}),
       stream: true,
     };
 
@@ -484,9 +484,8 @@ router.post("/", async (req: Request, res: Response) => {
       console.log('Tools disabled for this request');
     }
 
-    // Create user message content with current timestamp
-    const currentTimeStr = `[${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC] `;
-    const userMessageContent = createUserMessageContent(currentTimeStr + message, imageAttachments, documentTexts, knowledgeContent);
+    // Create user message content
+    const userMessageContent = createUserMessageContent(message, imageAttachments, documentTexts, knowledgeContent);
     apiMessages.push({ role: "user", content: userMessageContent });
 
     // Pre-emptively manage context to avoid exceeding model limits
@@ -502,10 +501,11 @@ router.post("/", async (req: Request, res: Response) => {
     requestOptions.messages = contextManagedMessages;
 
     // Build system prompt with user custom prompt
-    const baseSystemPrompt = "You are a helpful AI assistant.";
-    const systemPrompt = await buildSystemPrompt(baseSystemPrompt, req.user!.id);
-    if (systemPrompt) {
-      requestOptions.system = systemPrompt;
+    if (!skipSystemPrompt) {
+      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      if (systemPrompt) {
+        requestOptions.system = systemPrompt;
+      }
     }
 
     // Send initial conversation data
@@ -537,9 +537,8 @@ router.post("/", async (req: Request, res: Response) => {
         // Get the AI SDK model instance
         const aiModel = getAnthropicModel(model);
         
-        // Extract system prompt from contextManagedMessages (which has been truncated if needed)
-        const systemMessage = contextManagedMessages.find((msg: any) => msg.role === 'system');
-        const systemPrompt = systemMessage?.content || undefined;
+        // Build system prompt directly (it's stored in requestOptions.system, not in contextManagedMessages)
+        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id) : undefined;
         
         // Convert messages to simple format for agent - use contextManagedMessages which has been truncated
         const agentMessages = convertToAgentMessages(contextManagedMessages);
@@ -551,7 +550,7 @@ router.post("/", async (req: Request, res: Response) => {
             maxIterations: 20,
             conversationId: dbConversation.id,
             model: aiModel,
-            systemPrompt,
+            systemPrompt: agentSystemPrompt,
             userId: req.user!.id
           }
         );

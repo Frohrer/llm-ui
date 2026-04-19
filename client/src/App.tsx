@@ -4,11 +4,11 @@ import { queryClient } from "./lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { useUser } from "@/hooks/use-user";
-import { Loader2 } from "lucide-react";
 import Home from "@/pages/home";
 import StatsPage from "@/pages/stats";
 import CustomToolsPage from "@/pages/custom-tools";
 import VoiceChat from "@/pages/voice-chat";
+import KnowledgePage from "@/pages/knowledge";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth";
 
@@ -18,7 +18,9 @@ function Router() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="loading-dots text-muted-foreground text-2xl">
+          <span>.</span><span>.</span><span>.</span>
+        </div>
       </div>
     );
   }
@@ -30,10 +32,11 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/stats" component={StatsPage} />
+      <Route path="/stats">{user.is_admin ? <StatsPage /> : <Home />}</Route>
       <Route path="/custom-tools" component={CustomToolsPage} />
       <Route path="/voice-chat" component={VoiceChat} />
       <Route path="/voice-chat/:id" component={VoiceChat} />
+      <Route path="/knowledge" component={KnowledgePage} />
       <Route component={NotFound} />
     </Switch>
   );

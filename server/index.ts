@@ -26,6 +26,24 @@ app.use(
 );
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
+// Security headers
+const proxyDomain = process.env.PROXY_DOMAIN;
+const cspDomain = proxyDomain ? `https://${proxyDomain}` : "'self'";
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader(
+    "Content-Security-Policy",
+    `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' ${cspDomain} data: blob: https:; connect-src 'self' ${cspDomain} wss: https:; font-src 'self' data:; media-src 'self' blob:; frame-ancestors 'none'`
+  );
+  if (process.env.SSL_ENABLED === "true") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;

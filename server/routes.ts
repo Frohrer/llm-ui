@@ -2,13 +2,16 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer } from "ws";
 import { db } from "@db";
+import { modelSettings } from "@db/schema";
+import { eq, and, asc, sql } from "drizzle-orm";
 import { loadProviderConfigs } from "./config/loader";
-import { cloudflareAuthMiddleware } from "./middleware/auth";
+import { cloudflareAuthMiddleware, requireAdmin } from "./middleware/auth";
 import knowledgeRoutes from "./routes/knowledge";
 import conversationsRoutes from "./routes/conversations";
 import toolsRoutes from "./routes/tools";
 import customToolsRoutes from "./routes/custom-tools";
 import userPreferencesRoutes from "./routes/user-preferences";
+import adminModelsRouter from "./routes/admin/models";
 import {
   openaiRouter,
   anthropicRouter,
@@ -30,17 +33,58 @@ import {
 } from "./routes/providers";
 import { uploadSingleMiddleware, extractTextFromFile, transformUrlToProxy } from "./file-handler";
 import { handleRealtimeVoiceConnection } from "./routes/realtime-voice";
+import transcribeRouter from "./routes/transcribe";
 
-// Load provider configurations at startup
+// Providers that support DB-backed model management (seeding + refresh)
+const SEEDABLE_PROVIDERS = ["openai", "anthropic", "deepseek", "grok", "gemini", "ollama", "falai"];
+
+// Load provider configurations at startup and seed model_settings if empty
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
 loadProviderConfigs()
-  .then((configs) => {
+  .then(async (configs) => {
     providerConfigs = configs;
+    // Seed model_settings for all supported providers from static config if table is empty
+    await seedModelSettingsIfEmpty(configs);
   })
   .catch((error) => {
     console.error("Failed to load provider configurations:", error);
     process.exit(1);
   });
+
+async function seedModelSettingsIfEmpty(configs: Awaited<ReturnType<typeof loadProviderConfigs>>) {
+  try {
+    for (const providerId of SEEDABLE_PROVIDERS) {
+      const config = configs.find((c) => c.id === providerId);
+      if (!config) continue;
+
+      const existing = await db
+        .select()
+        .from(modelSettings)
+        .where(eq(modelSettings.provider_id, providerId))
+        .limit(1);
+
+      if (existing.length > 0) continue; // Already seeded
+
+      console.log(`Seeding model_settings for ${config.name} from static config...`);
+      for (const model of config.models) {
+        await db.insert(modelSettings).values({
+          provider_id: providerId,
+          model_id: model.id,
+          display_name: model.name,
+          context_length: model.contextLength,
+          is_enabled: true,
+          is_default: model.defaultModel || false,
+          source: "static",
+          owned_by: providerId,
+          parameters: (model as any).parameters || null,
+        });
+      }
+      console.log(`Seeded ${config.models.length} ${config.name} models into model_settings`);
+    }
+  } catch (error) {
+    console.error("Error seeding model_settings:", error);
+  }
+}
 
 // Initialize API clients based on available API keys
 const clientsInitialized: Record<string, boolean> = {
@@ -96,14 +140,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Speech credentials route
-  app.get('/api/speech-credentials', (req, res) => {
-    res.json({
-      key: process.env.AZURE_SPEECH_KEY,
-      region: process.env.AZURE_SPEECH_REGION
-    });
-  });
-  
   // Apply authentication middleware to all /api routes
   app.use("/api", cloudflareAuthMiddleware);
 
@@ -143,7 +179,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      res.json(availableProviders);
+      // For seedable providers, replace models with enabled models from DB if model_settings has entries
+      const result = await Promise.all(
+        availableProviders.map(async (provider) => {
+          if (SEEDABLE_PROVIDERS.includes(provider.id)) {
+            try {
+              const dbModels = await db
+                .select()
+                .from(modelSettings)
+                .where(
+                  and(
+                    eq(modelSettings.provider_id, provider.id),
+                    eq(modelSettings.is_enabled, true),
+                  ),
+                )
+                .orderBy(sql`${modelSettings.sort_order} ASC NULLS LAST`, asc(modelSettings.id));
+
+              if (dbModels.length > 0) {
+                return {
+                  ...provider,
+                  models: dbModels.map((m) => ({
+                    id: m.model_id,
+                    name: m.display_name || m.model_id,
+                    contextLength: m.context_length || 128000,
+                    defaultModel: m.is_default,
+                    skipSystemPrompt: m.skip_system_prompt,
+                  })),
+                };
+              }
+            } catch (err) {
+              console.error(`Error loading ${provider.id} model settings from DB:`, err);
+            }
+          }
+          return provider;
+        }),
+      );
+
+      res.json(result);
     } catch (error) {
       console.error("Error fetching provider configurations:", error);
       res
@@ -162,6 +234,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/chat/super-model', superModelRouter);
   app.use('/api/chat/ollama', ollamaRouter);
 
+  // Register transcription route
+  app.use('/api/chat/transcribe', transcribeRouter);
+
   // Register conversation routes
   app.use('/api/conversations', conversationsRoutes);
 
@@ -177,12 +252,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register user preferences routes
   app.use('/api/user', userPreferencesRoutes);
 
-  // Statistics endpoint: latency per model and token counts
-  app.get('/api/stats', async (req: Request, res: Response) => {
+  // Register admin routes (require admin role)
+  app.use('/api/admin/models', requireAdmin, adminModelsRouter);
+
+  // Statistics endpoint: admin only
+  app.get('/api/stats', requireAdmin, async (req: Request, res: Response) => {
     try {
-      if (!req.user) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
 
       // Import inside to avoid top-level cycles
       const { conversations, messages } = await import('@db/schema');

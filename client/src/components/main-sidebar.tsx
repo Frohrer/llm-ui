@@ -3,13 +3,12 @@ import { useUser } from "@/hooks/use-user";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "./theme-toggle";
-import { MessageCircle, BookOpen, Plus, BarChart3, Wrench, Mic } from "lucide-react";
+import { MessageCircle, Plus, BarChart3, Wrench, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ConversationList } from "./conversation-list";
 import { Conversation } from "@/lib/llm/types";
-import { KnowledgeSheet } from "@/components/knowledge";
 import { UserProfileSheet } from "@/components/user-profile-sheet";
 
 interface MainSidebarProps {
@@ -28,12 +27,18 @@ export function MainSidebar({
 }: MainSidebarProps) {
   const { user } = useUser();
   const [location, setLocation] = useLocation();
+  const [hideNsfw, setHideNsfw] = useState(() => {
+    const stored = localStorage.getItem("nsfw-visibility");
+    return stored !== "show";
+  });
 
-  // Close sidebar on navigation if mobile
+  // Close sidebar on navigation change (not on mount)
+  const prevLocationRef = useRef(location);
   useEffect(() => {
-    if (isMobile && onClose) {
+    if (prevLocationRef.current !== location && isMobile && onClose) {
       onClose();
     }
+    prevLocationRef.current = location;
   }, [location, isMobile, onClose]);
 
   const isActive = (path: string) => {
@@ -41,24 +46,24 @@ export function MainSidebar({
   };
 
   return (
-    <div className="flex flex-col h-full bg-background/95 backdrop-blur-xl border-r border-border/50 shadow-lg">
-      <div className="px-3 md:px-4 py-4 md:py-5 flex items-center justify-between bg-gradient-to-br from-primary/5 via-transparent to-transparent">
+    <div className="flex flex-col h-full bg-background">
+      <div className="px-3 md:px-4 py-4 md:py-5 flex items-center justify-between">
         <div className="flex items-center min-w-0">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg shadow-primary/20">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <MessageCircle className="h-4 w-4 text-primary-foreground" />
             </div>
-            <h1 className="text-lg md:text-xl font-bold truncate bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
-              AI Chat{process.env.NEXT_PUBLIC_CUSTOMER_NAME ? ` - ${process.env.NEXT_PUBLIC_CUSTOMER_NAME}` : ''}
+            <h1 className="text-lg md:text-xl font-semibold truncate">
+              AI Chat
             </h1>
           </div>
         </div>
       </div>
-      <Separator className="bg-border/50" />
+      <Separator />
 
       <div className="py-3 px-3 md:px-4 flex">
         <Button
-          className="w-full gap-2 text-sm h-11 z-10 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-md hover:shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all duration-200"
+          className="w-full gap-2 text-sm h-10"
           size="sm"
           onClick={() => onSelectConversation(undefined)}
         >
@@ -69,38 +74,40 @@ export function MainSidebar({
 
       <ScrollArea className="flex-1 px-2">
         <div className="mt-2 space-y-6">
-          <div className="space-y-2">
+          <div className="space-y-1">
             <div className="px-2">
               <Link href="/">
                 <a
-                  className={`flex items-center py-2.5 px-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  className={`flex items-center py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
                     isActive("/")
-                      ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary border border-primary/20 shadow-sm"
-                      : "hover:bg-accent/50 hover:translate-x-0.5"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 active:bg-accent/70 hover:text-foreground"
                   }`}
                 >
                   <MessageCircle className="mr-2 h-4 w-4" />
                   Conversations
                 </a>
               </Link>
+              {user?.is_admin && (
               <Link href="/stats">
                 <a
-                  className={`mt-1.5 flex items-center py-2.5 px-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  className={`mt-0.5 flex items-center py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
                     isActive("/stats")
-                      ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary border border-primary/20 shadow-sm"
-                      : "hover:bg-accent/50 hover:translate-x-0.5"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 active:bg-accent/70 hover:text-foreground"
                   }`}
                 >
                   <BarChart3 className="mr-2 h-4 w-4" />
-                  Statistics
+                  Admin & Stats
                 </a>
               </Link>
+              )}
               <Link href="/custom-tools">
                 <a
-                  className={`mt-1.5 flex items-center py-2.5 px-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  className={`mt-0.5 flex items-center py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
                     isActive("/custom-tools")
-                      ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary border border-primary/20 shadow-sm"
-                      : "hover:bg-accent/50 hover:translate-x-0.5"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 active:bg-accent/70 hover:text-foreground"
                   }`}
                 >
                   <Wrench className="mr-2 h-4 w-4" />
@@ -109,55 +116,31 @@ export function MainSidebar({
               </Link>
               <Link href="/voice-chat">
                 <a
-                  className={`mt-1.5 flex items-center py-2.5 px-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  className={`mt-0.5 flex items-center py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
                     isActive("/voice-chat")
-                      ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary border border-primary/20 shadow-sm"
-                      : "hover:bg-accent/50 hover:translate-x-0.5"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 active:bg-accent/70 hover:text-foreground"
                   }`}
                 >
                   <Mic className="mr-2 h-4 w-4" />
                   Voice Chat
-                  <Badge variant="secondary" className="ml-2 text-xs bg-primary/10 text-primary border-primary/20">
+                  <Badge variant="secondary" className="ml-2 text-[10px] px-1.5 py-0">
                     Beta
                   </Badge>
                 </a>
               </Link>
-              <KnowledgeSheet
-                trigger={
-                  <Button
-                    variant="ghost"
-                    className="mt-1.5 w-full justify-start flex items-center py-2.5 px-3 rounded-lg text-sm font-medium hover:bg-accent/50 hover:translate-x-0.5 transition-all duration-200"
-                  >
-                    <BookOpen className="mr-2 h-4 w-4" />
-                    Knowledge
-                  </Button>
-                }
-              />
             </div>
           </div>
 
-          {location === "/" && (
-            <>
-              <Separator />
-              <div className="px-0">
-                <h3 className="text-md font-medium mb-2 px-2 pl-5">
-                  Chat History
-                </h3>
-                <ConversationList
-                  activeConversation={activeConversation}
-                  onSelectConversation={onSelectConversation}
-                />
-              </div>
-            </>
-          )}
+          {/* Chat history is in its own sheet, not here */}
         </div>
       </ScrollArea>
 
-      <div className="p-4 mt-auto border-t border-border/50 bg-gradient-to-br from-background/80 to-background backdrop-blur-sm">
+      <div className="p-3 sm:p-4 mt-auto border-t border-border">
         <UserProfileSheet
           trigger={
-            <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent/30 transition-all duration-200 cursor-pointer">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center text-primary-foreground shadow-md shadow-primary/20 font-semibold">
+            <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent/50 active:bg-accent/70 transition-colors cursor-pointer">
+              <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-medium shrink-0">
                 {user?.email?.charAt(0).toUpperCase()}
               </div>
               <div className="flex flex-col min-w-0 flex-1">
