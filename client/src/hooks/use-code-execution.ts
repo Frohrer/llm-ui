@@ -1,10 +1,46 @@
 import { useState } from 'react';
 import { useToast } from './use-toast';
 
+const SUPPORTED_LANGUAGES = ['python', 'node', 'ruby', 'bash', 'go'] as const;
+export type ExecutableLanguage = typeof SUPPORTED_LANGUAGES[number];
+
+// Map common code-block language tags (from markdown) to supakiln runtime names.
+const LANGUAGE_ALIASES: Record<string, ExecutableLanguage> = {
+  python: 'python',
+  py: 'python',
+  python3: 'python',
+  node: 'node',
+  nodejs: 'node',
+  javascript: 'node',
+  js: 'node',
+  typescript: 'node', // best-effort; ts won't run as-is but keeps the button visible
+  ts: 'node',
+  ruby: 'ruby',
+  rb: 'ruby',
+  bash: 'bash',
+  sh: 'bash',
+  shell: 'bash',
+  zsh: 'bash',
+  go: 'go',
+  golang: 'go',
+};
+
+export function normalizeLanguage(raw: string | undefined | null): ExecutableLanguage | null {
+  if (!raw) return null;
+  return LANGUAGE_ALIASES[raw.toLowerCase()] ?? null;
+}
+
 interface CodeExecutionParams {
   code: string;
+  language?: ExecutableLanguage;
   packages?: string[];
   timeout?: number;
+}
+
+interface WebService {
+  type?: string;
+  external_port?: number;
+  proxy_url?: string;
 }
 
 interface CodeExecutionResult {
@@ -14,6 +50,10 @@ interface CodeExecutionResult {
   execution_time?: number;
   container_id?: string;
   status?: string;
+  timed_out?: boolean;
+  timings_ms?: Record<string, number> | null;
+  web_service?: WebService | null;
+  language?: ExecutableLanguage;
 }
 
 interface CodeExecutionState {
@@ -28,21 +68,25 @@ export function useCodeExecution() {
     result: null,
     error: null,
   });
-  
+
   const { toast } = useToast();
 
-  
-
-  const executeCode = async (codeOrParams: string | CodeExecutionParams) => {
+  const executeCode = async (
+    codeOrParams: string | CodeExecutionParams,
+    languageArg?: ExecutableLanguage,
+  ) => {
     setState(prev => ({ ...prev, isExecuting: true, result: null, error: null }));
 
     try {
-      // Handle both string code and params object
-      const params = typeof codeOrParams === 'string' 
-        ? { code: codeOrParams, packages: detectPackagesFromCode(codeOrParams) }
-        : codeOrParams;
+      const params: CodeExecutionParams = typeof codeOrParams === 'string'
+        ? { code: codeOrParams, language: languageArg ?? 'python' }
+        : { ...codeOrParams, language: codeOrParams.language ?? languageArg ?? 'python' };
 
-      // Show detected packages to user
+      // Auto-detect packages only for Python and only when none provided.
+      if (params.language === 'python' && !params.packages) {
+        params.packages = detectPythonPackagesFromCode(params.code);
+      }
+
       if (params.packages && params.packages.length > 0) {
         toast({
           title: 'Packages Detected',
@@ -51,22 +95,17 @@ export function useCodeExecution() {
         });
       }
 
-      // Create a fake tool call for run_python tool
+      // Use the multi-language run_code tool.
       const toolCall = {
-        id: `run_python_${Date.now()}`,
-        name: 'run_python',
+        id: `run_code_${Date.now()}`,
+        name: 'run_code',
         arguments: params,
       };
 
-      // Use the existing tool execution mechanism
       const response = await fetch('/api/tools/execute', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          toolCalls: [toolCall],
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toolCalls: [toolCall] }),
       });
 
       if (!response.ok) {
@@ -74,24 +113,22 @@ export function useCodeExecution() {
       }
 
       const results = await response.json();
-      const result = results[0]; // Get the first (and only) result
-      
-      // For error cases, prioritize the message field over the generic error field
+      const result = results[0];
+
       let errorToDisplay = result.error;
       if (result.result && !result.result.success && result.result.message) {
         errorToDisplay = result.result.message;
       } else if (result.result && !result.result.success && result.result.error) {
         errorToDisplay = result.result.error;
       }
-      
-      setState(prev => ({ 
+
+      setState(prev => ({
         ...prev,
-        isExecuting: false, 
-        result: result.result, 
-        error: errorToDisplay 
+        isExecuting: false,
+        result: result.result,
+        error: errorToDisplay,
       }));
 
-      // Show toast for tool execution errors
       if (result.result && !result.result.success && errorToDisplay) {
         toast({
           variant: 'destructive',
@@ -100,27 +137,33 @@ export function useCodeExecution() {
         });
       }
 
+      if (result.result?.web_service?.proxy_url) {
+        toast({
+          title: 'Web service started',
+          description: `${result.result.web_service.type || 'service'} available at ${result.result.web_service.proxy_url}`,
+          duration: 6000,
+        });
+      }
+
       return result.result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to execute code';
-      setState(prev => ({ 
+      setState(prev => ({
         ...prev,
-        isExecuting: false, 
-        result: null, 
-        error: errorMessage 
+        isExecuting: false,
+        result: null,
+        error: errorMessage,
       }));
-      
       toast({
         variant: 'destructive',
         title: 'Code Execution Failed',
         description: errorMessage,
       });
-      
       throw error;
     }
   };
 
-  const detectPackagesFromCode = (code: string): string[] => {
+  const detectPythonPackagesFromCode = (code: string): string[] => {
     const importToPackage: Record<string, string> = {
       'cv2': 'opencv-python',
       'sklearn': 'scikit-learn',
@@ -178,93 +221,43 @@ export function useCodeExecution() {
       'markupsafe': 'markupsafe',
       'paramiko': 'paramiko',
       'fabric': 'fabric',
-      'invoke': 'invoke'
+      'invoke': 'invoke',
     };
 
     const stdLibModules = new Set([
-      // Core modules
-      'os', 'sys', 'json', 'time', 'datetime', 'random', 'math', 'collections', 
-      'itertools', 'functools', 'operator', 'pathlib', 'glob', 'shutil', 'tempfile', 
-      'subprocess', 'threading', 'multiprocessing', 'asyncio', 'concurrent', 'queue', 
-      'socket', 'ssl', 'urllib', 'http', 'email', 'base64', 'hashlib', 'hmac', 
-      'secrets', 'uuid', 'pickle', 'shelve', 'dbm', 'sqlite3', 'zlib', 'gzip', 
-      'bz2', 'lzma', 'zipfile', 'tarfile', 'csv', 'configparser', 'logging', 
-      'getpass', 'platform', 'stat', 'filecmp', 'fnmatch', 'linecache', 'traceback', 
-      'pdb', 'profile', 'pstats', 'timeit', 'cProfile', 'trace', 'gc', 'weakref', 
-      'copy', 'reprlib', 'pprint', 'enum', 'types', 'inspect', 'importlib', 
-      'pkgutil', 'modulefinder', 'runpy', 'argparse', 'optparse', 'shlex', 'struct', 
-      'codecs', 'unicodedata', 'stringprep', 'readline', 'rlcompleter', 'array', 
-      'bisect', 'heapq', 'keyword', 'io', 'mmap', 'select', 'selectors', 'signal', 
+      'os', 'sys', 'json', 'time', 'datetime', 'random', 'math', 'collections',
+      'itertools', 'functools', 'operator', 'pathlib', 'glob', 'shutil', 'tempfile',
+      'subprocess', 'threading', 'multiprocessing', 'asyncio', 'concurrent', 'queue',
+      'socket', 'ssl', 'urllib', 'http', 'email', 'base64', 'hashlib', 'hmac',
+      'secrets', 'uuid', 'pickle', 'shelve', 'dbm', 'sqlite3', 'zlib', 'gzip',
+      'bz2', 'lzma', 'zipfile', 'tarfile', 'csv', 'configparser', 'logging',
+      'getpass', 'platform', 'stat', 'filecmp', 'fnmatch', 'linecache', 'traceback',
+      'pdb', 'profile', 'pstats', 'timeit', 'cProfile', 'trace', 'gc', 'weakref',
+      'copy', 'reprlib', 'pprint', 'enum', 'types', 'inspect', 'importlib',
+      'pkgutil', 'modulefinder', 'runpy', 'argparse', 'optparse', 'shlex', 'struct',
+      'codecs', 'unicodedata', 'stringprep', 'readline', 'rlcompleter', 'array',
+      'bisect', 'heapq', 'keyword', 'io', 'mmap', 'select', 'selectors', 'signal',
       'warnings', 'contextlib', 'abc', 'atexit', 'site', 'builtins', '__main__', '__future__',
-      
-      // String and text processing
-      'string', 're', 'difflib', 'textwrap', 'unicodedata', 'stringprep',
-      
-      // Data types and structures
+      'string', 're', 'difflib', 'textwrap',
       'decimal', 'fractions', 'numbers', 'cmath', 'statistics',
-      
-      // File and directory access
-      'os.path', 'fileinput', 'stat', 'filecmp', 'tempfile', 'glob', 'fnmatch', 'linecache', 'shutil',
-      
-      // Data persistence
-      'pickle', 'copyreg', 'shelve', 'marshal', 'dbm', 'sqlite3',
-      
-      // Data compression and archiving
-      'zlib', 'gzip', 'bz2', 'lzma', 'zipfile', 'tarfile',
-      
-      // File formats
-      'csv', 'configparser', 'netrc', 'xdrlib', 'plistlib',
-      
-      // Cryptographic services
-      'hashlib', 'hmac', 'secrets',
-      
-      // Generic operating system services
-      'os', 'io', 'time', 'argparse', 'getopt', 'logging', 'getpass', 'curses', 'platform', 'errno', 'ctypes',
-      
-      // Concurrent execution
-      'threading', 'multiprocessing', 'concurrent', 'subprocess', 'sched', 'queue',
-      
-      // Networking and interprocess communication
-      'socket', 'ssl', 'select', 'selectors', 'asyncio', 'asyncore', 'asynchat',
-      
-      // Internet protocols and support
-      'webbrowser', 'cgi', 'cgitb', 'wsgiref', 'urllib', 'http', 'ftplib', 'poplib', 'imaplib', 'nntplib', 'smtplib', 'smtpd', 'telnetlib', 'uuid', 'socketserver', 'xmlrpc',
-      
-      // Multimedia services
+      'os.path', 'fileinput', 'copyreg', 'marshal',
+      'netrc', 'xdrlib', 'plistlib',
+      'getopt', 'curses', 'errno', 'ctypes',
+      'sched',
+      'asyncore', 'asynchat',
+      'webbrowser', 'cgi', 'cgitb', 'wsgiref', 'ftplib', 'poplib', 'imaplib', 'nntplib', 'smtplib', 'smtpd', 'telnetlib', 'socketserver', 'xmlrpc',
       'audioop', 'aifc', 'sunau', 'wave', 'chunk', 'colorsys', 'imghdr', 'sndhdr', 'ossaudiodev',
-      
-      // Internationalization
       'gettext', 'locale',
-      
-      // Program frameworks
-      'turtle', 'cmd', 'shlex',
-      
-      // Graphical user interfaces
+      'turtle', 'cmd',
       'tkinter', 'tkinter.ttk', 'tkinter.tix', 'tkinter.scrolledtext',
-      
-      // Development tools
       'typing', 'pydoc', 'doctest', 'unittest', 'test', '2to3', 'lib2to3',
-      
-      // Debugging and profiling
-      'bdb', 'faulthandler', 'pdb', 'timeit', 'trace', 'tracemalloc',
-      
-      // Software packaging and distribution
+      'bdb', 'faulthandler', 'tracemalloc',
       'distutils', 'ensurepip', 'venv', 'zipapp',
-      
-      // Python runtime services
-      'sys', 'sysconfig', 'builtins', '__main__', 'warnings', 'dataclasses', 'contextlib', 'abc', 'atexit', 'traceback', '__future__', 'gc', 'inspect', 'site',
-      
-      // Custom Python interpreters
+      'sysconfig', 'dataclasses',
       'code', 'codeop',
-      
-      // Importing modules
-      'zipimport', 'pkgutil', 'modulefinder', 'runpy', 'importlib',
-      
-      // Python language services
-      'parser', 'ast', 'symtable', 'symbol', 'token', 'keyword', 'tokenize', 'tabnanny', 'pyclbr', 'py_compile', 'compileall', 'dis', 'pickletools',
-      
-      // Miscellaneous services
-      'formatter'
+      'zipimport',
+      'parser', 'ast', 'symtable', 'symbol', 'token', 'tokenize', 'tabnanny', 'pyclbr', 'py_compile', 'compileall', 'dis', 'pickletools',
+      'formatter',
     ]);
 
     const importPatterns = [
@@ -273,7 +266,6 @@ export function useCodeExecution() {
     ];
 
     const detectedImports = new Set<string>();
-    
     for (const pattern of importPatterns) {
       let match;
       while ((match = pattern.exec(code)) !== null) {
@@ -294,8 +286,6 @@ export function useCodeExecution() {
     return Array.from(new Set(packages)).sort();
   };
 
-
-
   const clearResults = () => {
     setState(prev => ({ ...prev, isExecuting: false, result: null, error: null }));
   };
@@ -307,4 +297,4 @@ export function useCodeExecution() {
     result: state.result,
     error: state.error,
   };
-} 
+}
