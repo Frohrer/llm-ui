@@ -16,6 +16,16 @@ import { useCodeExecution } from "@/hooks/use-code-execution";
 import { TerminalOutput } from "@/components/ui/terminal-output";
 import { UIRenderer } from "@/components/generative-ui";
 
+// Escape `$` that precedes a digit so remark-math doesn't treat currency
+// like "$170k" as an inline math delimiter. Skips code spans/blocks so the
+// backslash doesn't render literally there.
+const escapeCurrencyDollars = (text: string): string => {
+  const segments = text.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
+  return segments
+    .map((seg, i) => (i % 2 === 0 ? seg.replace(/\$(?=\d)/g, "\\$") : seg))
+    .join("");
+};
+
 interface MessageProps {
   message: MessageType;
 }
@@ -367,7 +377,7 @@ const MessageComponent = ({ message }: MessageProps) => {
             td: ({ children }) => <td className="p-2">{children}</td>,
           }}
         >
-          {message.content}
+          {escapeCurrencyDollars(message.content)}
         </ReactMarkdown>
       )
     ) : (
