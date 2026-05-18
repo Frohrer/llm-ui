@@ -12,6 +12,7 @@ import { runAgenticLoop } from "../../agentic-workflow";
 import { getAnthropicModel } from "../../ai-sdk-providers";
 import { prepareContext, isContextLengthError, truncateToolResult } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
+import { scheduleExtraction } from "../../memory-service";
 
 const router = express.Router();
 let client: Anthropic | null = null;
@@ -357,6 +358,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = newConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     } else {
       const conversationIdNum = parseInt(conversationId);
       if (isNaN(conversationIdNum)) {
@@ -407,6 +409,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = existingConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
 
     // Process context messages and include attachment content from metadata
@@ -502,7 +505,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Build system prompt with user custom prompt
     if (!skipSystemPrompt) {
-      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      const systemPrompt = await buildSystemPrompt(req.user!.id, { latestUserMessage: message });
       if (systemPrompt) {
         requestOptions.system = systemPrompt;
       }
@@ -538,7 +541,7 @@ router.post("/", async (req: Request, res: Response) => {
         const aiModel = getAnthropicModel(model);
         
         // Build system prompt directly (it's stored in requestOptions.system, not in contextManagedMessages)
-        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id) : undefined;
+        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id, { latestUserMessage: message }) : undefined;
         
         // Convert messages to simple format for agent - use contextManagedMessages which has been truncated
         const agentMessages = convertToAgentMessages(contextManagedMessages);

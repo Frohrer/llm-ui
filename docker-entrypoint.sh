@@ -77,6 +77,13 @@ if [ $? -ne 0 ]; then
     echo "Failed to add performance indexes (may already be applied)"
 fi
 
+# Add memory indexes (memories table itself is created by db:push above)
+echo "Adding memory indexes..."
+psql -f migrations/0009_create_memories.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to add memory indexes (may already be applied)"
+fi
+
 echo "Database schema setup completed!"
 
 # Start the application

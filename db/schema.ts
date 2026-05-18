@@ -115,6 +115,31 @@ export const userPreferences = pgTable("user_preferences", {
   updated_at: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Persistent cross-conversation memory (hot tier).
+// Distilled facts the extractor pulls out of past conversations and re-injects
+// into the system prompt on future turns.
+export const memories = pgTable("memories", {
+  id: serial("id").primaryKey(),
+  user_id: integer("user_id").references(() => users.id).notNull(),
+  kind: text("kind", {
+    enum: ["preference", "fact", "decision", "open_thread", "entity"],
+  }).notNull(),
+  body: text("body").notNull(),
+  // JSON-encoded number[] embedding of `body`. Nullable so a memory still
+  // saves if the embedding call fails — it just won't be similarity-retrievable
+  // until re-embedded.
+  embedding: text("embedding"),
+  source_conversation_id: integer("source_conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  source_message_id: integer("source_message_id").references(() => messages.id, { onDelete: "set null" }),
+  confidence: integer("confidence").default(70).notNull(),
+  pinned: boolean("pinned").default(false).notNull(),
+  superseded_by: integer("superseded_by"),
+  last_used_at: timestamp("last_used_at"),
+  use_count: integer("use_count").default(0).notNull(),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Model settings table - stores admin-managed model configurations per provider
 export const modelSettings = pgTable("model_settings", {
   id: serial("id").primaryKey(),
@@ -196,6 +221,21 @@ export const userPreferencesRelations = relations(userPreferences, ({ one }) => 
 
 export const modelSettingsRelations = relations(modelSettings, () => ({}));
 
+export const memoriesRelations = relations(memories, ({ one }) => ({
+  user: one(users, {
+    fields: [memories.user_id],
+    references: [users.id],
+  }),
+  sourceConversation: one(conversations, {
+    fields: [memories.source_conversation_id],
+    references: [conversations.id],
+  }),
+  sourceMessage: one(messages, {
+    fields: [memories.source_message_id],
+    references: [messages.id],
+  }),
+}));
+
 
 
 // Schemas for form validation
@@ -217,6 +257,8 @@ export const insertUserPreferencesSchema = createInsertSchema(userPreferences);
 export const selectUserPreferencesSchema = createSelectSchema(userPreferences);
 export const insertModelSettingsSchema = createInsertSchema(modelSettings);
 export const selectModelSettingsSchema = createSelectSchema(modelSettings);
+export const insertMemorySchema = createInsertSchema(memories);
+export const selectMemorySchema = createSelectSchema(memories);
 
 
 // Type definitions for use in the app
@@ -238,3 +280,5 @@ export type InsertUserPreferences = typeof userPreferences.$inferInsert;
 export type SelectUserPreferences = typeof userPreferences.$inferSelect;
 export type InsertModelSettings = typeof modelSettings.$inferInsert;
 export type SelectModelSettings = typeof modelSettings.$inferSelect;
+export type InsertMemory = typeof memories.$inferInsert;
+export type SelectMemory = typeof memories.$inferSelect;

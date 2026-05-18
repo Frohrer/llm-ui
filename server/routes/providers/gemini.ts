@@ -12,6 +12,7 @@ import { runAgenticLoop } from "../../agentic-workflow";
 import { getGoogleModel } from "../../ai-sdk-providers";
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
+import { scheduleExtraction } from "../../memory-service";
 
 const router = express.Router();
 let client: GoogleGenerativeAI | null = null;
@@ -137,6 +138,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = newConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     } else {
       const conversationIdNum = parseInt(conversationId);
       if (isNaN(conversationIdNum)) {
@@ -190,6 +192,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = existingConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
 
     // Initialize history for the Gemini model and include attachment content from metadata
@@ -310,7 +313,7 @@ router.post("/", async (req: Request, res: Response) => {
     // Initialize the model with the specified model name and system instruction
     const modelConfig: any = { model };
     if (!skipSystemPrompt) {
-      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      const systemPrompt = await buildSystemPrompt(req.user!.id, { latestUserMessage: message });
       if (systemPrompt) {
         modelConfig.systemInstruction = systemPrompt;
       }
@@ -392,7 +395,7 @@ router.post("/", async (req: Request, res: Response) => {
         const aiModel = getGoogleModel(model);
 
         // Build system prompt directly (it's stored in modelConfig.systemInstruction, not in contextManagedMessages)
-        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id) : undefined;
+        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id, { latestUserMessage: message }) : undefined;
 
         // Use context-managed messages which have already been truncated if needed
         const agentApiMessages = [...contextManagedMessages];

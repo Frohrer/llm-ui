@@ -10,6 +10,7 @@ import OpenAI from "openai";
 import { getToolDefinitions, getTools, handleToolCalls } from "../../tools";
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
+import { scheduleExtraction } from "../../memory-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -118,6 +119,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = newConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     } else {
       const conversationIdNum = parseInt(conversationId);
       if (isNaN(conversationIdNum)) {
@@ -171,6 +173,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = existingConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
 
     // Ensure context messages are properly ordered and include attachment content
@@ -332,7 +335,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Build and add system prompt with user custom prompt
     if (!skipSystemPrompt) {
-      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      const systemPrompt = await buildSystemPrompt(req.user!.id, { latestUserMessage: message });
       if (systemPrompt) {
         apiMessages.unshift({ role: "system", content: systemPrompt });
       }

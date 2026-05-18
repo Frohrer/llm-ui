@@ -12,6 +12,7 @@ import { knowledgeSourceTool } from './knowledge-source';
 import { screenshotTool } from './screenshot';
 import { createCustomToolTool } from './create-custom-tool';
 import { generateUITool } from './generate-ui';
+import { searchPastConversationsTool } from './search-past-conversations';
 
 export const manualTools = [
   calculatorTool,
@@ -29,4 +30,5 @@ export const manualTools = [
   screenshotTool,
   createCustomToolTool,
   generateUITool,
+  searchPastConversationsTool,
 ];
