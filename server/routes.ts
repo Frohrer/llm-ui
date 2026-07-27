@@ -21,6 +21,7 @@ import {
   grokRouter,
   superModelRouter,
   ollamaRouter,
+  openrouterRouter,
   initializeOpenAI,
   initializeAnthropic,
   initializeDeepSeek,
@@ -29,6 +30,7 @@ import {
   initializeGrok,
   initializeSuperModel,
   initializeOllama,
+  initializeOpenRouter,
   getSuperModelStatus,
 } from "./routes/providers";
 import { uploadSingleMiddleware, extractTextFromFile, transformUrlToProxy } from "./file-handler";
@@ -36,7 +38,7 @@ import { handleRealtimeVoiceConnection } from "./routes/realtime-voice";
 import transcribeRouter from "./routes/transcribe";
 
 // Providers that support DB-backed model management (seeding + refresh)
-const SEEDABLE_PROVIDERS = ["openai", "anthropic", "deepseek", "grok", "gemini", "ollama", "falai"];
+const SEEDABLE_PROVIDERS = ["openai", "anthropic", "deepseek", "grok", "gemini", "ollama", "falai", "openrouter"];
 
 // Load provider configurations at startup and seed model_settings if empty
 let providerConfigs: Awaited<ReturnType<typeof loadProviderConfigs>>;
@@ -95,7 +97,8 @@ const clientsInitialized: Record<string, boolean> = {
   fal: false,
   grok: false,
   superModel: false,
-  ollama: false
+  ollama: false,
+  openrouter: false
 };
 
 // Initialize clients from environment variables
@@ -125,6 +128,10 @@ if (process.env.XAI_KEY) {
 
 if (process.env.OLLAMA_API_URL) {
   clientsInitialized.ollama = initializeOllama();
+}
+
+if (process.env.OPENROUTER_API_KEY) {
+  clientsInitialized.openrouter = initializeOpenRouter();
 }
 
 // Initialize super model if all required providers are available
@@ -174,6 +181,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return clientsInitialized.superModel;
           case "ollama":
             return clientsInitialized.ollama;
+          case "openrouter":
+            return clientsInitialized.openrouter;
           default:
             return false;
         }
@@ -233,6 +242,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/chat/grok', grokRouter);
   app.use('/api/chat/super-model', superModelRouter);
   app.use('/api/chat/ollama', ollamaRouter);
+  app.use('/api/chat/openrouter', openrouterRouter);
 
   // Register transcription route
   app.use('/api/chat/transcribe', transcribeRouter);
