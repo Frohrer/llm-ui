@@ -11,9 +11,10 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Input } from '@/components/ui/input';
 import {
   ChevronUp, ChevronDown, RefreshCw, Loader2, GripVertical,
-  ArrowLeft, Coins, Cpu, Clock, Activity, BarChart3, Settings2,
+  ArrowLeft, Coins, Cpu, Clock, Activity, BarChart3, Settings2, Search,
 } from 'lucide-react';
 import { clearProvidersCache } from '@/lib/llm/providers';
 import {
@@ -42,6 +43,7 @@ const MANAGEABLE_PROVIDERS = [
   { id: 'gemini', label: 'Gemini', supportsRefresh: true },
   { id: 'ollama', label: 'Ollama', supportsRefresh: true },
   { id: 'falai', label: 'Fal.AI', supportsRefresh: true },
+  { id: 'openrouter', label: 'OpenRouter', supportsRefresh: true },
 ] as const;
 
 type LatencyEvent = { timestamp: string; model: string; provider: string; latencyMs: number };
@@ -222,6 +224,10 @@ export default function StatsPage() {
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [togglingModels, setTogglingModels] = useState<Set<string>>(new Set());
   const [modelsSortConfig, setModelsSortConfig] = useState<SortConfig>({ key: 'sort_order', direction: 'asc' });
+  const [modelSearch, setModelSearch] = useState('');
+
+  // Reset search when switching providers
+  useEffect(() => { setModelSearch(''); }, [selectedProvider]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -412,6 +418,18 @@ export default function StatsPage() {
     return sorted;
   }, [modelSettings, modelsSortConfig]);
 
+  // Search filter — matches model ID, display name, and owner.
+  // Drag-reorder is disabled while a search is active (indices wouldn't line up).
+  const filteredModelSettings = useMemo(() => {
+    const q = modelSearch.trim().toLowerCase();
+    if (!q) return sortedModelSettings;
+    return sortedModelSettings.filter((m) =>
+      m.model_id.toLowerCase().includes(q) ||
+      (m.display_name || '').toLowerCase().includes(q) ||
+      (m.owned_by || '').toLowerCase().includes(q),
+    );
+  }, [sortedModelSettings, modelSearch]);
+
   const handleModelsSort = (key: string) => {
     setModelsSortConfig((prev) => ({
       key,
@@ -419,6 +437,7 @@ export default function StatsPage() {
     }));
   };
   const isCustomOrder = modelsSortConfig.key === 'sort_order';
+  const dragEnabled = isCustomOrder && !modelSearch.trim();
 
   // --- Chart data ---
   const models = useMemo(() => {
@@ -828,11 +847,26 @@ export default function StatsPage() {
                 </div>
               ) : (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <div className="relative mb-3 max-w-sm">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      value={modelSearch}
+                      onChange={(e) => setModelSearch(e.target.value)}
+                      placeholder={`Search ${modelSettings.length.toLocaleString()} models…`}
+                      className="pl-8"
+                    />
+                  </div>
+                  {modelSearch.trim() && (
+                    <p className="text-xs text-muted-foreground mb-2">
+                      {filteredModelSettings.length.toLocaleString()} of {modelSettings.length.toLocaleString()} models match
+                      {isCustomOrder && ' — drag reorder is disabled while searching'}
+                    </p>
+                  )}
                   <div className="rounded-md border max-h-[500px] overflow-auto">
                     <Table className="min-w-[800px]">
                       <TableHeader className="sticky top-0 bg-background z-[1]">
                         <TableRow className="hover:bg-transparent">
-                          {isCustomOrder && <TableHead className="w-[40px]" />}
+                          {dragEnabled && <TableHead className="w-[40px]" />}
                           <ModelSortHeader sortKey="is_enabled" className="w-[80px]">Enabled</ModelSortHeader>
                           <ModelSortHeader sortKey="skip_system_prompt" className="w-[100px]">Skip Prompt</ModelSortHeader>
                           <ModelSortHeader sortKey="is_default" className="w-[80px]">Default</ModelSortHeader>
@@ -845,22 +879,30 @@ export default function StatsPage() {
                         </TableRow>
                       </TableHeader>
                       <SortableContext
-                        items={sortedModelSettings.map((m) => m.model_id)}
+                        items={filteredModelSettings.map((m) => m.model_id)}
                         strategy={verticalListSortingStrategy}
-                        disabled={!isCustomOrder}
+                        disabled={!dragEnabled}
                       >
                         <TableBody>
-                          {sortedModelSettings.map((m) => (
-                            <SortableModelRow
-                              key={m.model_id}
-                              model={m}
-                              isCustomOrder={isCustomOrder}
-                              togglingModels={togglingModels}
-                              onToggle={handleToggleModel}
-                              onToggleSkipSystemPrompt={handleToggleSkipSystemPrompt}
-                              onToggleDefault={handleToggleDefault}
-                            />
-                          ))}
+                          {filteredModelSettings.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                                No models match "{modelSearch}"
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            filteredModelSettings.map((m) => (
+                              <SortableModelRow
+                                key={m.model_id}
+                                model={m}
+                                isCustomOrder={dragEnabled}
+                                togglingModels={togglingModels}
+                                onToggle={handleToggleModel}
+                                onToggleSkipSystemPrompt={handleToggleSkipSystemPrompt}
+                                onToggleDefault={handleToggleDefault}
+                              />
+                            ))
+                          )}
                         </TableBody>
                       </SortableContext>
                     </Table>

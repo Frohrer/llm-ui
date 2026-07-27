@@ -50,6 +50,9 @@ const PROVIDER_CHAT_FILTERS: Record<string, {
     // but exclude training/lora endpoints
     exclude: [/training/, /lora/],
   },
+  openrouter: {
+    // Modality filtering is done in fetchModelsFromApi via architecture.output_modalities
+  },
 };
 
 function isChatModelForProvider(modelId: string, providerId: string): boolean {
@@ -156,6 +159,42 @@ async function fetchModelsFromApi(providerId: string): Promise<NormalizedModel[]
           owned_by: "google",
           displayName: m.displayName || undefined,
           contextLength: m.inputTokenLimit || undefined,
+        });
+      }
+      return models;
+    }
+
+    case "openrouter": {
+      const apiKey = process.env.OPENROUTER_API_KEY;
+      if (!apiKey) {
+        throw new Error("OPENROUTER_API_KEY not set");
+      }
+
+      const resp = await fetch("https://openrouter.ai/api/v1/models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!resp.ok) {
+        throw new Error(`OpenRouter API error: ${resp.status} ${resp.statusText}`);
+      }
+
+      const data = await resp.json();
+      const models: NormalizedModel[] = [];
+
+      for (const m of data.data || []) {
+        if (!m.id) continue;
+
+        // Only chat-capable models: output modality must include text
+        // (filters out image/audio/embedding-only endpoints)
+        const outputs: string[] = m.architecture?.output_modalities || [];
+        if (outputs.length > 0 && !outputs.includes("text")) continue;
+
+        models.push({
+          id: m.id,
+          // "moonshotai/kimi-k3" -> owner "moonshotai"
+          owned_by: m.id.includes("/") ? m.id.split("/")[0] : "openrouter",
+          displayName: m.name || undefined,
+          contextLength: m.context_length || undefined,
+          publishedAt: m.created ? new Date(m.created * 1000) : undefined,
         });
       }
       return models;

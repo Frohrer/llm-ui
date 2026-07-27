@@ -4,20 +4,68 @@
   "icon": "SiAnthropic",
   "models": [
     {
+      "id": "claude-opus-5",
+      "name": "Claude Opus 5",
+      "contextLength": 1000000,
+      "defaultModel": false
+    },
+    {
+      "id": "claude-sonnet-5",
+      "name": "Claude Sonnet 5",
+      "contextLength": 1000000,
+      "defaultModel": true
+    },
+    {
+      "id": "claude-fable-5",
+      "name": "Claude Fable 5",
+      "contextLength": 1000000,
+      "defaultModel": false
+    },
+    {
+      "id": "claude-opus-4-8",
+      "name": "Claude Opus 4.8",
+      "contextLength": 1000000,
+      "defaultModel": false
+    },
+    {
+      "id": "claude-opus-4-7",
+      "name": "Claude Opus 4.7",
+      "contextLength": 1000000,
+      "defaultModel": false
+    },
+    {
+      "id": "claude-opus-4-6",
+      "name": "Claude Opus 4.6",
+      "contextLength": 1000000,
+      "defaultModel": false
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "name": "Claude Sonnet 4.6",
+      "contextLength": 1000000,
+      "defaultModel": false
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "name": "Claude Haiku 4.5",
+      "contextLength": 200000,
+      "defaultModel": false
+    },
+    {
       "id": "claude-opus-4-5",
-      "name": "Claude 4.5 Opus",
+      "name": "Claude Opus 4.5",
       "contextLength": 200000,
       "defaultModel": false
     },
     {
       "id": "claude-sonnet-4-5",
-      "name": "Claude 4.5 Sonnet",
+      "name": "Claude Sonnet 4.5",
       "contextLength": 200000,
-      "defaultModel": true
+      "defaultModel": false
     },
     {
-      "id": "claude-sonnet-4-0",
-      "name": "Claude 4 Sonnet",
+      "id": "claude-opus-4-1",
+      "name": "Claude Opus 4.1",
       "contextLength": 200000,
       "defaultModel": false
     },
@@ -28,32 +76,8 @@
       "defaultModel": false
     },
     {
-      "id": "claude-opus-4-1",
-      "name": "Claude 4.1 Opus",
-      "contextLength": 200000,
-      "defaultModel": false
-    },
-    {
-      "id": "claude-3-7-sonnet-latest",
-      "name": "Claude 3.7 Sonnet",
-      "contextLength": 200000,
-      "defaultModel": false
-    },
-    {
-      "id": "claude-3-opus-latest",
-      "name": "Claude 3 Opus",
-      "contextLength": 200000,
-      "defaultModel": false
-    },
-    {
-      "id": "claude-3-5-sonnet-latest",
-      "name": "Claude 3.5 Sonnet",
-      "contextLength": 200000,
-      "defaultModel": false
-    },
-    {
-      "id": "claude-3-5-haiku-latest",
-      "name": "Claude 3.5 Haiku",
+      "id": "claude-sonnet-4-0",
+      "name": "Claude 4 Sonnet",
       "contextLength": 200000,
       "defaultModel": false
     }
