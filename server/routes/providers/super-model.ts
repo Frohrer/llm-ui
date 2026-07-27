@@ -18,7 +18,10 @@ export function initializeSuperModel() {
   const openaiClient = getOpenAIClient();
   const geminiClient = getGeminiClient();
   
-  return anthropicClient && openaiClient && geminiClient;
+  // Boolean, not the last client object — this value is serialized into the
+  // unauthenticated /api/health response, and the Gemini client instance
+  // exposes its API key when JSON-stringified.
+  return !!(anthropicClient && openaiClient && geminiClient);
 }
 
 // Get availability status
