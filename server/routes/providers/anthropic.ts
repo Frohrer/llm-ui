@@ -17,9 +17,17 @@ import { scheduleExtraction } from "../../memory-service";
 const router = express.Router();
 let client: Anthropic | null = null;
 
-// Opus 4.7+ deprecated the `temperature` parameter.
+// Sampling params (temperature/top_p/top_k) return a 400 on Opus 4.7+, Sonnet 5+,
+// and Fable/Mythos models. Allowlist the older families that still accept them so
+// new model IDs are safe by default.
 function supportsTemperature(model: string): boolean {
-  return !/claude-opus-4-[7-9]|claude-opus-[5-9]/.test(model);
+  return /claude-3|claude-opus-4-[0-6]|claude-sonnet-4-|claude-haiku-4-5/.test(model);
+}
+
+// Models newer than the 4.6 family run adaptive thinking by default, and max_tokens
+// caps thinking + visible text together — give them extra headroom.
+function defaultMaxTokens(model: string): number {
+  return supportsTemperature(model) ? 4096 : 16000;
 }
 
 // Initialize the Anthropic client
@@ -196,7 +204,7 @@ async function executeToolsAndGetResponse(
       model: model,
       messages: toolResponseMessages,
       ...(supportsTemperature(model) ? { temperature: 0.7 } : {}),
-      max_tokens: 4096,
+      max_tokens: defaultMaxTokens(model),
     });
     
     console.log(`Anthropic API response received. Content blocks:`, toolCompletionResponse.content?.length);
@@ -281,7 +289,7 @@ router.post("/", async (req: Request, res: Response) => {
       message,
       conversationId,
       context = [],
-      model = "claude-3-5-sonnet-latest",
+      model = "claude-sonnet-5",
       modelContextLength = 200000, // Default for Claude models
       attachment = null,
       allAttachments = [],
@@ -455,7 +463,7 @@ router.post("/", async (req: Request, res: Response) => {
     let requestOptions: any = {
       messages: [],
       model,
-      max_tokens: 4096,
+      max_tokens: defaultMaxTokens(model),
       ...(supportsTemperature(model) ? { temperature: 0.7 } : {}),
       stream: true,
     };

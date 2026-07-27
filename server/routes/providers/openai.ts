@@ -52,6 +52,13 @@ function extractResponseText(responseData: any): string {
   return "";
 }
 
+// Reasoning models (o1/o3/o4-mini, GPT-5 and GPT-5.x) reject custom temperature
+// and the legacy max_tokens param on Chat Completions. gpt-4o and older chat
+// models are NOT reasoning models and still accept temperature.
+function isReasoningModel(model: string): boolean {
+  return /^o\d/.test(model) || model.includes('gpt-5');
+}
+
 // Initialize the OpenAI client
 export function initializeOpenAI(apiKey?: string) {
   if (apiKey || process.env.OPENAI_API_KEY) {
@@ -487,12 +494,12 @@ router.post("/", async (req: Request, res: Response) => {
           streamedResponse = `![Generated Image](${imageUrl})`;
         } else {
           // Pure image generation from text prompt
+          // gpt-image-1 always returns b64_json and rejects the response_format param
           const result = await client.images.generate({
             model: "gpt-image-1",
             prompt: message,
             n: 1,
-            size: "1024x1024",
-            response_format: "b64_json"
+            size: "1024x1024"
           });
 
           if (!result?.data?.[0]?.b64_json) {
@@ -653,15 +660,17 @@ router.post("/", async (req: Request, res: Response) => {
     // Stream the completion with retries
     while (retryCount < maxRetries) {
       try {
-        // Reasoning models (o1, o3, gpt-4o, gpt-5) require temperature 1
-        const isReasoningModelStream = effectiveModel.includes('o1') || effectiveModel.includes('o3') || effectiveModel.includes('gpt-4o') || effectiveModel.includes('gpt-5');
-        
+        // Reasoning models (o-series, GPT-5 family) reject custom temperature —
+        // omit the param entirely for them. Older chat models (gpt-4o, gpt-4.1,
+        // gpt-4, gpt-3.5) still support it.
+        const isReasoningModelStream = isReasoningModel(effectiveModel);
+
         const streamOptions: any = {
           messages: contextManagedMessages,
           model: effectiveModel,
           stream: true,
           max_completion_tokens: 4096,
-          temperature: isReasoningModelStream ? 1 : 0.7,
+          ...(isReasoningModelStream ? {} : { temperature: 0.7 }),
         };
 
         // Add tools if enabled
@@ -912,13 +921,14 @@ router.post("/", async (req: Request, res: Response) => {
             }))
           ];
           
-          // Get final response with tool results
-          const isReasoningModelTool = effectiveModel.includes('o1') || effectiveModel.includes('o3') || effectiveModel.includes('gpt-4o') || effectiveModel.includes('gpt-5');
+          // Get final response with tool results. Reasoning models reject both
+          // custom temperature and the legacy max_tokens param (must use
+          // max_completion_tokens on Chat Completions).
           const toolCompletionResponse = await client.chat.completions.create({
             model: effectiveModel,
             messages: toolResponseMessages,
-            temperature: isReasoningModelTool ? 1 : 0.7,
-            max_tokens: 4096,
+            ...(isReasoningModel(effectiveModel) ? {} : { temperature: 0.7 }),
+            max_completion_tokens: 4096,
           });
           
           const toolFinalResponse = toolCompletionResponse.choices[0]?.message?.content || '';
@@ -1421,12 +1431,11 @@ async function handleResponsesAPI(req: Request, res: Response) {
       }
       
       // Call Chat Completions API instead
-      const isReasoningModelFallback = fallbackModel.includes('o1') || fallbackModel.includes('o3') || fallbackModel.includes('gpt-4o') || fallbackModel.includes('gpt-5');
       const stream = await client.chat.completions.create({
         model: fallbackModel,
         messages: chatMessages as any,
         stream: true,
-        temperature: isReasoningModelFallback ? 1 : 0.7
+        ...(isReasoningModel(fallbackModel) ? {} : { temperature: 0.7 }),
       });
       
       // Process the stream like normal Chat Completions
