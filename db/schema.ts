@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean, json, jsonb, customType } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, json, jsonb, real, customType } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
@@ -133,6 +133,23 @@ export const memories = pgTable("memories", {
   source_message_id: integer("source_message_id").references(() => messages.id, { onDelete: "set null" }),
   confidence: integer("confidence").default(70).notNull(),
   pinned: boolean("pinned").default(false).notNull(),
+  // Lifecycle salience (decay model). Distinct from `confidence` (extractor
+  // certainty): strength decays over time and is bumped by reinforcement.
+  strength: real("strength").default(1).notNull(),
+  // FSRS-style stability: multiplies the kind's base half-life. Grows on each
+  // reinforcement (more when the memory was closer to forgotten), so
+  // repeatedly-confirmed facts become effectively permanent without pinning.
+  stability: real("stability").default(1).notNull(),
+  // Decay eviction is invalidation, not deletion (Zep-style). Set when the
+  // sweep evicts a row; active-row queries filter on IS NULL. Evicted rows
+  // can be resurrected by create-time dedup and are purged much later.
+  evicted_at: timestamp("evicted_at"),
+  // Nullable with NO default — migration 0010 backfills legacy rows from
+  // updated_at, keyed on IS NULL. A defaultNow() here would stamp every
+  // existing row at deploy time via db:push and void that backfill.
+  // Code sets it explicitly on create/supersede/reinforce; reads coalesce
+  // to updated_at ?? created_at.
+  last_reinforced_at: timestamp("last_reinforced_at"),
   superseded_by: integer("superseded_by"),
   last_used_at: timestamp("last_used_at"),
   use_count: integer("use_count").default(0).notNull(),

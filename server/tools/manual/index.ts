@@ -13,6 +13,8 @@ import { screenshotTool } from './screenshot';
 import { createCustomToolTool } from './create-custom-tool';
 import { generateUITool } from './generate-ui';
 import { searchPastConversationsTool } from './search-past-conversations';
+import { saveMemoryTool } from './save-memory';
+import { forgetMemoryTool } from './forget-memory';
 
 export const manualTools = [
   calculatorTool,
@@ -31,4 +33,6 @@ export const manualTools = [
   createCustomToolTool,
   generateUITool,
   searchPastConversationsTool,
+  saveMemoryTool,
+  forgetMemoryTool,
 ];
