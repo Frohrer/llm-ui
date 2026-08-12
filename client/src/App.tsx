@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/providers/theme-provider";
 import { useUser } from "@/hooks/use-user";
 import Home from "@/pages/home";
 import StatsPage from "@/pages/stats";
+import PiiPage from "@/pages/pii";
 import CustomToolsPage from "@/pages/custom-tools";
 import VoiceChat from "@/pages/voice-chat";
 import KnowledgePage from "@/pages/knowledge";
@@ -33,6 +34,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/stats">{user.is_admin ? <StatsPage /> : <Home />}</Route>
+      <Route path="/pii">{user.is_admin ? <PiiPage /> : <Home />}</Route>
       <Route path="/custom-tools" component={CustomToolsPage} />
       <Route path="/voice-chat" component={VoiceChat} />
       <Route path="/voice-chat/:id" component={VoiceChat} />

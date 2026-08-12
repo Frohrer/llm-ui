@@ -7,6 +7,7 @@ import { customTools } from '@db/schema';
 import { eq } from 'drizzle-orm';
 import { runPythonTool } from './manual/run-python.js';
 import { truncateToolResult } from '../context-manager.js';
+import { restoreDeep } from '../pii-service';
 
 
 // Define the interface for a tool
@@ -353,9 +354,12 @@ export async function handleToolCalls(toolCalls: any[], options: { maxResultToke
     try {
       // Handle both OpenAI and custom tool call formats
       const toolName = toolCall.function?.name || toolCall.name;
-      const toolArgs = toolCall.function?.arguments ? 
+      const rawArgs = toolCall.function?.arguments ?
         JSON.parse(toolCall.function.arguments) : toolCall.arguments;
-      
+      // The model only ever saw PII tags; tools must run on real values
+      // (send-email to the real address, search the real name, etc.).
+      const toolArgs = await restoreDeep(rawArgs);
+
       const result = await executeTool(toolName, toolArgs);
       
       // Truncate large results to prevent context overflow

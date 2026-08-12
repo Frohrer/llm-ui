@@ -13,6 +13,7 @@ import { getOllamaModel } from "../../ai-sdk-providers";
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
+import { redactDeep, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -198,6 +199,10 @@ router.post("/", async (req: Request, res: Response) => {
       res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
 
+    // Propose name/address entities from the raw user message (runs on local
+    // Ollama only; no-op unless the classifier is enabled in admin settings).
+    schedulePiiClassification(message);
+
     // Ensure context messages are properly ordered and include attachment content
     const apiMessages = context
       .sort(
@@ -328,7 +333,9 @@ router.post("/", async (req: Request, res: Response) => {
           }
         }
 
-        stream = await client.chat.completions.create(streamOptions);
+        // Redacted for consistency with cloud providers: Ollama is local, but
+        // keeping tagged payloads uniform is cheap and uniform behavior-wise.
+        stream = await client.chat.completions.create(await redactDeep(streamOptions));
         console.log("Stream created with model:", model);
         break;
       } catch (error: any) {
@@ -443,6 +450,9 @@ router.post("/", async (req: Request, res: Response) => {
         let toolCallsInProgress: any[] = [];
         let thinkBuffer = ''; // Buffer to detect and suppress <think> blocks
         let insideThink = false;
+        // Restores PII tags in streamed text; buffers tag fragments split
+        // across chunk boundaries.
+        const piiRestorer = createStreamRestorer();
 
         for await (const chunk of stream) {
           const content = chunk.choices[0]?.delta?.content || "";
@@ -462,7 +472,8 @@ router.post("/", async (req: Request, res: Response) => {
               if (beforeThink) {
                 streamedResponse += beforeThink;
                 if (ttftMs === null) ttftMs = Date.now() - requestStart;
-                res.write(`data: ${JSON.stringify({ type: "chunk", content: beforeThink })}\n\n`);
+                const restored = await piiRestorer.push(beforeThink);
+                if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
               }
               insideThink = true;
               thinkBuffer = thinkBuffer.substring(thinkBuffer.indexOf('<think>'));
@@ -477,7 +488,8 @@ router.post("/", async (req: Request, res: Response) => {
               if (afterThink) {
                 streamedResponse += afterThink;
                 if (ttftMs === null) ttftMs = Date.now() - requestStart;
-                res.write(`data: ${JSON.stringify({ type: "chunk", content: afterThink })}\n\n`);
+                const restored = await piiRestorer.push(afterThink);
+                if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
                 thinkBuffer = '';
               }
               continue;
@@ -490,7 +502,8 @@ router.post("/", async (req: Request, res: Response) => {
             if (thinkBuffer) {
               streamedResponse += thinkBuffer;
               if (ttftMs === null) ttftMs = Date.now() - requestStart;
-              res.write(`data: ${JSON.stringify({ type: "chunk", content: thinkBuffer })}\n\n`);
+              const restored = await piiRestorer.push(thinkBuffer);
+              if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
               if (res.flush) res.flush();
               thinkBuffer = '';
             }
@@ -532,6 +545,12 @@ router.post("/", async (req: Request, res: Response) => {
           }
         }
 
+        // Emit any held-back tag fragment and convert accumulated tags back to
+        // real values before anything below persists or re-streams it.
+        const piiTail = await piiRestorer.flush();
+        if (piiTail) res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
+        streamedResponse = await restoreText(streamedResponse);
+
         // Execute any tool calls if present and tool usage is enabled
         if (useTools && toolCallsInProgress.length > 0) {
           try {
@@ -562,12 +581,13 @@ router.post("/", async (req: Request, res: Response) => {
 
             console.log(`[Ollama] Validated ${validToolCalls.length} of ${toolCallsInProgress.length} tool calls`);
 
-            // Store tool calls as internal messages
+            // Store tool calls as internal messages (restored: the model
+            // emitted PII tags in its arguments; the DB keeps real values)
             const toolTimestamp = new Date();
             await db.insert(messages).values({
               conversation_id: dbConversation.id,
               role: "tool",
-              content: JSON.stringify(validToolCalls),
+              content: JSON.stringify(await restoreDeep(validToolCalls)),
               metadata: { type: 'tool_calls' },
               created_at: toolTimestamp,
             });
@@ -598,15 +618,17 @@ router.post("/", async (req: Request, res: Response) => {
               { role: 'user', content: 'Using the tool results above, give me a concise answer. Do not output raw JSON or explain your reasoning process. Just answer directly.' }
             ];
 
-            // Get final response with tool results
-            const toolCompletionResponse = await client.chat.completions.create({
+            // Get final response with tool results (redacted: real tool output
+            // is re-tagged before going back to the model)
+            const toolCompletionResponse = await client.chat.completions.create(await redactDeep({
               model,
               messages: toolResponseMessages,
               temperature: 0.7,
               max_tokens: 4096,
-            });
+            }));
 
-            let rawToolResponse = toolCompletionResponse.choices[0]?.message?.content || '';
+            // Restored: convert PII tags in the model's answer back to real values
+            let rawToolResponse = await restoreText(toolCompletionResponse.choices[0]?.message?.content || '');
             let toolFinalResponse = stripThinkingOutput(rawToolResponse);
 
             // If the model just dumped JSON instead of a natural answer, retry once
@@ -618,13 +640,14 @@ router.post("/", async (req: Request, res: Response) => {
                 { role: 'assistant', content: rawToolResponse },
                 { role: 'user', content: 'That was raw JSON. Rewrite your answer as a short, natural sentence for the user. No JSON, no code blocks.' }
               ];
-              const retryResponse = await client.chat.completions.create({
+              // Redacted on the way out, restored on the way back in
+              const retryResponse = await client.chat.completions.create(await redactDeep({
                 model,
                 messages: retryMessages,
                 temperature: 0.7,
                 max_tokens: 1024,
-              });
-              const retryContent = retryResponse.choices[0]?.message?.content || '';
+              }));
+              const retryContent = await restoreText(retryResponse.choices[0]?.message?.content || '');
               const retryClean = stripThinkingOutput(retryContent).trim();
               // Use retry if it's not JSON again, otherwise fall back to original
               if (retryClean && !retryClean.startsWith('{') && !retryClean.startsWith('[')) {

@@ -10,6 +10,7 @@ import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } fr
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
+import { redactDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -178,6 +179,10 @@ router.post("/", async (req: Request, res: Response) => {
       res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
 
+    // Propose name/address entities from the raw user message (in-process
+    // NER; no-op unless the classifier is enabled in admin settings).
+    schedulePiiClassification(message);
+
     // Ensure context messages are properly ordered and include attachment content
     const apiMessages = context
       .sort(
@@ -299,12 +304,14 @@ router.post("/", async (req: Request, res: Response) => {
     // (reasoning models, GPT-5 family, Kimi K3) reject custom values.
     while (retryCount < maxRetries) {
       try {
-        stream = await client.chat.completions.create({
+        // Redacted: known PII entities and freshly detected PII are replaced
+        // with tags before leaving the machine (re-redacts on each retry).
+        stream = await client.chat.completions.create(await redactDeep({
           messages: contextManagedMessages,
           model,
-          stream: true,
+          stream: true as const,
           max_tokens: 16000,
-        });
+        }));
         console.log("Stream created with model:", model);
         break;
       } catch (error: any) {
@@ -368,6 +375,9 @@ router.post("/", async (req: Request, res: Response) => {
       // Reasoning models (e.g. Kimi K3 with always-on thinking) can pause for a
       // while before the first visible token — use a generous chunk timeout.
       const chunkTimeout = 120000;
+      // Restores PII tags in streamed text; buffers tag fragments split
+      // across chunk boundaries.
+      const piiRestorer = createStreamRestorer();
 
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content || "";
@@ -377,9 +387,12 @@ router.post("/", async (req: Request, res: Response) => {
           if (ttftMs === null) {
             ttftMs = lastChunkTime - requestStart;
           }
-          res.write(
-            `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
-          );
+          const restored = await piiRestorer.push(content);
+          if (restored) {
+            res.write(
+              `data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`,
+            );
+          }
           (res as any).flush?.();
         }
 
@@ -388,6 +401,15 @@ router.post("/", async (req: Request, res: Response) => {
           throw new Error("Stream timeout - no data received for 120 seconds");
         }
       }
+
+      // Emit any held-back tag fragment and convert accumulated tags back to
+      // real values before persisting (DB keeps real values).
+      const piiTail = await piiRestorer.flush();
+      if (piiTail) {
+        res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
+        (res as any).flush?.();
+      }
+      streamedResponse = await restoreText(streamedResponse);
 
       // Save the complete response only after successful streaming
       const timestamp = new Date();

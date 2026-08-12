@@ -173,7 +173,7 @@ ${contextSummary}`;
           .values({
             title,
             provider: 'openai-realtime',
-            model: 'gpt-4o-realtime',
+            model: 'gpt-realtime',
             user_id: user.id,
             created_at: timestamp,
             last_message_at: timestamp,
@@ -237,8 +237,7 @@ ${contextSummary}`;
   try {
     openaiWs = new WebSocket(realtimeUrl, {
       headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'OpenAI-Beta': 'realtime=v1'
+        'Authorization': `Bearer ${openaiApiKey}`
       }
     });
 
@@ -246,28 +245,35 @@ ${contextSummary}`;
     openaiWs.on('open', () => {
       console.log('[Realtime Voice] Connected to OpenAI Realtime API');
 
-      // Send session configuration
+      // Send session configuration (GA protocol)
       const sessionConfig = {
         type: 'session.update',
         session: {
-          modalities: ['text', 'audio'],
+          type: 'realtime',
+          model: 'gpt-realtime',
+          output_modalities: ['audio'],
           instructions: contextInstructions,
-          voice: 'alloy',
-          input_audio_format: 'pcm16',
-          output_audio_format: 'pcm16',
-          input_audio_transcription: {
-            model: 'whisper-1'
-          },
-          turn_detection: {
-            type: 'server_vad',
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 500
+          audio: {
+            input: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              transcription: {
+                model: 'whisper-1'
+              },
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 500
+              }
+            },
+            output: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              voice: 'alloy'
+            }
           },
           tools: tools,
           tool_choice: 'auto',
-          temperature: 0.8,
-          max_response_output_tokens: 4096
+          max_output_tokens: 4096
         }
       };
 
@@ -307,7 +313,7 @@ ${contextSummary}`;
         const message = JSON.parse(data.toString());
 
         // Log non-audio messages for debugging
-        if (message.type !== 'response.audio.delta' && message.type !== 'response.audio_transcript.delta') {
+        if (message.type !== 'response.output_audio.delta' && message.type !== 'response.output_audio_transcript.delta') {
           console.log('[Realtime Voice] OpenAI -> Client:', message.type);
         }
 
@@ -321,7 +327,7 @@ ${contextSummary}`;
         }
 
         // Track assistant response (text transcript)
-        if (message.type === 'response.audio_transcript.delta') {
+        if (message.type === 'response.output_audio_transcript.delta') {
           if (message.item_id !== currentItemId) {
             // New response started
             if (pendingAssistantResponse && currentItemId) {
@@ -336,7 +342,7 @@ ${contextSummary}`;
         }
 
         // Save assistant response when complete
-        if (message.type === 'response.audio_transcript.done') {
+        if (message.type === 'response.output_audio_transcript.done') {
           if (pendingAssistantResponse) {
             await saveAssistantMessage(pendingAssistantResponse);
             pendingAssistantResponse = '';

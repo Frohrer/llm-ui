@@ -10,6 +10,7 @@ import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } fr
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
+import { redactDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -173,6 +174,10 @@ router.post("/", async (req: Request, res: Response) => {
       res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
 
+    // Propose name/address entities from the raw user message (runs on local
+    // Ollama only; no-op unless the classifier is enabled in admin settings).
+    schedulePiiClassification(message);
+
     // Ensure context messages are properly ordered and include attachment content
     const apiMessages = context
       .sort(
@@ -288,13 +293,15 @@ router.post("/", async (req: Request, res: Response) => {
     // Stream the completion with retries
     while (retryCount < maxRetries) {
       try {
-        stream = await client.chat.completions.create({
+        // Create stream (redacted: known PII entities and freshly detected
+        // structured PII are replaced with tags before leaving the machine)
+        stream = await client.chat.completions.create(await redactDeep({
           messages: contextManagedMessages,
           model,
           stream: true,
           max_tokens: 4096,
           temperature: 0.7,
-        });
+        }));
         console.log("Stream created with model:", model);
         break;
       } catch (error: any) {
@@ -356,6 +363,9 @@ router.post("/", async (req: Request, res: Response) => {
       let ttftMs: number | null = null;
       let lastChunkTime = Date.now();
       const chunkTimeout = 30000; // 30 seconds timeout between chunks
+      // Restores PII tags in streamed text; buffers tag fragments split
+      // across chunk boundaries.
+      const piiRestorer = createStreamRestorer();
 
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content || "";
@@ -365,9 +375,8 @@ router.post("/", async (req: Request, res: Response) => {
           if (ttftMs === null) {
             ttftMs = lastChunkTime - requestStart;
           }
-          res.write(
-            `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
-          );
+          const restored = await piiRestorer.push(content);
+          if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
           if (res.flush) res.flush();
         }
 
@@ -376,6 +385,12 @@ router.post("/", async (req: Request, res: Response) => {
           throw new Error("Stream timeout - no data received for 30 seconds");
         }
       }
+
+      // Emit any held-back tag fragment and convert accumulated tags back to
+      // real values before anything below persists or re-streams it.
+      const piiTail = await piiRestorer.flush();
+      if (piiTail) res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
+      streamedResponse = await restoreText(streamedResponse);
 
       // Save the complete response only after successful streaming
       const timestamp = new Date();

@@ -14,6 +14,7 @@ import { prepareContext, isContextLengthError, truncateToolResult, estimateTotal
 import { saveGeneratedImage } from "../../file-handler";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
+import { redactDeep, redactText, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -259,6 +260,10 @@ router.post("/", async (req: Request, res: Response) => {
       res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
 
+    // Propose name/address entities from the raw user message (runs on local
+    // Ollama only; no-op unless the classifier is enabled in admin settings).
+    schedulePiiClassification(message);
+
     // Ensure context messages are properly ordered and include attachment content
     const apiMessages = context
       .sort(
@@ -390,7 +395,7 @@ router.post("/", async (req: Request, res: Response) => {
         const result = await client.images.edit({
           model: "gpt-image-1",
           image: imageFile,
-          prompt: message,
+          prompt: await redactText(message),
           n: 1
         });
 
@@ -476,7 +481,7 @@ router.post("/", async (req: Request, res: Response) => {
           const result = await client.images.edit({
             model: "gpt-image-1",
             image: imageFile,
-            prompt: message,
+            prompt: await redactText(message),
             n: 1,
             size: "1024x1024"
           });
@@ -497,7 +502,7 @@ router.post("/", async (req: Request, res: Response) => {
           // gpt-image-1 always returns b64_json and rejects the response_format param
           const result = await client.images.generate({
             model: "gpt-image-1",
-            prompt: message,
+            prompt: await redactText(message),
             n: 1,
             size: "1024x1024"
           });
@@ -689,7 +694,9 @@ router.post("/", async (req: Request, res: Response) => {
           }
         }
 
-        stream = await client.chat.completions.create(streamOptions);
+        // Create stream (redacted: known PII entities and freshly detected
+        // structured PII are replaced with tags before leaving the machine)
+        stream = await client.chat.completions.create(await redactDeep(streamOptions));
         console.log("Stream created with model:", model);
         break;
       } catch (error: any) {
@@ -802,6 +809,9 @@ router.post("/", async (req: Request, res: Response) => {
         let lastChunkTime = Date.now();
         const chunkTimeout = 30000; // 30 seconds timeout between chunks
         let toolCallsInProgress: any[] = [];
+        // Restores PII tags in streamed text; buffers tag fragments split
+        // across chunk boundaries.
+        const piiRestorer = createStreamRestorer();
 
         for await (const chunk of stream as unknown as AsyncIterable<any>) {
           const content = chunk.choices[0]?.delta?.content || "";
@@ -814,9 +824,8 @@ router.post("/", async (req: Request, res: Response) => {
           if (ttftMs === null) {
             ttftMs = lastChunkTime - requestStart;
           }
-          res.write(
-            `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
-          );
+          const restored = await piiRestorer.push(content);
+          if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
         }
 
         // Handle tool call chunks if present and tool usage is enabled
@@ -855,6 +864,12 @@ router.post("/", async (req: Request, res: Response) => {
         }
       }
 
+      // Emit any held-back tag fragment and convert accumulated tags back to
+      // real values before anything below persists or re-streams it.
+      const piiTail = await piiRestorer.flush();
+      if (piiTail) res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
+      streamedResponse = await restoreText(streamedResponse);
+
       // Execute any tool calls if present and tool usage is enabled
       if (useTools && toolCallsInProgress.length > 0) {
         try {
@@ -886,12 +901,13 @@ router.post("/", async (req: Request, res: Response) => {
           
           console.log(`Validated ${validToolCalls.length} of ${toolCallsInProgress.length} tool calls`);
           
-          // Store tool calls as internal messages
+          // Store tool calls as internal messages (restored: the model emitted PII
+          // tags in its arguments; the DB keeps real values)
           const timestamp = new Date();
           await db.insert(messages).values({
             conversation_id: dbConversation.id,
             role: "tool",
-            content: JSON.stringify(validToolCalls),
+            content: JSON.stringify(await restoreDeep(validToolCalls)),
             metadata: { type: 'tool_calls' },
             created_at: timestamp,
           });
@@ -923,15 +939,16 @@ router.post("/", async (req: Request, res: Response) => {
           
           // Get final response with tool results. Reasoning models reject both
           // custom temperature and the legacy max_tokens param (must use
-          // max_completion_tokens on Chat Completions).
-          const toolCompletionResponse = await client.chat.completions.create({
+          // max_completion_tokens on Chat Completions). Redacted: real tool
+          // output must not reach the upstream API.
+          const toolCompletionResponse = await client.chat.completions.create(await redactDeep({
             model: effectiveModel,
             messages: toolResponseMessages,
             ...(isReasoningModel(effectiveModel) ? {} : { temperature: 0.7 }),
             max_completion_tokens: 4096,
-          });
-          
-          const toolFinalResponse = toolCompletionResponse.choices[0]?.message?.content || '';
+          }));
+
+          const toolFinalResponse = await restoreText(toolCompletionResponse.choices[0]?.message?.content || '');
           
           // Only send the final response if it's not empty
           if (toolFinalResponse) {
@@ -1191,6 +1208,10 @@ async function handleResponsesAPI(req: Request, res: Response) {
       res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
 
+    // Propose name/address entities from the raw user input (runs on local
+    // Ollama only; no-op unless the classifier is enabled in admin settings).
+    schedulePiiClassification(input);
+
     // As soon as we have a conversation id, open the stream and notify client
     res.write(`data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`);
     ;(res as any).flush?.();
@@ -1362,13 +1383,15 @@ async function handleResponsesAPI(req: Request, res: Response) {
     // Make the Responses API call
     let response;
     try {
+      // Redacted: known PII entities and freshly detected structured PII are
+      // replaced with tags before leaving the machine
       response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(responsesPayload),
+        body: JSON.stringify(await redactDeep(responsesPayload)),
       });
 
       console.log('Responses API HTTP status:', response.status);
@@ -1431,24 +1454,35 @@ async function handleResponsesAPI(req: Request, res: Response) {
       }
       
       // Call Chat Completions API instead
-      const stream = await client.chat.completions.create({
+      // Restores PII tags in streamed text; buffers tag fragments split
+      // across chunk boundaries.
+      const piiRestorer = createStreamRestorer();
+      // Create stream (redacted: known PII entities and freshly detected
+      // structured PII are replaced with tags before leaving the machine)
+      const stream = await client.chat.completions.create(await redactDeep({
         model: fallbackModel,
         messages: chatMessages as any,
-        stream: true,
+        stream: true as const,
         ...(isReasoningModel(fallbackModel) ? {} : { temperature: 0.7 }),
-      });
-      
+      }));
+
+
       // Process the stream like normal Chat Completions
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content || "";
         if (content) {
           streamedResponse += content;
-          res.write(
-            `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
-          );
+          const restored = await piiRestorer.push(content);
+          if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
         }
       }
-      
+
+      // Emit any held-back tag fragment and convert accumulated tags back to
+      // real values before the response is persisted.
+      const piiTail = await piiRestorer.flush();
+      if (piiTail) res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
+      streamedResponse = await restoreText(streamedResponse);
+
       // Save the response and end
       const timestamp = new Date();
       await db.insert(messages).values({
@@ -1499,8 +1533,9 @@ async function handleResponsesAPI(req: Request, res: Response) {
     );
     // keep-alive managed earlier
 
-    // Extract content and stream it (robust extractor)
-    const extracted = extractResponseText(responseData);
+    // Extract content and stream it (robust extractor); restored: the model
+    // emitted PII tags, the client and DB only ever see real values
+    const extracted = await restoreText(extractResponseText(responseData));
     console.log('Extracted content:', { 
       contentLength: extracted.length, 
       sample: extracted.substring(0, 100) + (extracted.length > 100 ? '...' : '') 
@@ -1532,12 +1567,13 @@ async function handleResponsesAPI(req: Request, res: Response) {
       try {
         console.log('Executing tool calls from Responses API:', JSON.stringify(toolCalls, null, 2));
         
-        // Store tool calls as internal messages
+        // Store tool calls as internal messages (restored: the model emitted PII
+        // tags in its arguments; the DB keeps real values)
         const timestamp = new Date();
         await db.insert(messages).values({
           conversation_id: dbConversation.id,
           role: "tool",
-          content: JSON.stringify(toolCalls),
+          content: JSON.stringify(await restoreDeep(toolCalls)),
           metadata: { type: 'tool_calls', response_id: responseData.id },
           created_at: timestamp,
         });

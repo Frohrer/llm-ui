@@ -7,6 +7,7 @@ import type { Request, Response } from "express";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import * as falConfig from "../../config/providers/falai.json";
 import { downloadAndSaveImage, saveGeneratedImage } from "../../file-handler";
+import { redactText, restoreText } from "../../pii-service";
 
 // Define types for fal.ai responses
 interface FalQueueUpdate {
@@ -241,7 +242,9 @@ router.post("/", async (req: Request, res: Response) => {
           const modelParams = await getModelParameters(model);
 
           const inputParams = {
-            prompt: userMessage,
+            // Redacted: the prompt is the PII carrier here and must not reach
+            // fal.ai with real values. Nothing to restore (images come back).
+            prompt: await redactText(userMessage),
             ...modelParams
           };
           
@@ -417,7 +420,8 @@ router.post("/", async (req: Request, res: Response) => {
         try {
           const resultPromise = fal.subscribe(model, { // Use the model from configuration
             input: {
-              prompt: formattedMessages.map(msg => `${msg.role}: ${msg.content}`).join("\n"),
+              // Redacted: chat history text must not reach fal.ai with real values
+              prompt: await redactText(formattedMessages.map(msg => `${msg.role}: ${msg.content}`).join("\n")),
               max_tokens: 1000,
               temperature: 0.7,
               sync_mode: true // Ensure synchronous response
@@ -443,9 +447,11 @@ router.post("/", async (req: Request, res: Response) => {
             throw new Error("Invalid response format received from Fal AI");
           }
 
-          // For chat completion, expect response in data.response
-          streamedResponse = result.data.response || result.data.generated_text || "";
-          
+          // For chat completion, expect response in data.response.
+          // Restored: the model only saw PII tags; the DB row and the
+          // conversation payload sent to the client carry real values.
+          streamedResponse = await restoreText(result.data.response || result.data.generated_text || "");
+
           if (!streamedResponse) {
             console.error("No text response in result data:", result.data);
             throw new Error("No text response received from model");
