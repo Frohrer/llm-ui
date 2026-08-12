@@ -174,104 +174,76 @@ export function UserProfileSheet({ trigger }: UserProfileSheetProps) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>{trigger}</SheetTrigger>
-      <SheetContent className="w-full sm:max-w-md overflow-y-auto px-4 sm:px-6">
-        <SheetHeader>
-          <SheetTitle>Profile Settings</SheetTitle>
-          <SheetDescription>
-            Customize your experience with theme colors and personal information
+      <SheetContent className="w-full sm:max-w-sm overflow-y-auto px-4 sm:px-5">
+        <SheetHeader className="pb-1">
+          <SheetTitle className="text-base">Settings</SheetTitle>
+          <SheetDescription className="text-xs">
+            {user?.email}
           </SheetDescription>
         </SheetHeader>
 
-        <div className="space-y-6 py-6">
-          {/* User Info */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Account</Label>
-            <div className="p-4 bg-muted/50 rounded-lg border">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-semibold text-lg">
-                  {user?.email?.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium">{user?.email}</span>
-                  <span className="text-xs text-muted-foreground">Signed in</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
+        <div className="space-y-5 py-4">
           {/* Primary Color Selection */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Palette className="h-4 w-4" />
-              <Label className="text-sm font-medium">Primary Color</Label>
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Palette className="h-3.5 w-3.5 text-muted-foreground" />
+              <Label className="text-sm font-medium">Theme Color</Label>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Choose a color theme for your interface
-            </p>
-            <div className="grid grid-cols-4 gap-2 sm:gap-3">
+            <div className="grid grid-cols-8 gap-1.5">
               {PRESET_COLORS.map((color) => (
                 <button
                   key={color.value}
                   type="button"
                   onClick={() => handleColorSelect(color.value)}
-                  className={`relative aspect-square rounded-lg transition-all duration-150 ${
+                  className={`aspect-square rounded-md transition-all duration-150 ${
                     selectedColor === color.value
-                      ? "ring-2 ring-offset-2 ring-offset-background ring-foreground scale-105"
-                      : "hover:scale-105 opacity-80 hover:opacity-100"
+                      ? "ring-2 ring-offset-1 ring-offset-background ring-foreground scale-110"
+                      : "hover:scale-110 opacity-70 hover:opacity-100"
                   }`}
                   style={{ backgroundColor: color.value }}
                   title={color.name}
-                >
-                  {selectedColor === color.value && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-6 h-6 rounded-full bg-white/90 flex items-center justify-center">
-                        <div className="w-2 h-2 rounded-full bg-black"></div>
-                      </div>
-                    </div>
-                  )}
-                </button>
+                />
               ))}
             </div>
           </div>
 
           {/* Custom Prompt */}
-          <div className="space-y-3">
+          <div className="space-y-2">
             <Label htmlFor="custom-prompt" className="text-sm font-medium">
-              Custom System Prompt
+              System Prompt
             </Label>
-            <p className="text-xs text-muted-foreground">
-              Add personal information or preferences that will be included in every conversation
-            </p>
             <Textarea
               id="custom-prompt"
-              placeholder="Example: I prefer concise answers. I'm a software developer working with React and TypeScript..."
+              placeholder="Personal preferences included in every conversation..."
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
-              className="min-h-[120px] resize-none"
+              className="min-h-[100px] resize-none text-sm"
             />
-            <p className="text-xs text-muted-foreground">
-              {customPrompt.length} characters
+            <p className="text-[11px] text-muted-foreground">
+              {customPrompt.length} chars
             </p>
           </div>
 
-          {/* Save Button */}
-          <div className="pt-4 border-t space-y-2">
+          {/* Actions */}
+          <div className="pt-3 border-t flex items-center gap-2">
             <Button
               onClick={handleSave}
               disabled={savePreferences.isPending}
-              className="w-full gap-2"
+              size="sm"
+              className="gap-1.5 flex-1"
             >
-              <Save className="h-4 w-4" />
-              {savePreferences.isPending ? "Saving..." : "Save Settings"}
+              <Save className="h-3.5 w-3.5" />
+              {savePreferences.isPending ? "Saving..." : "Save"}
             </Button>
             <Button
               onClick={handleExport}
               disabled={isExporting}
               variant="outline"
-              className="w-full gap-2"
+              size="sm"
+              className="gap-1.5"
             >
-              <Download className="h-4 w-4" />
-              {isExporting ? "Exporting..." : "Export Chat History"}
+              <Download className="h-3.5 w-3.5" />
+              {isExporting ? "..." : "Export"}
             </Button>
           </div>
         </div>

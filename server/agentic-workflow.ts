@@ -4,6 +4,7 @@ import { getToolDefinitions, executeTool, refreshTools } from "./tools";
 import { db } from "@db";
 import { messages } from "@db/schema";
 import { truncateToolResult } from "./context-manager";
+import { redactDeep, redactText, restoreDeep, restoreText } from "./pii-service";
 
 // Maximum tokens per tool result to prevent context overflow during agentic loops
 // With 20 iterations max and ~2000 tokens each, worst case is ~40K tokens for tool results
@@ -126,24 +127,29 @@ async function buildAgentTools(forceReload: boolean = false, userId?: number): P
       inputSchema: zodSchema,
       execute: async (params: any) => {
         try {
-          const result = await executeTool(func.name, params, userId);
-          
+          // The model only ever saw PII tags in its context; tools must run
+          // on real values (send-email to the real address, etc.).
+          const result = await executeTool(func.name, await restoreDeep(params), userId);
+
           // CRITICAL: Truncate tool results to prevent context overflow
           // The AI SDK ToolLoopAgent accumulates all tool results in context
           const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
           const estimatedTokens = Math.ceil(resultStr.length / 3.2);
-          
+
           if (estimatedTokens > MAX_TOOL_RESULT_TOKENS) {
             console.log(`[Agent] Truncating tool result from ${func.name}: ~${estimatedTokens} -> ~${MAX_TOOL_RESULT_TOKENS} tokens`);
             const truncated = truncateToolResult(result, MAX_TOOL_RESULT_TOKENS);
             try {
-              return JSON.parse(truncated);
+              return await redactDeep(JSON.parse(truncated));
             } catch {
-              return truncated;
+              return redactText(truncated);
             }
           }
-          
-          return result;
+
+          // Redacted: the AI SDK feeds this result straight back to the
+          // upstream model on the next loop iteration, so real values from
+          // tool output must not leave the machine.
+          return redactDeep(result);
         } catch (error) {
           console.error(`Error executing tool ${func.name}:`, error);
           return {
@@ -221,10 +227,15 @@ export async function runAgenticLoop(
   let stepCount = 0;
   const startTime = Date.now();
 
+  // Redact everything that will be sent to the upstream model: the system
+  // prompt and the conversation history. Only PII tags may leave the machine.
+  const redactedSystemPrompt = systemPrompt ? await redactText(systemPrompt) : systemPrompt;
+  const redactedMessages = await redactDeep(initialMessages);
+
   // Create the agent using ToolLoopAgent class
   const agent = new ToolLoopAgent({
     model,
-    instructions: systemPrompt,
+    instructions: redactedSystemPrompt,
     tools,
     stopWhen: stepCountIs(maxIterations),
   });
@@ -233,11 +244,11 @@ export async function runAgenticLoop(
     // Build the prompt from initial messages
     // AI SDK v6 ToolLoopAgent doesn't allow both prompt and messages at the same time
     // So we use prompt for new conversations, and messages for conversations with history
-    const lastUserMessage = initialMessages.filter(m => m.role === 'user').pop();
+    const lastUserMessage = redactedMessages.filter(m => m.role === 'user').pop();
     const prompt = lastUserMessage?.content || '';
-    
+
     // Check if we have previous messages (conversation history)
-    const hasPreviousMessages = initialMessages.length > 1;
+    const hasPreviousMessages = redactedMessages.length > 1;
     
     console.log(`[Agent] Running with prompt: "${prompt.substring(0, 100)}..."`);
 
@@ -247,7 +258,7 @@ export async function runAgenticLoop(
       // For existing conversations with history, use messages array
       // Include all messages (both previous and current)
       result = await agent.generate({
-        messages: initialMessages.map(m => ({
+        messages: redactedMessages.map(m => ({
           role: m.role as 'user' | 'assistant',
           content: m.content
         })),
@@ -271,15 +282,16 @@ export async function runAgenticLoop(
           console.log(`[Agent] Step ${i + 1}: ${step.toolCalls.length} tool calls:`, 
             step.toolCalls.map(tc => tc.toolName).join(', '));
           
-          // Store tool calls in database
+          // Store tool calls in database (restored: the model emitted PII
+          // tags in its arguments; the DB keeps real values)
           await db.insert(messages).values({
             conversation_id: conversationId,
             role: "tool",
-            content: JSON.stringify(step.toolCalls.map(tc => ({
+            content: JSON.stringify(await restoreDeep(step.toolCalls.map(tc => ({
               id: tc.toolCallId,
               name: tc.toolName,
               arguments: tc.args
-            }))),
+            })))),
             metadata: {
               type: 'agentic_tool_calls',
               step: i + 1,
@@ -290,14 +302,16 @@ export async function runAgenticLoop(
 
           // Store tool results if available
           if (step.toolResults && step.toolResults.length > 0) {
+            // Restored: tool results were re-redacted before being handed
+            // back to the model loop; the DB keeps real values.
             await db.insert(messages).values({
               conversation_id: conversationId,
               role: "tool",
-              content: JSON.stringify(step.toolResults.map((r, idx) => ({
+              content: JSON.stringify(await restoreDeep(step.toolResults.map((r, idx) => ({
                 toolCallId: step.toolCalls![idx]?.toolCallId,
                 toolName: step.toolCalls![idx]?.toolName,
                 result: r
-              }))),
+              })))),
               metadata: {
                 type: 'agentic_tool_results',
                 step: i + 1,
@@ -310,7 +324,9 @@ export async function runAgenticLoop(
       }
     }
 
-    const finalResponse = result.text || '';
+    // The model only ever saw PII tags; callers stream/persist this text, so
+    // convert tags back to real values before returning.
+    const finalResponse = await restoreText(result.text || '');
     const duration = Date.now() - startTime;
 
     console.log(`[Agent] Completed in ${stepCount} steps, ${duration}ms`);
@@ -345,7 +361,8 @@ export async function runAgenticLoop(
       role: "tool",
       content: JSON.stringify({
         summary: 'agentic_workflow_error',
-        error: error instanceof Error ? error.message : 'Unknown error',
+        // Provider errors can echo tagged content; keep the DB row real.
+        error: error instanceof Error ? await restoreText(error.message) : 'Unknown error',
         steps: stepCount
       }),
       metadata: {

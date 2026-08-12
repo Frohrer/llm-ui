@@ -7,6 +7,7 @@ import { refreshTools } from '../tools';
 import { runPythonTool } from '../tools/manual/run-python';
 import { generateText } from 'ai';
 import { getModelByName } from '../ai-sdk-providers';
+import { redactText } from '../pii-service';
 
 const router = Router();
 
@@ -501,9 +502,10 @@ Generate a JSON schema that describes the parameters. The schema should:
 
 Return ONLY the JSON schema, no explanation or additional text.`;
 
+      // Redacted: user-authored code/description can carry PII upstream.
       const result = await generateText({
         model,
-        prompt,
+        prompt: await redactText(prompt),
         temperature: 0.3,
       });
 

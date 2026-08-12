@@ -6,6 +6,7 @@ import { eq, and } from 'drizzle-orm';
 import { refreshTools } from '../index';
 import { runPythonTool } from './run-python';
 import { getModelByName } from '../../ai-sdk-providers';
+import { redactText } from '../../pii-service';
 import fs from 'fs';
 import path from 'path';
 
@@ -128,9 +129,10 @@ Return a JSON object with this exact structure:
 Return ONLY the JSON object, no explanation or markdown.`;
 
       console.log('[Create Custom Tool] Calling Claude Sonnet 4.5...');
+      // Redacted: the tool description is user text and can carry PII.
       const result = await generateText({
         model,
-        prompt,
+        prompt: await redactText(prompt),
         temperature: 0.7,
       });
 

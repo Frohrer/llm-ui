@@ -22,6 +22,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { generateText } from "ai";
 import OpenAI from "openai";
 import { getAnthropicModel } from "./ai-sdk-providers";
+import { redactText, restoreText } from "./pii-service";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -98,7 +99,10 @@ async function embedText(text: string): Promise<number[] | null> {
   try {
     const result = await client.embeddings.create({
       model: EMBEDDING_MODEL,
-      input: trimmed,
+      // Redacted so raw PII never reaches the embeddings API. Consistent on
+      // both sides: memory bodies and retrieval queries embed the same tags,
+      // so similarity between them is unaffected.
+      input: await redactText(trimmed),
     });
     return result.data[0]?.embedding ?? null;
   } catch (err) {
@@ -856,11 +860,17 @@ Return ONLY a JSON array of operations, no commentary or markdown.`;
   let ops: ExtractorOp[];
   try {
     const model = getAnthropicModel(EXTRACTOR_MODEL);
-    const result = await generateText({ model, prompt, temperature: 0.2 });
+    // Redacted: this prompt carries conversation/memory text to a hosted API.
+    const result = await generateText({ model, prompt: await redactText(prompt), temperature: 0.2 });
     const parsed = parseOpsJson(result.text);
     if (!parsed) {
       console.warn("[memory] extractor returned non-array, skipping");
       return;
+    }
+    // The extractor only ever saw tags; memories store REAL values (the
+    // injection path re-redacts at request time), so restore op bodies.
+    for (const op of parsed) {
+      if (op.body) op.body = await restoreText(op.body);
     }
     ops = parsed;
   } catch (err) {
@@ -1108,11 +1118,16 @@ Return ONLY a JSON array of operations, no commentary or markdown.`;
   let ops: ExtractorOp[];
   try {
     const model = getAnthropicModel(EXTRACTOR_MODEL);
-    const result = await generateText({ model, prompt, temperature: 0.2 });
+    // Redacted: this prompt carries conversation/memory text to a hosted API.
+    const result = await generateText({ model, prompt: await redactText(prompt), temperature: 0.2 });
     const parsed = parseOpsJson(result.text);
     if (!parsed) {
       console.warn("[memory] janitor returned non-array, skipping");
       return;
+    }
+    // Janitor saw tags; memories store REAL values (see extractMemories).
+    for (const op of parsed) {
+      if (op.body) op.body = await restoreText(op.body);
     }
     ops = parsed;
   } catch (err) {

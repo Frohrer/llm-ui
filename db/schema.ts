@@ -157,6 +157,43 @@ export const memories = pgTable("memories", {
   updated_at: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// PII entities - admin-governed dictionary of values that get replaced with
+// stable tags before any text is sent to an upstream LLM. Real values only
+// ever live locally (DB + client); upstream sees "[PII_EMAIL_3]" style tags.
+export const piiEntities = pgTable("pii_entities", {
+  id: serial("id").primaryKey(),
+  // The literal PII string to redact (matched case-insensitively).
+  value: text("value").notNull().unique(),
+  type: text("type", {
+    enum: ["name", "email", "phone", "ssn", "credit_card", "ip", "address", "custom"],
+  }).notNull(),
+  // Stable upstream placeholder, stored without brackets (e.g. "PII_EMAIL_3");
+  // rendered as "[PII_EMAIL_3]" in outbound text.
+  tag: text("tag").notNull().unique(),
+  // active: redacted upstream. false_positive: detector was wrong, never
+  // redact and never re-propose. allowlisted: admin-declared safe term the
+  // LLM should see for inference (e.g. "Philadelphia").
+  status: text("status", {
+    enum: ["active", "false_positive", "allowlisted"],
+  }).default("active").notNull(),
+  source: text("source", {
+    enum: ["regex", "classifier", "manual"],
+  }).default("manual").notNull(),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// PII settings - single global row (admin-managed).
+export const piiSettings = pgTable("pii_settings", {
+  id: serial("id").primaryKey(),
+  enabled: boolean("enabled").default(false).notNull(),
+  // NER-based person-name classifier. Runs in-process on CPU via a quantized
+  // ONNX model (transformers.js) so classification never leaves the machine.
+  classifier_enabled: boolean("classifier_enabled").default(false).notNull(),
+  classifier_model: text("classifier_model").default("onnx-community/distilbert-NER-ONNX").notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Model settings table - stores admin-managed model configurations per provider
 export const modelSettings = pgTable("model_settings", {
   id: serial("id").primaryKey(),
@@ -276,6 +313,10 @@ export const insertModelSettingsSchema = createInsertSchema(modelSettings);
 export const selectModelSettingsSchema = createSelectSchema(modelSettings);
 export const insertMemorySchema = createInsertSchema(memories);
 export const selectMemorySchema = createSelectSchema(memories);
+export const insertPiiEntitySchema = createInsertSchema(piiEntities);
+export const selectPiiEntitySchema = createSelectSchema(piiEntities);
+export const insertPiiSettingsSchema = createInsertSchema(piiSettings);
+export const selectPiiSettingsSchema = createSelectSchema(piiSettings);
 
 
 // Type definitions for use in the app
@@ -299,3 +340,7 @@ export type InsertModelSettings = typeof modelSettings.$inferInsert;
 export type SelectModelSettings = typeof modelSettings.$inferSelect;
 export type InsertMemory = typeof memories.$inferInsert;
 export type SelectMemory = typeof memories.$inferSelect;
+export type InsertPiiEntity = typeof piiEntities.$inferInsert;
+export type SelectPiiEntity = typeof piiEntities.$inferSelect;
+export type InsertPiiSettings = typeof piiSettings.$inferInsert;
+export type SelectPiiSettings = typeof piiSettings.$inferSelect;

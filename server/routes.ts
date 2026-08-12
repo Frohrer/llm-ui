@@ -12,6 +12,7 @@ import toolsRoutes from "./routes/tools";
 import customToolsRoutes from "./routes/custom-tools";
 import userPreferencesRoutes from "./routes/user-preferences";
 import adminModelsRouter from "./routes/admin/models";
+import adminPiiRouter from "./routes/admin/pii";
 import {
   openaiRouter,
   anthropicRouter,
@@ -254,6 +255,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register admin routes (require admin role)
   app.use('/api/admin/models', requireAdmin, adminModelsRouter);
+  app.use('/api/admin/pii', requireAdmin, adminPiiRouter);
 
   // Statistics endpoint: admin only
   app.get('/api/stats', requireAdmin, async (req: Request, res: Response) => {
