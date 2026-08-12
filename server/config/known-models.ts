@@ -4,6 +4,10 @@
 
 export const KNOWN_OPENAI_MODELS: Record<string, { name: string; contextLength: number }> = {
   // GPT-5 family
+  "gpt-5.5": { name: "GPT-5.5", contextLength: 400000 },
+  "gpt-5.4": { name: "GPT-5.4", contextLength: 400000 },
+  "gpt-5.2": { name: "GPT-5.2", contextLength: 400000 },
+  "gpt-5.1": { name: "GPT-5.1", contextLength: 400000 },
   "gpt-5": { name: "GPT-5", contextLength: 400000 },
   "gpt-5-mini": { name: "GPT-5 Mini", contextLength: 400000 },
   "gpt-5-nano": { name: "GPT-5 Nano", contextLength: 400000 },
@@ -49,15 +53,24 @@ export const KNOWN_OPENAI_MODELS: Record<string, { name: string; contextLength: 
 };
 
 export const KNOWN_ANTHROPIC_MODELS: Record<string, { name: string; contextLength: number }> = {
+  // Claude 5 family (1M context)
+  "claude-opus-5": { name: "Claude Opus 5", contextLength: 1000000 },
+  "claude-sonnet-5": { name: "Claude Sonnet 5", contextLength: 1000000 },
+  "claude-fable-5": { name: "Claude Fable 5", contextLength: 1000000 },
+
+  // Claude 4.6+ (1M context)
+  "claude-opus-4-8": { name: "Claude Opus 4.8", contextLength: 1000000 },
+  "claude-opus-4-7": { name: "Claude Opus 4.7", contextLength: 1000000 },
+  "claude-opus-4-6": { name: "Claude Opus 4.6", contextLength: 1000000 },
+  "claude-sonnet-4-6": { name: "Claude Sonnet 4.6", contextLength: 1000000 },
+
+  // Older active models
+  "claude-haiku-4-5": { name: "Claude Haiku 4.5", contextLength: 200000 },
   "claude-opus-4-5": { name: "Claude Opus 4.5", contextLength: 200000 },
   "claude-sonnet-4-5": { name: "Claude Sonnet 4.5", contextLength: 200000 },
   "claude-sonnet-4-0": { name: "Claude Sonnet 4.0", contextLength: 200000 },
   "claude-opus-4-0": { name: "Claude Opus 4.0", contextLength: 200000 },
   "claude-opus-4-1": { name: "Claude Opus 4.1", contextLength: 200000 },
-  "claude-3-7-sonnet-latest": { name: "Claude 3.7 Sonnet", contextLength: 200000 },
-  "claude-3-opus-latest": { name: "Claude 3 Opus", contextLength: 200000 },
-  "claude-3-5-sonnet-latest": { name: "Claude 3.5 Sonnet", contextLength: 200000 },
-  "claude-3-5-haiku-latest": { name: "Claude 3.5 Haiku", contextLength: 200000 },
 };
 
 export const KNOWN_DEEPSEEK_MODELS: Record<string, { name: string; contextLength: number }> = {
@@ -90,6 +103,12 @@ export const KNOWN_OLLAMA_MODELS: Record<string, { name: string; contextLength: 
   "gpt-oss:20b": { name: "GPT-OSS 20B", contextLength: 32000 },
 };
 
+export const KNOWN_OPENROUTER_MODELS: Record<string, { name: string; contextLength: number }> = {
+  // Discovery via the OpenRouter /models endpoint supplies name + context length
+  // for everything else; this seeds the initial static config.
+  "moonshotai/kimi-k3": { name: "Kimi K3", contextLength: 1048576 },
+};
+
 export const KNOWN_FAL_MODELS: Record<string, { name: string; contextLength: number }> = {
   "fal-ai/hidream-i1-full": { name: "HiDream I1 Full", contextLength: 1024 },
   "fal-ai/flux-pro/v1.1-ultra": { name: "Flux Pro Ultra", contextLength: 1024 },
@@ -119,6 +138,7 @@ export const KNOWN_MODELS_BY_PROVIDER: Record<string, Record<string, { name: str
   gemini: KNOWN_GEMINI_MODELS,
   ollama: KNOWN_OLLAMA_MODELS,
   falai: KNOWN_FAL_MODELS,
+  openrouter: KNOWN_OPENROUTER_MODELS,
 };
 
 /**

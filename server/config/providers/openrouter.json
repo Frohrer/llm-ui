@@ -1,0 +1,13 @@
+{
+  "id": "openrouter",
+  "name": "OpenRouter",
+  "icon": "SiReactrouter",
+  "models": [
+    {
+      "id": "moonshotai/kimi-k3",
+      "name": "Kimi K3",
+      "contextLength": 1048576,
+      "defaultModel": true
+    }
+  ]
+}
