@@ -662,8 +662,12 @@ router.post("/", async (req: Request, res: Response) => {
       })}\n\n`);
     }
 
+    // Agentic mode makes its own requests through the AI SDK loop — skip the
+    // direct completion stream entirely.
+    const isAgentic = useAgenticMode && useTools;
+
     // Stream the completion with retries
-    while (retryCount < maxRetries) {
+    while (!isAgentic && retryCount < maxRetries) {
       try {
         // Reasoning models (o-series, GPT-5 family) reject custom temperature —
         // omit the param entirely for them. Older chat models (gpt-4o, gpt-4.1,
@@ -736,7 +740,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    if (!stream) {
+    if (!stream && !isAgentic) {
       throw new Error("Failed to create stream after retries");
     }
 
@@ -754,7 +758,7 @@ router.post("/", async (req: Request, res: Response) => {
       const requestStart = Date.now();
       
       // Check if using agentic mode
-      if (useAgenticMode && useTools) {
+      if (isAgentic) {
         console.log('[OpenAI] Using agentic mode with AI SDK');
         
         // Get the AI SDK model instance
