@@ -306,8 +306,12 @@ router.post("/", async (req: Request, res: Response) => {
       }
     );
 
+    // Agentic mode makes its own requests through the AI SDK loop — skip the
+    // direct completion stream entirely.
+    const isAgentic = useAgenticMode && useTools;
+
     // Stream the completion with retries
-    while (retryCount < maxRetries) {
+    while (!isAgentic && retryCount < maxRetries) {
       try {
         const streamOptions: any = {
           messages: contextManagedMessages,
@@ -367,7 +371,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    if (!stream) {
+    if (!stream && !isAgentic) {
       throw new Error("Failed to create stream after retries");
     }
 
@@ -393,7 +397,7 @@ router.post("/", async (req: Request, res: Response) => {
       const requestStart = Date.now();
 
       // Check if using agentic mode
-      if (useAgenticMode && useTools) {
+      if (isAgentic) {
         console.log('[Ollama] Using agentic mode with AI SDK');
 
         // Get the AI SDK model instance for Ollama
@@ -406,7 +410,7 @@ router.post("/", async (req: Request, res: Response) => {
         // Convert messages to simple format for agent
         const agentMessages = convertToAgentMessages(contextManagedMessages);
 
-        // Run the agentic loop with AI SDK v6 ToolLoopAgent
+        // Run the agentic loop with AI SDK v7 ToolLoopAgent
         const finalResponse = await runAgenticLoop(
           agentMessages,
           {
@@ -454,7 +458,7 @@ router.post("/", async (req: Request, res: Response) => {
         // across chunk boundaries.
         const piiRestorer = createStreamRestorer();
 
-        for await (const chunk of stream) {
+        for await (const chunk of stream!) {
           const content = chunk.choices[0]?.delta?.content || "";
           const toolCallsDelta = chunk.choices[0]?.delta?.tool_calls;
 
