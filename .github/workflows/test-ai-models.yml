@@ -1,10 +1,8 @@
 name: Test AI Models
 
+# Manual-only: this workflow calls live provider APIs and requires the
+# provider API key secrets to be configured in the repo settings.
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -41,7 +39,7 @@ jobs:
           import { OpenAI } from 'openai';
           import { GoogleGenerativeAI } from '@google/generative-ai';
           import Anthropic from '@anthropic-ai/sdk';
-          import { createClient } from '@fal-ai/client';
+          import { fal } from '@fal-ai/client';
           
           const TEST_PROMPT = "Hello, can you respond with a short greeting?";
           
@@ -92,7 +90,7 @@ jobs:
               });
               
               const message = await anthropic.messages.create({
-                model: "claude-3-haiku-20240307",
+                model: "claude-haiku-4-5",
                 max_tokens: 50,
                 messages: [{ role: "user", content: TEST_PROMPT }],
               });
@@ -108,20 +106,17 @@ jobs:
           async function testFalAI() {
             console.log("\n🧪 Testing Fal.AI model...");
             try {
-              const falClient = createClient({
+              fal.config({
                 credentials: process.env.FAL_API_KEY,
               });
-              
-              const result = await falClient.subscribe("fal-ai/llama-2-70b-chat", {
+
+              const result = await fal.subscribe("fal-ai/any-llm", {
                 input: {
                   prompt: TEST_PROMPT,
-                  max_tokens: 50,
-                  temperature: 0.7,
-                  sync_mode: true
                 },
               });
-              
-              console.log("✅ Fal.AI response:", result.data.response || result.data.generated_text);
+
+              console.log("✅ Fal.AI response:", result.data.output);
               return true;
             } catch (error) {
               console.error("❌ Fal.AI test failed:", error.message);
