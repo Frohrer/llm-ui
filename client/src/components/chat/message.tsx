@@ -12,9 +12,19 @@ import { Button } from "@/components/ui/button";
 import { Copy, Check, FileText, ExternalLink, Wrench, Play, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-import { useCodeExecution } from "@/hooks/use-code-execution";
+import { useCodeExecution, normalizeLanguage } from "@/hooks/use-code-execution";
 import { TerminalOutput } from "@/components/ui/terminal-output";
 import { UIRenderer } from "@/components/generative-ui";
+
+// Escape `$` that precedes a digit so remark-math doesn't treat currency
+// like "$170k" as an inline math delimiter. Skips code spans/blocks so the
+// backslash doesn't render literally there.
+const escapeCurrencyDollars = (text: string): string => {
+  const segments = text.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
+  return segments
+    .map((seg, i) => (i % 2 === 0 ? seg.replace(/\$(?=\d)/g, "\\$") : seg))
+    .join("");
+};
 
 interface MessageProps {
   message: MessageType;
@@ -65,10 +75,11 @@ const MessageComponent = ({ message }: MessageProps) => {
   };
 
   const handleRunCode = async (code: string, language: string) => {
-    if (language !== 'python') {
+    const runtime = normalizeLanguage(language);
+    if (!runtime) {
       toast({
         variant: "destructive",
-        description: "Code execution is only supported for Python",
+        description: `Code execution not supported for language: ${language || 'unknown'}`,
         duration: 2000,
       });
       return;
@@ -76,9 +87,9 @@ const MessageComponent = ({ message }: MessageProps) => {
 
     setExecutingCode(code);
     clearResults();
-    
+
     try {
-      await executeCode(code);
+      await executeCode(code, runtime);
     } catch (error) {
       // Error handling is done in the hook
     }
@@ -226,14 +237,14 @@ const MessageComponent = ({ message }: MessageProps) => {
               return !inline && match ? (
                 <div className="relative group w-full max-w-full overflow-hidden">
                   <div className="absolute right-2 top-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10 flex gap-1">
-                    {language === 'python' && (
+                    {normalizeLanguage(language) && (
                       <Button
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 bg-background/80 backdrop-blur-sm sm:bg-transparent"
                         onClick={() => handleRunCode(originalCode, language)}
                         disabled={isExecuting}
-                        title="Run Python code"
+                        title={`Run ${language} code`}
                       >
                         <Play className="h-4 w-4" />
                       </Button>
@@ -264,6 +275,10 @@ const MessageComponent = ({ message }: MessageProps) => {
                       output={result?.output}
                       error={error || undefined}
                       isExecuting={isExecuting}
+                      executionTime={result?.execution_time ?? undefined}
+                      language={result?.language ?? normalizeLanguage(language) ?? undefined}
+                      webServiceUrl={result?.web_service?.proxy_url}
+                      timedOut={result?.timed_out}
                     />
                   )}
                 </div>
@@ -367,7 +382,7 @@ const MessageComponent = ({ message }: MessageProps) => {
             td: ({ children }) => <td className="p-2">{children}</td>,
           }}
         >
-          {message.content}
+          {escapeCurrencyDollars(message.content)}
         </ReactMarkdown>
       )
     ) : (

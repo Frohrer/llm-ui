@@ -657,7 +657,7 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
         });
         break;
 
-      case 'response.audio_transcript.delta':
+      case 'response.output_audio_transcript.delta':
         // Assistant's response text (incremental)
         setMessages(prev => {
           const last = prev[prev.length - 1];
@@ -676,7 +676,7 @@ export default function VoiceChat({ conversationId: propConversationId }: VoiceC
         });
         break;
 
-      case 'response.audio.delta':
+      case 'response.output_audio.delta':
         // Assistant's audio response (play it)
         if (message.delta) {
           // Calculate latency from speech start to first audio response

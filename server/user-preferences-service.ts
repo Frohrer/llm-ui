@@ -1,6 +1,7 @@
 import { db } from "@db";
 import { userPreferences } from "@db/schema";
 import { eq } from "drizzle-orm";
+import { retrieveForTurn } from "./memory-service";
 
 /**
  * Get custom prompt for a user
@@ -24,14 +25,33 @@ export async function getUserCustomPrompt(userId: number): Promise<string> {
   }
 }
 
+export interface BuildSystemPromptOpts {
+  /**
+   * Latest user message — passed to the memory retriever for entity-keyed
+   * recall. Optional; when omitted only the always-on memory slice is used.
+   */
+  latestUserMessage?: string;
+  /** Set false to skip the persistent-memory block (e.g. for system tools). */
+  includeMemories?: boolean;
+}
+
 /**
- * Build a system message from the user's custom prompt
- * @param userId - The user ID
- * @returns System prompt string or empty string
+ * Build the full system prompt: user's custom prompt + persistent memory block.
+ * Either piece may be empty; the function returns "" if both are.
  */
 export async function buildSystemPrompt(
-  userId: number
+  userId: number,
+  opts: BuildSystemPromptOpts = {},
 ): Promise<string> {
-  const customPrompt = await getUserCustomPrompt(userId);
-  return customPrompt || "";
+  const [customPrompt, memoryBlock] = await Promise.all([
+    getUserCustomPrompt(userId),
+    opts.includeMemories === false
+      ? Promise.resolve("")
+      : retrieveForTurn(userId, { latestUserMessage: opts.latestUserMessage }).catch((err) => {
+          console.error("[memory] retrieval failed, continuing without memory:", err);
+          return "";
+        }),
+  ]);
+
+  return [customPrompt, memoryBlock].filter(Boolean).join("\n\n");
 }

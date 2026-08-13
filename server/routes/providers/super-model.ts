@@ -8,6 +8,8 @@ import { getOpenAIClient } from './openai';
 import { getGeminiClient } from './gemini';
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { buildSystemPrompt } from "../../user-preferences-service";
+import { scheduleExtraction } from "../../memory-service";
+import { redactDeep, redactText, restoreText, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 
@@ -17,7 +19,10 @@ export function initializeSuperModel() {
   const openaiClient = getOpenAIClient();
   const geminiClient = getGeminiClient();
   
-  return anthropicClient && openaiClient && geminiClient;
+  // Boolean, not the last client object — this value is serialized into the
+  // unauthenticated /api/health response, and the Gemini client instance
+  // exposes its API key when JSON-stringified.
+  return !!(anthropicClient && openaiClient && geminiClient);
 }
 
 // Get availability status
@@ -38,14 +43,15 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
         const client = getAnthropicClient();
         if (!client) throw new Error('Anthropic client not available');
         
-        const response = await client.messages.create({
+        // Redacted: real PII must not reach the upstream API
+        const response = await client.messages.create(await redactDeep({
           model: model,
           max_tokens: 4000,
           messages: messages.map(msg => ({
             role: msg.role === 'system' ? 'user' : msg.role,
             content: msg.role === 'system' ? `System: ${msg.content}` : msg.content
           }))
-        });
+        }));
         
         const content = response.content[0];
         return content.type === 'text' ? content.text : '';
@@ -69,7 +75,8 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
           requestOptions.temperature = 0.7;
         }
         
-        const response = await client.chat.completions.create(requestOptions);
+        // Redacted: real PII must not reach the upstream API
+        const response = await client.chat.completions.create(await redactDeep(requestOptions));
         
         return response.choices[0]?.message?.content || '';
       }
@@ -90,17 +97,17 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
         // Get the current message (last one)
         const currentMessage = messages[messages.length - 1]?.content || '';
         
-        // Start chat with history
-        const chat = genModel.startChat({
+        // Start chat with history (redacted: real PII must not reach the upstream API)
+        const chat = genModel.startChat(await redactDeep({
           history,
           generationConfig: {
             maxOutputTokens: 4000,
             temperature: 0.7
           }
-        });
-        
-        // Send the current message
-        const result = await chat.sendMessage(currentMessage);
+        }));
+
+        // Send the current message (redacted)
+        const result = await chat.sendMessage(await redactText(currentMessage));
         return result.response.text();
       }
       
@@ -200,6 +207,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = newConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     } else {
       const conversationIdNum = parseInt(conversationId);
       if (isNaN(conversationIdNum)) {
@@ -250,7 +258,12 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = existingConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
+
+    // Propose name/address entities from the raw user message (runs on local
+    // Ollama only; no-op unless the classifier is enabled in admin settings).
+    schedulePiiClassification(message);
 
     // Prepare messages for the models and include attachment content from metadata
     const apiMessages = context
@@ -297,7 +310,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Build and add system prompt
     if (!skipSystemPrompt) {
-      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      const systemPrompt = await buildSystemPrompt(req.user!.id, { latestUserMessage: message });
       if (systemPrompt) {
         apiMessages.unshift({ role: "system", content: systemPrompt });
       }
@@ -360,7 +373,9 @@ Your synthesized response:`;
         { role: "user", content: synthesisPrompt }
       ];
 
-      const finalResponse = await callModel('openai', 'o3', synthesisMessages);
+      // The synthesizer only ever saw PII tags; convert them back to real
+      // values before anything reaches the client SSE stream or the DB.
+      const finalResponse = await restoreText(await callModel('openai', 'o3', synthesisMessages));
 
       // Stream the final response using the correct chunk format
       streamedResponse = finalResponse;

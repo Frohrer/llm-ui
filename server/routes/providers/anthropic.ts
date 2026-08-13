@@ -12,13 +12,23 @@ import { runAgenticLoop } from "../../agentic-workflow";
 import { getAnthropicModel } from "../../ai-sdk-providers";
 import { prepareContext, isContextLengthError, truncateToolResult } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
+import { scheduleExtraction } from "../../memory-service";
+import { redactDeep, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: Anthropic | null = null;
 
-// Opus 4.7+ deprecated the `temperature` parameter.
+// Sampling params (temperature/top_p/top_k) return a 400 on Opus 4.7+, Sonnet 5+,
+// and Fable/Mythos models. Allowlist the older families that still accept them so
+// new model IDs are safe by default.
 function supportsTemperature(model: string): boolean {
-  return !/claude-opus-4-[7-9]|claude-opus-[5-9]/.test(model);
+  return /claude-3|claude-opus-4-[0-6]|claude-sonnet-4-|claude-haiku-4-5/.test(model);
+}
+
+// Models newer than the 4.6 family run adaptive thinking by default, and max_tokens
+// caps thinking + visible text together — give them extra headroom.
+function defaultMaxTokens(model: string): number {
+  return supportsTemperature(model) ? 4096 : 16000;
 }
 
 // Initialize the Anthropic client
@@ -134,11 +144,12 @@ async function executeToolsAndGetResponse(
 ): Promise<string> {
   console.log(`Executing ${toolCalls.length} tool calls:`, toolCalls.map(t => t.name));
   
-  // Store tool calls as internal messages
+  // Store tool calls as internal messages (restored: the model emitted PII
+  // tags in its arguments; the DB keeps real values)
   await db.insert(messages).values({
     conversation_id: conversationId,
     role: "tool",
-    content: JSON.stringify(toolCalls),
+    content: JSON.stringify(await restoreDeep(toolCalls)),
     metadata: { type: 'tool_calls' },
     created_at: new Date(),
   });
@@ -190,13 +201,14 @@ async function executeToolsAndGetResponse(
   console.log(`Making follow-up API call to Anthropic with ${toolResults.length} tool results`);
   
   try {
-    // Get final response with tool results
-    const toolCompletionResponse = await client.messages.create({
+    // Get final response with tool results (redacted: real tool output must
+    // not reach the upstream API)
+    const toolCompletionResponse = await client.messages.create(await redactDeep({
       model: model,
       messages: toolResponseMessages,
       ...(supportsTemperature(model) ? { temperature: 0.7 } : {}),
-      max_tokens: 4096,
-    });
+      max_tokens: defaultMaxTokens(model),
+    }));
     
     console.log(`Anthropic API response received. Content blocks:`, toolCompletionResponse.content?.length);
     
@@ -240,7 +252,7 @@ async function executeToolsAndGetResponse(
     }
     
     console.log(`Final response length: ${finalResponse.length}`);
-    return finalResponse;
+    return restoreText(finalResponse);
     
   } catch (apiError) {
     console.error('Error in follow-up API call:', apiError);
@@ -280,7 +292,7 @@ router.post("/", async (req: Request, res: Response) => {
       message,
       conversationId,
       context = [],
-      model = "claude-3-5-sonnet-latest",
+      model = "claude-sonnet-5",
       modelContextLength = 200000, // Default for Claude models
       attachment = null,
       allAttachments = [],
@@ -357,6 +369,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = newConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     } else {
       const conversationIdNum = parseInt(conversationId);
       if (isNaN(conversationIdNum)) {
@@ -407,7 +420,12 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = existingConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
+
+    // Propose name/address entities from the raw user message (runs on local
+    // Ollama only; no-op unless the classifier is enabled in admin settings).
+    schedulePiiClassification(message);
 
     // Process context messages and include attachment content from metadata
     const apiMessages = context
@@ -452,7 +470,7 @@ router.post("/", async (req: Request, res: Response) => {
     let requestOptions: any = {
       messages: [],
       model,
-      max_tokens: 4096,
+      max_tokens: defaultMaxTokens(model),
       ...(supportsTemperature(model) ? { temperature: 0.7 } : {}),
       stream: true,
     };
@@ -502,7 +520,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Build system prompt with user custom prompt
     if (!skipSystemPrompt) {
-      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      const systemPrompt = await buildSystemPrompt(req.user!.id, { latestUserMessage: message });
       if (systemPrompt) {
         requestOptions.system = systemPrompt;
       }
@@ -538,7 +556,7 @@ router.post("/", async (req: Request, res: Response) => {
         const aiModel = getAnthropicModel(model);
         
         // Build system prompt directly (it's stored in requestOptions.system, not in contextManagedMessages)
-        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id) : undefined;
+        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id, { latestUserMessage: message }) : undefined;
         
         // Convert messages to simple format for agent - use contextManagedMessages which has been truncated
         const agentMessages = convertToAgentMessages(contextManagedMessages);
@@ -582,9 +600,13 @@ router.post("/", async (req: Request, res: Response) => {
       } else {
         // Original streaming logic
         let toolCallsInProgress: { [index: number]: any } = {};
-        
-        // Create stream
-        const stream = await client.messages.create(requestOptions);
+        // Restores PII tags in streamed text; buffers tag fragments split
+        // across chunk boundaries.
+        const piiRestorer = createStreamRestorer();
+
+        // Create stream (redacted: known PII entities and freshly detected
+        // structured PII are replaced with tags before leaving the machine)
+        const stream = await client.messages.create(await redactDeep(requestOptions));
 
       // Process stream
       for await (const chunk of stream as any) {
@@ -597,7 +619,8 @@ router.post("/", async (req: Request, res: Response) => {
             if (ttftMs === null) {
               ttftMs = Date.now() - requestStart;
             }
-            res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
+            const restored = await piiRestorer.push(content);
+            if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
           } else if (contentBlock?.type === 'tool_use') {
             // Initialize tool call - input will come in delta events
             const toolIndex = chunk.index;
@@ -618,7 +641,8 @@ router.post("/", async (req: Request, res: Response) => {
             if (ttftMs === null) {
               ttftMs = Date.now() - requestStart;
             }
-            res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
+            const restored = await piiRestorer.push(content);
+            if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
           } else if (delta?.type === 'input_json_delta' && delta?.partial_json) {
             // Accumulate tool input JSON chunks
             const index = chunk.index;
@@ -641,8 +665,14 @@ router.post("/", async (req: Request, res: Response) => {
         }
       }
 
+      // Emit any held-back tag fragment and convert accumulated tags back to
+      // real values before anything below persists or re-streams it.
+      const piiTail = await piiRestorer.flush();
+      if (piiTail) res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
+      streamedResponse = await restoreText(streamedResponse);
+
       const toolCallsArray = Object.values(toolCallsInProgress);
-      
+
       console.log(`Stream completed. useTools: ${useTools}, toolCallsArray.length: ${toolCallsArray.length}`);
       if (useTools && toolCallsArray.length === 0) {
         console.log('Tools enabled but no tool calls received in stream');

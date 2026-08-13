@@ -15,48 +15,53 @@ import { redactDeep, restoreText, createStreamRestorer, schedulePiiClassificatio
 const router = express.Router();
 let client: OpenAI | null = null;
 
-// Initialize the DeepSeek client (uses OpenAI client with custom baseURL)
-export function initializeDeepSeek(apiKey?: string) {
-  if (apiKey || process.env.DEEPSEEK_API_KEY) {
+// Initialize the OpenRouter client (uses OpenAI client with custom baseURL)
+export function initializeOpenRouter(apiKey?: string) {
+  if (apiKey || process.env.OPENROUTER_API_KEY) {
     client = new OpenAI({
-      baseURL: "https://api.deepseek.com/v1",
-      apiKey: apiKey || process.env.DEEPSEEK_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: apiKey || process.env.OPENROUTER_API_KEY,
+      defaultHeaders: {
+        // App attribution headers (optional but recommended by OpenRouter)
+        "HTTP-Referer": process.env.PROXY_DOMAIN ? `https://${process.env.PROXY_DOMAIN}` : "http://localhost:5000",
+        "X-Title": process.env.NEXT_PUBLIC_CUSTOMER_NAME || "LLM UI",
+      },
     });
     return true;
   }
   return false;
 }
 
-// Get the DeepSeek client instance
-export function getDeepSeekClient() {
+// Get the OpenRouter client instance
+export function getOpenRouterClient() {
   return client;
 }
 
-// Create or continue a DeepSeek chat conversation
+// Create or continue an OpenRouter chat conversation
 router.post("/", async (req: Request, res: Response) => {
   try {
     const {
       message,
       conversationId,
       context = [],
-      model = "deepseek-chat",
-      modelContextLength = 64000, // Default for DeepSeek models
+      model = "moonshotai/kimi-k3",
+      modelContextLength = 128000,
       attachment = null,
       allAttachments = [],
       useKnowledge = false,
       pendingKnowledgeSources = [],
       skipSystemPrompt = false,
     } = req.body;
-    
+
     if (!message || typeof message !== "string") {
       return res.status(400).json({ error: "Invalid message" });
     }
-    
+
     if (!client) {
-      return res.status(503).json({ error: "DeepSeek service not initialized" });
+      return res.status(503).json({ error: "OpenRouter service not initialized" });
     }
-    
-    console.log(`Processing message with ${allAttachments.length} attachments for DeepSeek`);
+
+    console.log(`Processing message with ${allAttachments.length} attachments for OpenRouter`);
 
     // Set up SSE headers with keep-alive
     res.setHeader("Content-Type", "text/event-stream");
@@ -65,7 +70,7 @@ router.post("/", async (req: Request, res: Response) => {
     res.setHeader("X-Accel-Buffering", "no"); // Disable proxy buffering
 
     let conversationTitle = message.slice(0, 100);
-    let dbConversation;
+    let dbConversation: typeof conversations.$inferSelect;
     let streamedResponse = "";
 
     // Create or update conversation first
@@ -75,7 +80,7 @@ router.post("/", async (req: Request, res: Response) => {
         .insert(conversations)
         .values({
           title: conversationTitle,
-          provider: "deepseek",
+          provider: "openrouter",
           model,
           user_id: req.user!.id,
           created_at: timestamp,
@@ -106,7 +111,7 @@ router.post("/", async (req: Request, res: Response) => {
       // Add any pending knowledge sources to the new conversation
       if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
         console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to new conversation ${newConversation.id}`);
-        
+
         for (const knowledgeSourceId of pendingKnowledgeSources) {
           try {
             await addKnowledgeToConversation(newConversation.id, knowledgeSourceId);
@@ -160,7 +165,7 @@ router.post("/", async (req: Request, res: Response) => {
       // Add any pending knowledge sources to existing conversation (allows mid-conversation injection)
       if (pendingKnowledgeSources && pendingKnowledgeSources.length > 0) {
         console.log(`Adding ${pendingKnowledgeSources.length} knowledge sources to existing conversation ${conversationIdNum}`);
-        
+
         for (const knowledgeSourceId of pendingKnowledgeSources) {
           try {
             await addKnowledgeToConversation(conversationIdNum, knowledgeSourceId);
@@ -174,8 +179,8 @@ router.post("/", async (req: Request, res: Response) => {
       res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
 
-    // Propose name/address entities from the raw user message (runs on local
-    // Ollama only; no-op unless the classifier is enabled in admin settings).
+    // Propose name/address entities from the raw user message (in-process
+    // NER; no-op unless the classifier is enabled in admin settings).
     schedulePiiClassification(message);
 
     // Ensure context messages are properly ordered and include attachment content
@@ -210,33 +215,38 @@ router.post("/", async (req: Request, res: Response) => {
     let stream;
     const maxRetries = 3;
     let retryCount = 0;
-    
+
     // Get all attachments (prioritize the allAttachments array if it exists)
     const allAttachmentsToProcess = allAttachments.length > 0 ? allAttachments : (attachment ? [attachment] : []);
-    
-    console.log(`Processing ${allAttachmentsToProcess.length} attachments for DeepSeek`);
-    
-    // DeepSeek doesn't support image attachments in the same way as OpenAI, handle as text
+
+    console.log(`Processing ${allAttachmentsToProcess.length} attachments for OpenRouter`);
+
+    // OpenRouter uses the OpenAI multimodal format; many hosted models (incl. Kimi K3) accept images
+    const imageDataUris: string[] = [];
     let documentTexts: string[] = [];
-    
+
     // Process each attachment
     for (const att of allAttachmentsToProcess) {
-      // Handle document attachments
-      if (att.type === 'document' && att.text) {
-        console.log(`Processing document attachment for DeepSeek: ${att.name}`);
+      if (att.type === 'image' && att.url) {
+        try {
+          const fileName = String(att.url).split('/').pop();
+          if (!fileName) throw new Error('Invalid image URL');
+          const imagePath = path.join(process.cwd(), 'uploads', 'images', fileName);
+          if (!fs.existsSync(imagePath)) throw new Error('Image file not found on server');
+          const imageBuffer = fs.readFileSync(imagePath);
+          const base64Image = imageBuffer.toString('base64');
+          const mimeType = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
+          imageDataUris.push(`data:${mimeType};base64,${base64Image}`);
+        } catch (imageError) {
+          console.error("Error processing image for OpenRouter:", imageError);
+          documentTexts.push(`[Image processing failed: ${imageError instanceof Error ? imageError.message : 'Unknown error'}]`);
+        }
+      } else if (att.type === 'document' && att.text) {
+        console.log(`Processing document attachment for OpenRouter: ${att.name}`);
         documentTexts.push(`--- Document: ${att.name} ---\n${att.text}`);
       }
-      // Handle image attachments as text descriptions
-      else if (att.type === 'image') {
-        try {
-          console.log("Processing image attachment for DeepSeek:", att.url);
-          documentTexts.push(`[Image: ${att.name || 'Uploaded image'}]`);
-        } catch (imageError) {
-          console.error("Error processing image for DeepSeek:", imageError);
-        }
-      }
     }
-    
+
     // Get knowledge content if requested
     let knowledgeContent = '';
     if (useKnowledge && dbConversation) {
@@ -251,25 +261,24 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     // Create the message content based on what we have
-    if (documentTexts.length > 0 || knowledgeContent) {
-      // Text-only message with documents or knowledge
-      let userContent = message;
-
-      if (documentTexts.length > 0) {
-        userContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
-      }
-
-      if (knowledgeContent) {
-        userContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
-      }
-
-      apiMessages.push({ role: "user", content: userContent });
-      console.log("Message with document/knowledge content added for DeepSeek");
+    let textContent = message;
+    if (documentTexts.length > 0) {
+      textContent += "\n\nDocuments Content:\n" + documentTexts.join("\n\n");
     }
-    else {
-      // Regular text message without attachments or knowledge
-      apiMessages.push({ role: "user", content: message });
-      console.log("Plain text message added for DeepSeek");
+    if (knowledgeContent) {
+      textContent += "\n\nKnowledge Sources:\n" + knowledgeContent;
+    }
+
+    if (imageDataUris.length > 0) {
+      const contentArray: any[] = [{ type: "text", text: textContent }];
+      for (const uri of imageDataUris) {
+        contentArray.push({ type: "image_url", image_url: { url: uri } });
+      }
+      apiMessages.push({ role: "user", content: contentArray });
+      console.log("Multimodal message with image content added for OpenRouter");
+    } else {
+      apiMessages.push({ role: "user", content: textContent });
+      console.log("Text message added for OpenRouter");
     }
 
     // Build and add system prompt with user custom prompt
@@ -280,45 +289,46 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    // Pre-emptively manage context to avoid exceeding model limits (DeepSeek doesn't use tools)
+    // Pre-emptively manage context to avoid exceeding model limits
     const { messages: contextManagedMessages, info: contextInfo } = prepareContext(
       apiMessages,
       model,
-      { 
+      {
         maxTokens: modelContextLength, // Use context length from model config
-        reserveForTools: 0,  // DeepSeek doesn't support tool calling
+        reserveForTools: 0,
       }
     );
 
-    // Stream the completion with retries
+    // Stream the completion with retries.
+    // No temperature: OpenRouter routes to hundreds of models and several
+    // (reasoning models, GPT-5 family, Kimi K3) reject custom values.
     while (retryCount < maxRetries) {
       try {
-        // Create stream (redacted: known PII entities and freshly detected
-        // structured PII are replaced with tags before leaving the machine)
+        // Redacted: known PII entities and freshly detected PII are replaced
+        // with tags before leaving the machine (re-redacts on each retry).
         stream = await client.chat.completions.create(await redactDeep({
           messages: contextManagedMessages,
           model,
-          stream: true,
-          max_tokens: 4096,
-          temperature: 0.7,
+          stream: true as const,
+          max_tokens: 16000,
         }));
         console.log("Stream created with model:", model);
         break;
       } catch (error: any) {
         // Check if this is a context length error
         if (isContextLengthError(error)) {
-          console.log(`[DeepSeek] Context length error detected, attempting to truncate further`);
-          
+          console.log(`[OpenRouter] Context length error detected, attempting to truncate further`);
+
           // Try with more aggressive truncation
           const { messages: retriedMessages, info: retryInfo } = prepareContext(
             contextManagedMessages,
             model,
-            { 
+            {
               reserveForTools: 0,
               safetyBuffer: 10000, // Larger safety buffer for retry
             }
           );
-          
+
           if (retryInfo.wasTruncated && retryInfo.finalMessageCount >= 2) {
             contextManagedMessages.length = 0;
             contextManagedMessages.push(...retriedMessages);
@@ -326,7 +336,7 @@ router.post("/", async (req: Request, res: Response) => {
             continue;
           }
         }
-        
+
         retryCount++;
         if (retryCount === maxRetries) throw error;
         await new Promise((resolve) =>
@@ -343,10 +353,10 @@ router.post("/", async (req: Request, res: Response) => {
     res.write(
       `data: ${JSON.stringify({ type: "start", conversationId: dbConversation.id })}\n\n`,
     );
-    
+
     // Only notify user if messages were actually removed (not just tool results truncated)
     if (contextInfo.removedMessages > 0) {
-      console.log(`[DeepSeek] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
+      console.log(`[OpenRouter] Context truncated: ${contextInfo.originalTokens} -> ${contextInfo.finalTokens} tokens, removed ${contextInfo.removedMessages} messages`);
       res.write(`data: ${JSON.stringify({
         type: "chunk",
         content: `[Note: Conversation history was trimmed to fit model context. ${contextInfo.removedMessages} older messages removed.]\n\n`
@@ -362,7 +372,9 @@ router.post("/", async (req: Request, res: Response) => {
       const requestStart = Date.now();
       let ttftMs: number | null = null;
       let lastChunkTime = Date.now();
-      const chunkTimeout = 30000; // 30 seconds timeout between chunks
+      // Reasoning models (e.g. Kimi K3 with always-on thinking) can pause for a
+      // while before the first visible token — use a generous chunk timeout.
+      const chunkTimeout = 120000;
       // Restores PII tags in streamed text; buffers tag fragments split
       // across chunk boundaries.
       const piiRestorer = createStreamRestorer();
@@ -376,20 +388,27 @@ router.post("/", async (req: Request, res: Response) => {
             ttftMs = lastChunkTime - requestStart;
           }
           const restored = await piiRestorer.push(content);
-          if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
-          if (res.flush) res.flush();
+          if (restored) {
+            res.write(
+              `data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`,
+            );
+          }
+          (res as any).flush?.();
         }
 
         // Check for timeout between chunks
         if (Date.now() - lastChunkTime > chunkTimeout) {
-          throw new Error("Stream timeout - no data received for 30 seconds");
+          throw new Error("Stream timeout - no data received for 120 seconds");
         }
       }
 
       // Emit any held-back tag fragment and convert accumulated tags back to
-      // real values before anything below persists or re-streams it.
+      // real values before persisting (DB keeps real values).
       const piiTail = await piiRestorer.flush();
-      if (piiTail) res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
+      if (piiTail) {
+        res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
+        (res as any).flush?.();
+      }
       streamedResponse = await restoreText(streamedResponse);
 
       // Save the complete response only after successful streaming

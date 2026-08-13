@@ -12,6 +12,8 @@ import { runAgenticLoop } from "../../agentic-workflow";
 import { getGoogleModel } from "../../ai-sdk-providers";
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
+import { scheduleExtraction } from "../../memory-service";
+import { redactDeep, redactText, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: GoogleGenerativeAI | null = null;
@@ -137,6 +139,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = newConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     } else {
       const conversationIdNum = parseInt(conversationId);
       if (isNaN(conversationIdNum)) {
@@ -190,7 +193,12 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = existingConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
+
+    // Propose name/address entities from the raw user message (runs on local
+    // Ollama only; no-op unless the classifier is enabled in admin settings).
+    schedulePiiClassification(message);
 
     // Initialize history for the Gemini model and include attachment content from metadata
     const history = context
@@ -310,12 +318,14 @@ router.post("/", async (req: Request, res: Response) => {
     // Initialize the model with the specified model name and system instruction
     const modelConfig: any = { model };
     if (!skipSystemPrompt) {
-      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      const systemPrompt = await buildSystemPrompt(req.user!.id, { latestUserMessage: message });
       if (systemPrompt) {
         modelConfig.systemInstruction = systemPrompt;
       }
     }
-    const genModel = client.getGenerativeModel(modelConfig);
+    // Redacted: the system instruction is baked into the model config and
+    // travels upstream with every request.
+    const genModel = client.getGenerativeModel(await redactDeep(modelConfig));
     
     // Convert Gemini history format to standard format for context management
     const standardHistory = history.map((h: any) => ({
@@ -344,7 +354,8 @@ router.post("/", async (req: Request, res: Response) => {
     
     if (contextManagedHistory.length > 0) {
       chat = genModel.startChat({
-        history: contextManagedHistory,
+        // Redacted: prior-turn text is replayed upstream on every request
+        history: await redactDeep(contextManagedHistory),
         generationConfig: {
           maxOutputTokens: 4096,
           temperature: 0.7,
@@ -392,7 +403,7 @@ router.post("/", async (req: Request, res: Response) => {
         const aiModel = getGoogleModel(model);
 
         // Build system prompt directly (it's stored in modelConfig.systemInstruction, not in contextManagedMessages)
-        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id) : undefined;
+        const agentSystemPrompt = !skipSystemPrompt ? await buildSystemPrompt(req.user!.id, { latestUserMessage: message }) : undefined;
 
         // Use context-managed messages which have already been truncated if needed
         const agentApiMessages = [...contextManagedMessages];
@@ -441,17 +452,21 @@ router.post("/", async (req: Request, res: Response) => {
       } else {
         // Original non-tool streaming logic
         let result;
-        
+        // Restores PII tags in streamed text; buffers tag fragments split
+        // across chunk boundaries.
+        const piiRestorer = createStreamRestorer();
+
         while (retryCount < maxRetries) {
           try {
             if (hasImageAttachment && imageParts.length > 0) {
-              // For image + text
+              // For image + text (redacted: text parts are tagged; inline
+              // base64 image data is skipped as an opaque blob by the service)
               const parts = [{ text: userText }, ...imageParts];
-              result = await chat.sendMessageStream(parts);
+              result = await chat.sendMessageStream(await redactDeep(parts));
               console.log("Gemini stream created with text and images");
             } else {
-              // For text only
-              result = await chat.sendMessageStream(userText);
+              // For text only (redacted before leaving the machine)
+              result = await chat.sendMessageStream(await redactText(userText));
               console.log("Gemini stream created with text only");
             }
             break;
@@ -518,11 +533,11 @@ router.post("/", async (req: Request, res: Response) => {
                 if (ttftMs === null) {
                   ttftMs = lastChunkTime - requestStart;
                 }
-                
-                // Send formatted chunk to client
-                res.write(
-                  `data: ${JSON.stringify({ type: "chunk", content })}\n\n`,
-                );
+
+                // Send formatted chunk to client (restored: tags emitted by
+                // the model are converted back to real values locally)
+                const restored = await piiRestorer.push(content);
+                if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
                 if (res.flush) res.flush();
               }
             }
@@ -535,6 +550,12 @@ router.post("/", async (req: Request, res: Response) => {
         } else {
           throw new Error("Failed to create Gemini stream");
         }
+
+        // Emit any held-back tag fragment and convert accumulated tags back to
+        // real values before anything below persists or re-streams it.
+        const piiTail = await piiRestorer.flush();
+        if (piiTail) res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
+        streamedResponse = await restoreText(streamedResponse);
 
         // Save the complete response only after successful streaming
         const timestamp = new Date();

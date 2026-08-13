@@ -10,6 +10,8 @@ import OpenAI from "openai";
 import { getToolDefinitions, getTools, handleToolCalls } from "../../tools";
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
+import { scheduleExtraction } from "../../memory-service";
+import { redactDeep, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -118,6 +120,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = newConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     } else {
       const conversationIdNum = parseInt(conversationId);
       if (isNaN(conversationIdNum)) {
@@ -171,7 +174,12 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       dbConversation = existingConversation;
+      res.on("finish", () => { if (dbConversation) scheduleExtraction(dbConversation.id, req.user!.id); });
     }
+
+    // Propose name/address entities from the raw user message (runs on local
+    // Ollama only; no-op unless the classifier is enabled in admin settings).
+    schedulePiiClassification(message);
 
     // Ensure context messages are properly ordered and include attachment content
     const apiMessages = context
@@ -332,7 +340,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Build and add system prompt with user custom prompt
     if (!skipSystemPrompt) {
-      const systemPrompt = await buildSystemPrompt(req.user!.id);
+      const systemPrompt = await buildSystemPrompt(req.user!.id, { latestUserMessage: message });
       if (systemPrompt) {
         apiMessages.unshift({ role: "system", content: systemPrompt });
       }
@@ -397,8 +405,10 @@ router.post("/", async (req: Request, res: Response) => {
         console.log("Tool usage is disabled for this request");
       }
 
-      // Use OpenAI SDK streaming with Grok model
-      const stream = await client.chat.completions.create(requestOptions);
+      // Use OpenAI SDK streaming with Grok model (redacted: known PII entities
+      // and freshly detected structured PII are replaced with tags before
+      // leaving the machine)
+      const stream = await client.chat.completions.create(await redactDeep(requestOptions));
 
       // Process the streaming response
       const requestStart = Date.now();
@@ -408,6 +418,9 @@ router.post("/", async (req: Request, res: Response) => {
       let toolCallsInProgress: any[] = [];
       let toolCallParts = '';
       let isCollectingToolCall = false;
+      // Restores PII tags in streamed text; buffers tag fragments split
+      // across chunk boundaries.
+      const piiRestorer = createStreamRestorer();
 
       for await (const chunk of stream as unknown as AsyncIterable<any>) {
         // Update last chunk time
@@ -422,7 +435,8 @@ router.post("/", async (req: Request, res: Response) => {
           if (ttftMs === null) {
             ttftMs = Date.now() - requestStart;
           }
-          res.write(`data: ${JSON.stringify({ type: "chunk", content: contentDelta })}\n\n`);
+          const restored = await piiRestorer.push(contentDelta);
+          if (restored) res.write(`data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`);
         }
         
         // Handle tool call chunks if present and tool usage is enabled
@@ -461,6 +475,12 @@ router.post("/", async (req: Request, res: Response) => {
         }
       }
 
+      // Emit any held-back tag fragment and convert accumulated tags back to
+      // real values before anything below persists or re-streams it.
+      const piiTail = await piiRestorer.flush();
+      if (piiTail) res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
+      streamedResponse = await restoreText(streamedResponse);
+
       // Execute any tool calls if present and tool usage is enabled
       if (useTools && toolCallsInProgress.length > 0) {
         try {
@@ -492,12 +512,13 @@ router.post("/", async (req: Request, res: Response) => {
           
           console.log(`Validated ${validToolCalls.length} of ${toolCallsInProgress.length} tool calls`);
           
-          // Store tool calls as internal messages
+          // Store tool calls as internal messages (restored: the model emitted
+          // PII tags in its arguments; the DB keeps real values)
           const timestamp = new Date();
           await db.insert(messages).values({
             conversation_id: dbConversation.id,
             role: "tool",
-            content: JSON.stringify(validToolCalls),
+            content: JSON.stringify(await restoreDeep(validToolCalls)),
             metadata: { type: 'tool_calls' },
             created_at: timestamp,
           });
@@ -527,15 +548,17 @@ router.post("/", async (req: Request, res: Response) => {
             }))
           ];
           
-          // Get final response with tool results
-          const toolCompletionResponse = await client.chat.completions.create({
+          // Get final response with tool results (redacted: real tool output
+          // must not reach the upstream API)
+          const toolCompletionResponse = await client.chat.completions.create(await redactDeep({
             model: model,
             messages: toolResponseMessages,
             temperature: 0.7,
             max_tokens: 4096,
-          });
-          
-          const toolFinalResponse = toolCompletionResponse.choices[0]?.message?.content || '';
+          }));
+
+          // Restored: convert PII tags in the model's answer back to real values
+          const toolFinalResponse = await restoreText(toolCompletionResponse.choices[0]?.message?.content || '');
           
           // Only send the final response if it's not empty
           if (toolFinalResponse) {

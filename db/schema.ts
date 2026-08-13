@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean, json, jsonb, customType } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, json, jsonb, real, customType } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
@@ -115,6 +115,85 @@ export const userPreferences = pgTable("user_preferences", {
   updated_at: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Persistent cross-conversation memory (hot tier).
+// Distilled facts the extractor pulls out of past conversations and re-injects
+// into the system prompt on future turns.
+export const memories = pgTable("memories", {
+  id: serial("id").primaryKey(),
+  user_id: integer("user_id").references(() => users.id).notNull(),
+  kind: text("kind", {
+    enum: ["preference", "fact", "decision", "open_thread", "entity"],
+  }).notNull(),
+  body: text("body").notNull(),
+  // JSON-encoded number[] embedding of `body`. Nullable so a memory still
+  // saves if the embedding call fails — it just won't be similarity-retrievable
+  // until re-embedded.
+  embedding: text("embedding"),
+  source_conversation_id: integer("source_conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  source_message_id: integer("source_message_id").references(() => messages.id, { onDelete: "set null" }),
+  confidence: integer("confidence").default(70).notNull(),
+  pinned: boolean("pinned").default(false).notNull(),
+  // Lifecycle salience (decay model). Distinct from `confidence` (extractor
+  // certainty): strength decays over time and is bumped by reinforcement.
+  strength: real("strength").default(1).notNull(),
+  // FSRS-style stability: multiplies the kind's base half-life. Grows on each
+  // reinforcement (more when the memory was closer to forgotten), so
+  // repeatedly-confirmed facts become effectively permanent without pinning.
+  stability: real("stability").default(1).notNull(),
+  // Decay eviction is invalidation, not deletion (Zep-style). Set when the
+  // sweep evicts a row; active-row queries filter on IS NULL. Evicted rows
+  // can be resurrected by create-time dedup and are purged much later.
+  evicted_at: timestamp("evicted_at"),
+  // Nullable with NO default — migration 0010 backfills legacy rows from
+  // updated_at, keyed on IS NULL. A defaultNow() here would stamp every
+  // existing row at deploy time via db:push and void that backfill.
+  // Code sets it explicitly on create/supersede/reinforce; reads coalesce
+  // to updated_at ?? created_at.
+  last_reinforced_at: timestamp("last_reinforced_at"),
+  superseded_by: integer("superseded_by"),
+  last_used_at: timestamp("last_used_at"),
+  use_count: integer("use_count").default(0).notNull(),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// PII entities - admin-governed dictionary of values that get replaced with
+// stable tags before any text is sent to an upstream LLM. Real values only
+// ever live locally (DB + client); upstream sees "[PII_EMAIL_3]" style tags.
+export const piiEntities = pgTable("pii_entities", {
+  id: serial("id").primaryKey(),
+  // The literal PII string to redact (matched case-insensitively).
+  value: text("value").notNull().unique(),
+  type: text("type", {
+    enum: ["name", "email", "phone", "ssn", "credit_card", "ip", "address", "custom"],
+  }).notNull(),
+  // Stable upstream placeholder, stored without brackets (e.g. "PII_EMAIL_3");
+  // rendered as "[PII_EMAIL_3]" in outbound text.
+  tag: text("tag").notNull().unique(),
+  // active: redacted upstream. false_positive: detector was wrong, never
+  // redact and never re-propose. allowlisted: admin-declared safe term the
+  // LLM should see for inference (e.g. "Philadelphia").
+  status: text("status", {
+    enum: ["active", "false_positive", "allowlisted"],
+  }).default("active").notNull(),
+  source: text("source", {
+    enum: ["regex", "classifier", "manual"],
+  }).default("manual").notNull(),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// PII settings - single global row (admin-managed).
+export const piiSettings = pgTable("pii_settings", {
+  id: serial("id").primaryKey(),
+  enabled: boolean("enabled").default(false).notNull(),
+  // NER-based person-name classifier. Runs in-process on CPU via a quantized
+  // ONNX model (transformers.js) so classification never leaves the machine.
+  classifier_enabled: boolean("classifier_enabled").default(false).notNull(),
+  classifier_model: text("classifier_model").default("onnx-community/distilbert-NER-ONNX").notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Model settings table - stores admin-managed model configurations per provider
 export const modelSettings = pgTable("model_settings", {
   id: serial("id").primaryKey(),
@@ -196,6 +275,21 @@ export const userPreferencesRelations = relations(userPreferences, ({ one }) => 
 
 export const modelSettingsRelations = relations(modelSettings, () => ({}));
 
+export const memoriesRelations = relations(memories, ({ one }) => ({
+  user: one(users, {
+    fields: [memories.user_id],
+    references: [users.id],
+  }),
+  sourceConversation: one(conversations, {
+    fields: [memories.source_conversation_id],
+    references: [conversations.id],
+  }),
+  sourceMessage: one(messages, {
+    fields: [memories.source_message_id],
+    references: [messages.id],
+  }),
+}));
+
 
 
 // Schemas for form validation
@@ -217,6 +311,12 @@ export const insertUserPreferencesSchema = createInsertSchema(userPreferences);
 export const selectUserPreferencesSchema = createSelectSchema(userPreferences);
 export const insertModelSettingsSchema = createInsertSchema(modelSettings);
 export const selectModelSettingsSchema = createSelectSchema(modelSettings);
+export const insertMemorySchema = createInsertSchema(memories);
+export const selectMemorySchema = createSelectSchema(memories);
+export const insertPiiEntitySchema = createInsertSchema(piiEntities);
+export const selectPiiEntitySchema = createSelectSchema(piiEntities);
+export const insertPiiSettingsSchema = createInsertSchema(piiSettings);
+export const selectPiiSettingsSchema = createSelectSchema(piiSettings);
 
 
 // Type definitions for use in the app
@@ -238,3 +338,9 @@ export type InsertUserPreferences = typeof userPreferences.$inferInsert;
 export type SelectUserPreferences = typeof userPreferences.$inferSelect;
 export type InsertModelSettings = typeof modelSettings.$inferInsert;
 export type SelectModelSettings = typeof modelSettings.$inferSelect;
+export type InsertMemory = typeof memories.$inferInsert;
+export type SelectMemory = typeof memories.$inferSelect;
+export type InsertPiiEntity = typeof piiEntities.$inferInsert;
+export type SelectPiiEntity = typeof piiEntities.$inferSelect;
+export type InsertPiiSettings = typeof piiSettings.$inferInsert;
+export type SelectPiiSettings = typeof piiSettings.$inferSelect;

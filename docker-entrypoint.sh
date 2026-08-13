@@ -77,6 +77,27 @@ if [ $? -ne 0 ]; then
     echo "Failed to add performance indexes (may already be applied)"
 fi
 
+# Add memory indexes (memories table itself is created by db:push above)
+echo "Adding memory indexes..."
+psql -f migrations/0009_create_memories.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to add memory indexes (may already be applied)"
+fi
+
+# Memory decay backfill + index swap (columns created by db:push above)
+echo "Applying memory decay migration..."
+psql -f migrations/0010_memory_decay.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to apply memory decay migration (may already be applied)"
+fi
+
+# PII redaction: index + settings-row seed (tables created by db:push above)
+echo "Applying PII redaction migration..."
+psql -f migrations/0011_pii_redaction.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to apply PII redaction migration (may already be applied)"
+fi
+
 echo "Database schema setup completed!"
 
 # Start the application
