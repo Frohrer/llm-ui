@@ -5,6 +5,16 @@ import https from "https";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
+// Last-resort safety nets: a background failure (PII classifier load, a
+// fire-and-forget task, a provider SDK edge case) must never take down the
+// whole server. Log loudly and keep serving.
+process.on("unhandledRejection", (reason) => {
+  console.error("[fatal-guard] unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[fatal-guard] uncaught exception:", err);
+});
+
 const app = express();
 
 // Serve uploaded files
@@ -81,8 +91,10 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    throw err;
+    console.error("[express] request failed:", err);
+    if (!res.headersSent) {
+      res.status(status).json({ message });
+    }
   });
 
   // importantly only setup vite in development and after
