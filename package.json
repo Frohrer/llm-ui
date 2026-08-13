@@ -15,6 +15,9 @@
     "test:agentic": "bash test-agentic.sh",
     "test:agentic:local": "node test-agentic-mode.mjs"
   },
+  "overrides": {
+    "sharp": "0.33.5"
+  },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.0",
     "@ai-sdk/google": "^3.0.0",
