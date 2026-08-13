@@ -412,7 +412,7 @@ router.post("/", async (req: Request, res: Response) => {
         // Convert to simple format for agent
         const agentMessages = convertToAgentMessages(agentApiMessages);
 
-        // Run the agentic loop with AI SDK v6 ToolLoopAgent
+        // Run the agentic loop with AI SDK v7 ToolLoopAgent
         const finalResponse = await runAgenticLoop(
           agentMessages,
           {

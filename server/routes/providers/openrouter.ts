@@ -8,6 +8,8 @@ import { eq } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { prepareContext, isContextLengthError } from "../../context-manager";
+import { runAgenticLoop } from "../../agentic-workflow";
+import { getOpenRouterModel } from "../../ai-sdk-providers";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
 import { redactDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
@@ -37,6 +39,16 @@ export function getOpenRouterClient() {
   return client;
 }
 
+// Helper to convert OpenRouter messages to simple format for agent
+function convertToAgentMessages(messages: any[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return messages
+    .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+    .map(msg => ({
+      role: msg.role as 'user' | 'assistant',
+      content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+    }));
+}
+
 // Create or continue an OpenRouter chat conversation
 router.post("/", async (req: Request, res: Response) => {
   try {
@@ -50,6 +62,8 @@ router.post("/", async (req: Request, res: Response) => {
       allAttachments = [],
       useKnowledge = false,
       pendingKnowledgeSources = [],
+      useTools = false,
+      useAgenticMode = false,
       skipSystemPrompt = false,
     } = req.body;
 
@@ -295,14 +309,18 @@ router.post("/", async (req: Request, res: Response) => {
       model,
       {
         maxTokens: modelContextLength, // Use context length from model config
-        reserveForTools: 0,
+        reserveForTools: useTools ? 8000 : 0, // Only reserve for tools if enabled
       }
     );
+
+    // Agentic mode makes its own requests through the AI SDK loop — skip the
+    // direct completion stream entirely.
+    const isAgentic = useAgenticMode && useTools;
 
     // Stream the completion with retries.
     // No temperature: OpenRouter routes to hundreds of models and several
     // (reasoning models, GPT-5 family, Kimi K3) reject custom values.
-    while (retryCount < maxRetries) {
+    while (!isAgentic && retryCount < maxRetries) {
       try {
         // Redacted: known PII entities and freshly detected PII are replaced
         // with tags before leaving the machine (re-redacts on each retry).
@@ -345,7 +363,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    if (!stream) {
+    if (!stream && !isAgentic) {
       throw new Error("Failed to create stream after retries");
     }
 
@@ -370,76 +388,129 @@ router.post("/", async (req: Request, res: Response) => {
 
     try {
       const requestStart = Date.now();
-      let ttftMs: number | null = null;
-      let lastChunkTime = Date.now();
-      // Reasoning models (e.g. Kimi K3 with always-on thinking) can pause for a
-      // while before the first visible token — use a generous chunk timeout.
-      const chunkTimeout = 120000;
-      // Restores PII tags in streamed text; buffers tag fragments split
-      // across chunk boundaries.
-      const piiRestorer = createStreamRestorer();
 
-      for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content || "";
-        if (content) {
-          streamedResponse += content;
-          lastChunkTime = Date.now();
-          if (ttftMs === null) {
-            ttftMs = lastChunkTime - requestStart;
+      // Check if using agentic mode
+      if (isAgentic) {
+        console.log('[OpenRouter] Using agentic mode with AI SDK');
+
+        // Get the AI SDK model instance
+        const aiModel = getOpenRouterModel(model);
+
+        // Extract system prompt from contextManagedMessages (which has been truncated if needed)
+        const systemMessage = contextManagedMessages.find((msg: any) => msg.role === 'system');
+        const systemPrompt = systemMessage?.content || undefined;
+
+        // Convert messages to simple format for agent - use contextManagedMessages which has been truncated
+        const agentMessages = convertToAgentMessages(contextManagedMessages);
+
+        // Run the agentic loop with AI SDK v7 ToolLoopAgent
+        const finalResponse = await runAgenticLoop(
+          agentMessages,
+          {
+            maxIterations: 20,
+            conversationId: dbConversation.id,
+            model: aiModel,
+            systemPrompt,
+            userId: req.user!.id
           }
-          const restored = await piiRestorer.push(content);
-          if (restored) {
-            res.write(
-              `data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`,
-            );
+        );
+
+        // Stream the final response to the user
+        if (finalResponse) {
+          const chunkSize = 50;
+          for (let i = 0; i < finalResponse.length; i += chunkSize) {
+            const chunk = finalResponse.slice(i, i + chunkSize);
+            res.write(`data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`);
+            await new Promise(resolve => setTimeout(resolve, 20));
           }
+
+          streamedResponse = finalResponse;
+
+          // Save the final response
+          await db.insert(messages).values({
+            conversation_id: dbConversation.id,
+            role: "assistant",
+            content: finalResponse,
+            metadata: {
+              agentic_mode: true,
+              ai_sdk: true,
+              ttft_ms: Date.now() - requestStart
+            },
+            created_at: new Date(),
+          });
+        }
+      } else {
+        let ttftMs: number | null = null;
+        let lastChunkTime = Date.now();
+        // Reasoning models (e.g. Kimi K3 with always-on thinking) can pause for a
+        // while before the first visible token — use a generous chunk timeout.
+        const chunkTimeout = 120000;
+        // Restores PII tags in streamed text; buffers tag fragments split
+        // across chunk boundaries.
+        const piiRestorer = createStreamRestorer();
+
+        for await (const chunk of stream!) {
+          const content = chunk.choices[0]?.delta?.content || "";
+          if (content) {
+            streamedResponse += content;
+            lastChunkTime = Date.now();
+            if (ttftMs === null) {
+              ttftMs = lastChunkTime - requestStart;
+            }
+            const restored = await piiRestorer.push(content);
+            if (restored) {
+              res.write(
+                `data: ${JSON.stringify({ type: "chunk", content: restored })}\n\n`,
+              );
+            }
+            (res as any).flush?.();
+          }
+
+          // Check for timeout between chunks
+          if (Date.now() - lastChunkTime > chunkTimeout) {
+            throw new Error("Stream timeout - no data received for 120 seconds");
+          }
+        }
+
+        // Emit any held-back tag fragment and convert accumulated tags back to
+        // real values before persisting (DB keeps real values).
+        const piiTail = await piiRestorer.flush();
+        if (piiTail) {
+          res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
           (res as any).flush?.();
         }
+        streamedResponse = await restoreText(streamedResponse);
 
-        // Check for timeout between chunks
-        if (Date.now() - lastChunkTime > chunkTimeout) {
-          throw new Error("Stream timeout - no data received for 120 seconds");
-        }
+        // Save the complete response only after successful streaming
+        const timestamp = new Date();
+        // Approximate input tokens from apiMessages
+        let approxInputTokens = 0;
+        try {
+          const texts: string[] = [];
+          for (const m of apiMessages as any[]) {
+            if (typeof m?.content === 'string') texts.push(m.content);
+          }
+          const EULER = 2.7182818284590;
+          const combined = texts.join('\n');
+          if (combined) {
+            const len = combined.length;
+            approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
+          }
+        } catch {}
+        await db.insert(messages).values({
+          conversation_id: dbConversation.id,
+          role: "assistant",
+          content: streamedResponse,
+          metadata: {
+            ttft_ms: ttftMs ?? undefined,
+            total_tokens: (stream as any)?.response?.usage?.total_tokens,
+            input_tokens: (stream as any)?.response?.usage?.prompt_tokens ?? (stream as any)?.response?.usage?.input_tokens,
+            output_tokens: (stream as any)?.response?.usage?.completion_tokens ?? (stream as any)?.response?.usage?.output_tokens,
+            approx_input_tokens: approxInputTokens,
+          },
+          created_at: timestamp,
+        });
       }
-
-      // Emit any held-back tag fragment and convert accumulated tags back to
-      // real values before persisting (DB keeps real values).
-      const piiTail = await piiRestorer.flush();
-      if (piiTail) {
-        res.write(`data: ${JSON.stringify({ type: "chunk", content: piiTail })}\n\n`);
-        (res as any).flush?.();
-      }
-      streamedResponse = await restoreText(streamedResponse);
-
-      // Save the complete response only after successful streaming
-      const timestamp = new Date();
-      // Approximate input tokens from apiMessages
-      let approxInputTokens = 0;
-      try {
-        const texts: string[] = [];
-        for (const m of apiMessages as any[]) {
-          if (typeof m?.content === 'string') texts.push(m.content);
-        }
-        const EULER = 2.7182818284590;
-        const combined = texts.join('\n');
-        if (combined) {
-          const len = combined.length;
-          approxInputTokens = Math.ceil(len / EULER) + (len > 2000 ? 8 : 2);
-        }
-      } catch {}
-      await db.insert(messages).values({
-        conversation_id: dbConversation.id,
-        role: "assistant",
-        content: streamedResponse,
-        metadata: {
-          ttft_ms: ttftMs ?? undefined,
-          total_tokens: (stream as any)?.response?.usage?.total_tokens,
-          input_tokens: (stream as any)?.response?.usage?.prompt_tokens ?? (stream as any)?.response?.usage?.input_tokens,
-          output_tokens: (stream as any)?.response?.usage?.completion_tokens ?? (stream as any)?.response?.usage?.output_tokens,
-          approx_input_tokens: approxInputTokens,
-        },
-        created_at: timestamp,
-      });
 
       // Send completion event after successful save
       const updatedConversation = await db.query.conversations.findFirst({

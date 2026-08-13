@@ -15,7 +15,6 @@ import type { LanguageModel } from 'ai';
 export function getOpenAIModel(modelName: string, apiKey?: string): LanguageModel {
   const openai = createOpenAI({
     apiKey: apiKey || process.env.OPENAI_API_KEY,
-    compatibility: 'strict', // Ensure full compatibility
   });
   
   return openai(modelName);
@@ -63,8 +62,9 @@ export function getDeepSeekModel(modelName: string, apiKey?: string): LanguageMo
     apiKey: apiKey || process.env.DEEPSEEK_API_KEY,
     baseURL: 'https://api.deepseek.com/v1',
   });
-  
-  return deepseek(modelName);
+
+  // Use .chat() to force Chat Completions API — DeepSeek doesn't support the OpenAI Responses API
+  return deepseek.chat(modelName);
 }
 
 /**
@@ -76,8 +76,9 @@ export function getGroqModel(modelName: string, apiKey?: string): LanguageModel 
     apiKey: apiKey || process.env.GROQ_API_KEY,
     baseURL: 'https://api.groq.com/openai/v1',
   });
-  
-  return groq(modelName);
+
+  // Use .chat() to force Chat Completions API — Groq doesn't support the OpenAI Responses API
+  return groq.chat(modelName);
 }
 
 /**
@@ -107,6 +108,24 @@ export function getOllamaModel(modelName: string): LanguageModel {
 }
 
 /**
+ * Get an AI SDK model instance for OpenRouter
+ * OpenRouter is OpenAI-compatible, uses custom baseURL and attribution headers
+ */
+export function getOpenRouterModel(modelName: string, apiKey?: string): LanguageModel {
+  const openrouter = createOpenAI({
+    apiKey: apiKey || process.env.OPENROUTER_API_KEY,
+    baseURL: 'https://openrouter.ai/api/v1',
+    headers: {
+      'HTTP-Referer': process.env.PROXY_DOMAIN ? `https://${process.env.PROXY_DOMAIN}` : 'http://localhost:5000',
+      'X-Title': process.env.NEXT_PUBLIC_CUSTOMER_NAME || 'LLM UI',
+    },
+  });
+
+  // Use .chat() to force Chat Completions API — OpenRouter doesn't support the OpenAI Responses API
+  return openrouter.chat(modelName);
+}
+
+/**
  * Get an AI SDK model instance for any OpenAI-compatible provider
  */
 export function getOpenAICompatibleModel(
@@ -118,8 +137,9 @@ export function getOpenAICompatibleModel(
     apiKey,
     baseURL,
   });
-  
-  return provider(modelName);
+
+  // Use .chat() to force Chat Completions API — compatible providers rarely serve the Responses API
+  return provider.chat(modelName);
 }
 
 /**

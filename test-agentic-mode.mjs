@@ -341,6 +341,12 @@ async function main() {
         envVar: 'ANTHROPIC_API_KEY'
       },
       {
+        name: 'OpenRouter',
+        model: 'moonshotai/kimi-k3',
+        endpoint: '/api/chat/openrouter',
+        envVar: 'OPENROUTER_API_KEY'
+      },
+      {
         name: 'Google Gemini',
         model: 'gemini-pro',
         endpoint: '/api/chat/gemini',

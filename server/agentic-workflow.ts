@@ -1,4 +1,4 @@
-import { ToolLoopAgent, stepCountIs, tool, LanguageModel } from "ai";
+import { ToolLoopAgent, isStepCount, tool, LanguageModel } from "ai";
 import { z, ZodTypeAny, ZodObject, ZodRawShape } from "zod";
 import { getToolDefinitions, executeTool, refreshTools } from "./tools";
 import { db } from "@db";
@@ -79,7 +79,7 @@ function jsonSchemaPropertyToZod(prop: any): ZodTypeAny {
 
 /**
  * Convert a JSON Schema object to a Zod schema
- * This converts our tool parameter definitions to Zod schemas for AI SDK v6
+ * This converts our tool parameter definitions to Zod schemas for AI SDK v7
  */
 function jsonSchemaToZod(schema: any): ZodObject<ZodRawShape> {
   const shape: ZodRawShape = {};
@@ -101,7 +101,7 @@ function jsonSchemaToZod(schema: any): ZodObject<ZodRawShape> {
 }
 
 /**
- * Convert our tool definitions to AI SDK v6 tool format
+ * Convert our tool definitions to AI SDK v7 tool format
  * This function dynamically loads tools, supporting hot reload of custom tools
  */
 async function buildAgentTools(forceReload: boolean = false, userId?: number): Promise<Record<string, any>> {
@@ -117,11 +117,11 @@ async function buildAgentTools(forceReload: boolean = false, userId?: number): P
     const func = toolDef.function;
     
     // Convert JSON Schema parameters to Zod schema
-    // AI SDK v6 works best with Zod schemas
+    // AI SDK v7 works best with Zod schemas
     const zodSchema = jsonSchemaToZod(func.parameters);
     
-    // Use AI SDK v6 tool() helper with Zod schema
-    // Note: AI SDK v6 uses 'inputSchema' instead of 'parameters'
+    // Use AI SDK v7 tool() helper with Zod schema
+    // Note: AI SDK v7 uses 'inputSchema' instead of 'parameters'
     tools[func.name] = tool({
       description: func.description,
       inputSchema: zodSchema,
@@ -166,7 +166,7 @@ async function buildAgentTools(forceReload: boolean = false, userId?: number): P
 
 /**
  * Create a ToolLoopAgent instance for agentic workflows
- * This leverages the new AI SDK v6 Agent class for cleaner, more maintainable code
+ * This leverages the new AI SDK v7 Agent class for cleaner, more maintainable code
  */
 export async function createAgenticAgent(config: {
   model: LanguageModel;
@@ -185,14 +185,14 @@ export async function createAgenticAgent(config: {
     model,
     instructions: systemPrompt,
     tools,
-    stopWhen: stepCountIs(maxIterations),
+    stopWhen: isStepCount(maxIterations),
   });
 
   return agent;
 }
 
 /**
- * Run the agentic workflow using AI SDK v6 ToolLoopAgent
+ * Run the agentic workflow using AI SDK v7 ToolLoopAgent
  * This function works with ALL AI SDK supported providers:
  * - OpenAI (GPT-4, GPT-4o, GPT-5, o1, o3, etc.)
  * - Anthropic (Claude 3.5 Sonnet, Claude 3 Opus, etc.)
@@ -237,12 +237,12 @@ export async function runAgenticLoop(
     model,
     instructions: redactedSystemPrompt,
     tools,
-    stopWhen: stepCountIs(maxIterations),
+    stopWhen: isStepCount(maxIterations),
   });
 
   try {
     // Build the prompt from initial messages
-    // AI SDK v6 ToolLoopAgent doesn't allow both prompt and messages at the same time
+    // AI SDK v7 ToolLoopAgent doesn't allow both prompt and messages at the same time
     // So we use prompt for new conversations, and messages for conversations with history
     const lastUserMessage = redactedMessages.filter(m => m.role === 'user').pop();
     const prompt = lastUserMessage?.content || '';
@@ -290,7 +290,7 @@ export async function runAgenticLoop(
             content: JSON.stringify(await restoreDeep(step.toolCalls.map(tc => ({
               id: tc.toolCallId,
               name: tc.toolName,
-              arguments: tc.args
+              arguments: tc.input
             })))),
             metadata: {
               type: 'agentic_tool_calls',
