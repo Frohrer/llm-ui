@@ -561,7 +561,7 @@ router.post("/", async (req: Request, res: Response) => {
         // Convert messages to simple format for agent - use contextManagedMessages which has been truncated
         const agentMessages = convertToAgentMessages(contextManagedMessages);
         
-        // Run the agentic loop with AI SDK v6 ToolLoopAgent
+        // Run the agentic loop with AI SDK v7 ToolLoopAgent
         const finalResponse = await runAgenticLoop(
           agentMessages,
           {
