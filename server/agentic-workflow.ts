@@ -19,6 +19,25 @@ export interface AgenticConfig {
   model: LanguageModel;
   systemPrompt?: string;
   userId?: number; // User ID for tools that need authentication/authorization
+  onStatus?: (text: string) => void; // Receives interim status lines (tool calls) to surface in the UI stream
+}
+
+/**
+ * Format a tool call as a short status line for the UI, built from the tool
+ * name and arguments the model itself produced — no hardcoded descriptions.
+ */
+function formatToolStatus(toolName: string, args: any): string {
+  let summary = '';
+  if (args && typeof args === 'object' && !Array.isArray(args)) {
+    summary = Object.entries(args)
+      .filter(([, v]) => v !== null && v !== undefined && v !== '')
+      .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+      .join(', ');
+  } else if (args !== null && args !== undefined) {
+    summary = typeof args === 'string' ? args : JSON.stringify(args);
+  }
+  if (summary.length > 200) summary = summary.slice(0, 200) + '…';
+  return `🔧 ${toolName.replace(/_/g, ' ')}${summary ? ` — ${summary}` : ''}\n\n`;
 }
 
 /**
@@ -104,7 +123,7 @@ function jsonSchemaToZod(schema: any): ZodObject<ZodRawShape> {
  * Convert our tool definitions to AI SDK v7 tool format
  * This function dynamically loads tools, supporting hot reload of custom tools
  */
-async function buildAgentTools(forceReload: boolean = false, userId?: number): Promise<Record<string, any>> {
+async function buildAgentTools(forceReload: boolean = false, userId?: number, onStatus?: (text: string) => void): Promise<Record<string, any>> {
   // Force reload tools from database if requested (hot reload support)
   if (forceReload) {
     await refreshTools();
@@ -129,7 +148,13 @@ async function buildAgentTools(forceReload: boolean = false, userId?: number): P
         try {
           // The model only ever saw PII tags in its context; tools must run
           // on real values (send-email to the real address, etc.).
-          const result = await executeTool(func.name, await restoreDeep(params), userId);
+          const restoredParams = await restoreDeep(params);
+
+          // Surface the call to the UI before executing (restored: the status
+          // line is user-facing, so it must show real values, not PII tags).
+          onStatus?.(formatToolStatus(func.name, restoredParams));
+
+          const result = await executeTool(func.name, restoredParams, userId);
 
           // CRITICAL: Truncate tool results to prevent context overflow
           // The AI SDK ToolLoopAgent accumulates all tool results in context
@@ -214,13 +239,14 @@ export async function runAgenticLoop(
     conversationId,
     model,
     systemPrompt,
-    userId
+    userId,
+    onStatus
   } = config;
 
   console.log(`[Agent] Starting agentic workflow with max ${maxIterations} iterations`);
 
   // Load tools with hot reload support
-  const tools = await buildAgentTools(true, userId);
+  const tools = await buildAgentTools(true, userId, onStatus);
   console.log(`[Agent] Loaded ${Object.keys(tools).length} tools:`, Object.keys(tools).join(', '));
 
   // Track steps for logging
