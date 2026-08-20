@@ -6,6 +6,7 @@ import { transformDatabaseConversation } from "@/lib/llm/types";
 import { getAnthropicClient } from './anthropic';
 import { getOpenAIClient } from './openai';
 import { getGeminiClient } from './gemini';
+import { getGrokClient } from './grok';
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
@@ -18,11 +19,12 @@ export function initializeSuperModel() {
   const anthropicClient = getAnthropicClient();
   const openaiClient = getOpenAIClient();
   const geminiClient = getGeminiClient();
-  
+  const grokClient = getGrokClient();
+
   // Boolean, not the last client object — this value is serialized into the
   // unauthenticated /api/health response, and the Gemini client instance
   // exposes its API key when JSON-stringified.
-  return !!(anthropicClient && openaiClient && geminiClient);
+  return !!(anthropicClient && openaiClient && geminiClient && grokClient);
 }
 
 // Get availability status
@@ -31,7 +33,8 @@ export function getSuperModelStatus() {
     available: initializeSuperModel(),
     anthropic: !!getAnthropicClient(),
     openai: !!getOpenAIClient(),
-    gemini: !!getGeminiClient()
+    gemini: !!getGeminiClient(),
+    grok: !!getGrokClient()
   };
 }
 
@@ -42,42 +45,66 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
       case 'anthropic': {
         const client = getAnthropicClient();
         if (!client) throw new Error('Anthropic client not available');
-        
+
+        // Fable 5 always thinks and max_tokens caps thinking + response text
+        // together, so 4000 would risk truncating mid-answer. Its safety
+        // classifiers can also decline a request (stop_reason "refusal");
+        // on a decline the API re-runs the same request on Opus 5 server-side
+        // (claude-opus-5 is in Fable 5's allowed_fallback_models).
         // Redacted: real PII must not reach the upstream API
-        const response = await client.messages.create(await redactDeep({
+        const response = await client.beta.messages.create(await redactDeep({
           model: model,
-          max_tokens: 4000,
+          max_tokens: 16000,
+          betas: ['server-side-fallback-2026-06-01'],
+          fallbacks: [{ model: 'claude-opus-5' }],
           messages: messages.map(msg => ({
             role: msg.role === 'system' ? 'user' : msg.role,
             content: msg.role === 'system' ? `System: ${msg.content}` : msg.content
           }))
         }));
-        
-        const content = response.content[0];
-        return content.type === 'text' ? content.text : '';
+
+        // Whole fallback chain declined (Fable 5 AND Opus 5) — surface that
+        // instead of crashing on empty content; the other three models still
+        // feed the synthesis. Cast: the installed SDK's types predate "refusal".
+        if ((response.stop_reason as string) === 'refusal') {
+          return '[Claude declined to answer this request]';
+        }
+
+        // Content includes thinking blocks, so the text block isn't always first
+        const textBlock: any = response.content.find((block: any) => block.type === 'text');
+        return textBlock?.text || '';
       }
-      
+
       case 'openai': {
         const client = getOpenAIClient();
         if (!client) throw new Error('OpenAI client not available');
-        
-        // o3 model uses max_completion_tokens instead of max_tokens and doesn't support custom temperature
+
+        // GPT-5.x reasoning models require max_completion_tokens (max_tokens is
+        // deprecated) and only support the default temperature. The cap covers
+        // reasoning + visible output, so leave headroom above the answer length.
         const requestOptions: any = {
           model: model,
-          messages: messages
+          messages: messages,
+          max_completion_tokens: 16000
         };
-        
-        if (model === 'o3') {
-          requestOptions.max_completion_tokens = 4000;
-          // o3 only supports default temperature (1), so we don't set it
-        } else {
-          requestOptions.max_tokens = 4000;
-          requestOptions.temperature = 0.7;
-        }
-        
+
         // Redacted: real PII must not reach the upstream API
         const response = await client.chat.completions.create(await redactDeep(requestOptions));
-        
+
+        return response.choices[0]?.message?.content || '';
+      }
+
+      case 'grok': {
+        const client = getGrokClient();
+        if (!client) throw new Error('Grok client not available');
+
+        // Redacted: real PII must not reach the upstream API
+        const response = await client.chat.completions.create(await redactDeep({
+          model: model,
+          messages: messages,
+          max_tokens: 4000
+        }));
+
         return response.choices[0]?.message?.content || '';
       }
       
@@ -98,11 +125,11 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
         const currentMessage = messages[messages.length - 1]?.content || '';
         
         // Start chat with history (redacted: real PII must not reach the upstream API)
+        // Gemini 3.x deprecates sampling params (temperature/top_p/top_k) — don't send them.
         const chat = genModel.startChat(await redactDeep({
           history,
           generationConfig: {
-            maxOutputTokens: 4000,
-            temperature: 0.7
+            maxOutputTokens: 4000
           }
         }));
 
@@ -328,38 +355,42 @@ router.post("/", async (req: Request, res: Response) => {
 
     try {
       // Send status update as chunk
-      res.write(`data: ${JSON.stringify({ type: "chunk", content: '🤖 Consulting Sonnet 4, o-3, and Gemini 2.5 Pro...\n\n' })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: "chunk", content: '🤖 Consulting Claude Fable 5, GPT-5.6 Sol, Gemini 3.7 Flash, and Grok 4.6...\n\n' })}\n\n`);
 
-      // Step 1: Call all three models in parallel
+      // Step 1: Call all four models in parallel
       const modelCalls = [
-        callModel('anthropic', 'claude-sonnet-4-5', apiMessages),
-        callModel('openai', 'o3', apiMessages),
-        callModel('gemini', 'gemini-2.5-pro', apiMessages)
+        callModel('anthropic', 'claude-fable-5', apiMessages),
+        callModel('openai', 'gpt-5.6-sol', apiMessages),
+        callModel('gemini', 'gemini-3.7-flash', apiMessages),
+        callModel('grok', 'grok-4.6', apiMessages)
       ];
 
-      const [sonnetResponse, o3Response, geminiResponse] = await Promise.all(modelCalls);
+      const [claudeResponse, gptResponse, geminiResponse, grokResponse] = await Promise.all(modelCalls);
 
       // Send intermediate status as chunk
-      res.write(`data: ${JSON.stringify({ type: "chunk", content: '🔄 Synthesizing responses with o-3...\n\n' })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: "chunk", content: '🔄 Synthesizing responses with GPT-5.6 Terra...\n\n' })}\n\n`);
 
-      // Step 2: Create synthesis prompt for o-3
+      // Step 2: Create synthesis prompt for GPT-5.6 Terra
       const synthesisPrompt = `You are an expert AI that synthesizes responses from multiple AI models to provide the best possible answer.
 
-Below are responses from three different AI models to the user's query:
+Below are responses from four different AI models to the user's query:
 
 **Original User Query:**
 ${currentMessage}
 
-**Claude Sonnet 4 Response:**
-${sonnetResponse}
+**Claude Fable 5 Response:**
+${claudeResponse}
 
-**o-3 Response:**
-${o3Response}
+**GPT-5.6 Sol Response:**
+${gptResponse}
 
-**Gemini 2.5 Pro Response:**
+**Gemini 3.7 Flash Response:**
 ${geminiResponse}
 
-Please synthesize these three responses into a single, comprehensive, and high-quality answer that:
+**Grok 4.6 Response:**
+${grokResponse}
+
+Please synthesize these four responses into a single, comprehensive, and high-quality answer that:
 1. Takes the best insights from each response
 2. Resolves any contradictions between responses
 3. Provides additional context or corrections if needed
@@ -368,14 +399,14 @@ Please synthesize these three responses into a single, comprehensive, and high-q
 
 Your synthesized response:`;
 
-      // Step 3: Send synthesis prompt to o-3
+      // Step 3: Send synthesis prompt to GPT-5.6 Terra
       const synthesisMessages = [
         { role: "user", content: synthesisPrompt }
       ];
 
       // The synthesizer only ever saw PII tags; convert them back to real
       // values before anything reaches the client SSE stream or the DB.
-      const finalResponse = await restoreText(await callModel('openai', 'o3', synthesisMessages));
+      const finalResponse = await restoreText(await callModel('openai', 'gpt-5.6-terra', synthesisMessages));
 
       // Stream the final response using the correct chunk format
       streamedResponse = finalResponse;
