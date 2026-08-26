@@ -11,6 +11,17 @@ import { restoreDeep } from '../pii-service';
 
 
 // Define the interface for a tool
+/**
+ * Who and where a tool call is happening. Tools that write user-scoped state
+ * need `userId`; tools that write anything derived from the chat also need
+ * `conversationId`, so the row can be linked back to the chat it came from
+ * (and removed with it).
+ */
+export interface ToolContext {
+  userId?: number;
+  conversationId?: number;
+}
+
 export interface Tool {
   name: string;
   description: string;
@@ -19,7 +30,7 @@ export interface Tool {
     properties?: Record<string, any>;
     required?: string[];
   };
-  execute: (params: any) => Promise<any>;
+  execute: (params: any, ctx?: ToolContext) => Promise<any>;
 }
 
 // Cache for the loaded tools
@@ -326,7 +337,7 @@ export async function getToolDefinitions() {
 /**
  * Execute a tool by name with the given parameters
  */
-export async function executeTool(toolName: string, params: any, userId?: number): Promise<any> {
+export async function executeTool(toolName: string, params: any, ctx: ToolContext = {}): Promise<any> {
   const toolsMap = await loadTools();
   
   if (!toolsMap[toolName]) {
@@ -334,8 +345,8 @@ export async function executeTool(toolName: string, params: any, userId?: number
   }
   
   try {
-    // Pass userId as a second parameter for tools that need it
-    return await toolsMap[toolName].execute(params, { userId });
+    // Pass the calling context as a second parameter for tools that need it
+    return await toolsMap[toolName].execute(params, ctx);
   } catch (error) {
     console.error(`Error executing tool ${toolName}:`, error);
     throw error;
@@ -346,8 +357,11 @@ export async function executeTool(toolName: string, params: any, userId?: number
  * Helper to handle tool calling responses from LLMs
  * Includes automatic truncation of large tool results to prevent context overflow
  */
-export async function handleToolCalls(toolCalls: any[], options: { maxResultTokens?: number } = {}): Promise<any[]> {
-  const { maxResultTokens = 8000 } = options; // Default 8K tokens per tool result
+export async function handleToolCalls(
+  toolCalls: any[],
+  options: { maxResultTokens?: number; ctx?: ToolContext } = {},
+): Promise<any[]> {
+  const { maxResultTokens = 8000, ctx = {} } = options; // Default 8K tokens per tool result
   const results = [];
   
   for (const toolCall of toolCalls) {
@@ -360,7 +374,7 @@ export async function handleToolCalls(toolCalls: any[], options: { maxResultToke
       // (send-email to the real address, search the real name, etc.).
       const toolArgs = await restoreDeep(rawArgs);
 
-      const result = await executeTool(toolName, toolArgs);
+      const result = await executeTool(toolName, toolArgs, ctx);
       
       // Truncate large results to prevent context overflow
       let processedResult = result;

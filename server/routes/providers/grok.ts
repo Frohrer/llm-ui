@@ -11,7 +11,7 @@ import { getToolDefinitions, getTools, handleToolCalls } from "../../tools";
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
-import { redactDeep, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
+import { redactRequest, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -408,7 +408,7 @@ router.post("/", async (req: Request, res: Response) => {
       // Use OpenAI SDK streaming with Grok model (redacted: known PII entities
       // and freshly detected structured PII are replaced with tags before
       // leaving the machine)
-      const stream = await client.chat.completions.create(await redactDeep(requestOptions));
+      const stream = await client.chat.completions.create(await redactRequest(requestOptions));
 
       // Process the streaming response
       const requestStart = Date.now();
@@ -524,7 +524,9 @@ router.post("/", async (req: Request, res: Response) => {
           });
           
           // Execute all tool calls
-          const toolResults = await handleToolCalls(validToolCalls);
+          const toolResults = await handleToolCalls(validToolCalls, {
+            ctx: { userId: req.user!.id, conversationId: dbConversation.id },
+          });
           
           // Store tool results as internal messages
           await db.insert(messages).values({
@@ -550,7 +552,7 @@ router.post("/", async (req: Request, res: Response) => {
           
           // Get final response with tool results (redacted: real tool output
           // must not reach the upstream API)
-          const toolCompletionResponse = await client.chat.completions.create(await redactDeep({
+          const toolCompletionResponse = await client.chat.completions.create(await redactRequest({
             model: model,
             messages: toolResponseMessages,
             temperature: 0.7,

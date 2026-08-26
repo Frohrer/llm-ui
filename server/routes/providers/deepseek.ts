@@ -10,7 +10,7 @@ import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } fr
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
-import { redactDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
+import { redactRequest, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -295,7 +295,7 @@ router.post("/", async (req: Request, res: Response) => {
       try {
         // Create stream (redacted: known PII entities and freshly detected
         // structured PII are replaced with tags before leaving the machine)
-        stream = await client.chat.completions.create(await redactDeep({
+        stream = await client.chat.completions.create(await redactRequest({
           messages: contextManagedMessages,
           model,
           stream: true,

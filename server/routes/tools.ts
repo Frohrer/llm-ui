@@ -14,7 +14,9 @@ router.post('/execute', async (req: Request, res: Response) => {
     
     console.log(`Executing ${toolCalls.length} tool calls:`, toolCalls.map(t => t.name));
     
-    const results = await handleToolCalls(toolCalls);
+    const results = await handleToolCalls(toolCalls, {
+      ctx: { userId: req.user?.id },
+    });
     
     res.json(results);
   } catch (error) {

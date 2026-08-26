@@ -1,5 +1,5 @@
-import type { Tool } from './types';
-import { createMemory } from '../../memory-service';
+import type { Tool, ToolContext } from './types';
+import { createMemory, isConversationHidden } from '../../memory-service';
 
 /**
  * Explicit, synchronous save into hot-tier memory. The background extractor
@@ -43,7 +43,7 @@ export const saveMemoryTool: Tool = {
       body: string;
       pinned?: boolean;
     },
-    ctx?: { userId?: number },
+    ctx?: ToolContext,
   ) => {
     try {
       if (!ctx?.userId) {
@@ -53,6 +53,13 @@ export const saveMemoryTool: Tool = {
       if (!body) {
         return { success: false, error: 'body must be a non-empty string.' };
       }
+      // Hidden chats leave no trace in memory, however explicit the request.
+      if (ctx.conversationId && (await isConversationHidden(ctx.conversationId))) {
+        return {
+          success: false,
+          error: 'This conversation is hidden, so nothing from it can be saved to memory.',
+        };
+      }
       // Explicit user request = direct statement: high confidence.
       const row = await createMemory({
         userId: ctx.userId,
@@ -60,6 +67,8 @@ export const saveMemoryTool: Tool = {
         body,
         confidence: 95,
         pinned: params.pinned === true,
+        // Linked to the chat it came from, so it dies with that chat.
+        sourceConversationId: ctx.conversationId,
       });
       return {
         success: true,
