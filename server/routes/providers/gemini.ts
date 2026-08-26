@@ -420,7 +420,10 @@ router.post("/", async (req: Request, res: Response) => {
             conversationId: dbConversation.id,
             model: aiModel,
             systemPrompt: agentSystemPrompt,
-            userId: req.user!.id
+            userId: req.user!.id,
+            // Interim tool-call status lines; the "end" event replaces the
+            // streamed text with the saved message, so they don't persist.
+            onStatus: (text) => res.write(`data: ${JSON.stringify({ type: "chunk", content: text })}\n\n`)
           }
         );
 
