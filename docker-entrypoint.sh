@@ -98,6 +98,13 @@ if [ $? -ne 0 ]; then
     echo "Failed to apply PII redaction migration (may already be applied)"
 fi
 
+# Memory <-> conversation link: FK swap to ON DELETE CASCADE + index
+echo "Applying memory/conversation cascade migration..."
+psql -f migrations/0012_memory_conversation_cascade.sql
+if [ $? -ne 0 ]; then
+    echo "Failed to apply memory/conversation cascade migration (may already be applied)"
+fi
+
 echo "Database schema setup completed!"
 
 # Start the application

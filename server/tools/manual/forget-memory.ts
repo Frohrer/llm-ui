@@ -1,4 +1,4 @@
-import type { Tool } from './types';
+import type { Tool, ToolContext } from './types';
 import { deleteMemory, findMemoriesByQuery } from '../../memory-service';
 
 // Delete without confirmation only above this similarity; below it, return
@@ -33,7 +33,7 @@ export const forgetMemoryTool: Tool = {
   },
   execute: async (
     params: { query?: string; memory_id?: number },
-    ctx?: { userId?: number },
+    ctx?: ToolContext,
   ) => {
     try {
       if (!ctx?.userId) {

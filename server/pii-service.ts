@@ -1,17 +1,25 @@
 import { db } from "@db";
 import { piiEntities, piiSettings, type SelectPiiEntity } from "@db/schema";
 import { eq, sql } from "drizzle-orm";
+import { mapContentStrings, mapRequestStrings } from "./pii-scope";
 
 /**
  * PII redaction service.
  *
  * Real PII never leaves this machine: right before any upstream LLM call the
- * request payload is deep-walked and every known "active" entity value (plus
- * anything the inline regex detectors catch) is replaced with a stable tag
- * like [PII_EMAIL_3]. Tags coming back from the model are converted back to
- * the real values locally — in the SSE stream, before DB persistence, and in
- * tool-call arguments before tools execute (tools always operate on real
- * values).
+ * request's context and prompt are walked and every known "active" entity
+ * value (plus anything the inline regex detectors catch) is replaced with a
+ * stable tag like [PII_EMAIL_3]. Tags coming back from the model are
+ * converted back to the real values locally — in the SSE stream, before DB
+ * persistence, and in tool-call arguments before tools execute (tools always
+ * operate on real values).
+ *
+ * Only context and prompt. The API parameters around them — model, tools,
+ * temperature, ids — are copied through untouched, because rewriting those
+ * breaks the request instead of protecting anything (an entity named "Claude"
+ * would turn `model: "claude-opus-4-5"` into a 404). `redactRequest` applies
+ * that scoping; `redactContent` is for payloads that are entirely context.
+ * The key policy lives in pii-scope.ts.
  *
  * The dictionary is admin-governed (see routes/admin/pii.ts): detectors
  * auto-register new finds as `active` (fail-closed, nothing leaks on first
@@ -297,29 +305,30 @@ export async function redactText(text: string): Promise<string> {
 }
 
 /**
- * Deep-clone `payload` with every string redacted. Aimed at the exact request
- * object handed to a provider SDK, so messages, system prompts, and tool
- * results fed back upstream are all covered regardless of provider shape.
+ * Deep-clone a CONTENT payload — a message array, a list of content parts, a
+ * tool result, a bare string — with its prose redacted. Structural keys
+ * (role, type, ids, tool names, base64 blobs) pass through untouched.
+ *
+ * Use this when the whole value is context; use `redactRequest` for the
+ * object handed to a provider SDK.
  */
-export async function redactDeep<T>(payload: T): Promise<T> {
+export async function redactContent<T>(payload: T): Promise<T> {
   const settings = await getPiiSettings();
   if (!settings.enabled) return payload;
-  return walkRedact(payload) as Promise<T>;
+  return mapContentStrings(payload, redactText) as Promise<T>;
 }
 
-async function walkRedact(node: any): Promise<any> {
-  if (typeof node === "string") return redactText(node);
-  if (Array.isArray(node)) {
-    const out = new Array(node.length);
-    for (let i = 0; i < node.length; i++) out[i] = await walkRedact(node[i]);
-    return out;
-  }
-  if (node && typeof node === "object" && node.constructor === Object) {
-    const out: Record<string, any> = {};
-    for (const [k, v] of Object.entries(node)) out[k] = await walkRedact(v);
-    return out;
-  }
-  return node;
+/**
+ * Deep-clone the exact request object handed to a provider SDK, redacting
+ * ONLY its context and prompt (messages, system, history, input, ...). Every
+ * API parameter — model, temperature, tools, stream — is copied verbatim:
+ * redacting those breaks the call rather than protecting anything. See
+ * pii-scope.ts for the key policy.
+ */
+export async function redactRequest<T>(payload: T): Promise<T> {
+  const settings = await getPiiSettings();
+  if (!settings.enabled) return payload;
+  return mapRequestStrings(payload, redactText) as Promise<T>;
 }
 
 // ---------------------------------------------------------------------------

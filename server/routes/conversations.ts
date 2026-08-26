@@ -4,6 +4,7 @@ import { conversations, messages, conversationKnowledge } from "@db/schema";
 import { eq, desc, or, ilike, and, sql } from "drizzle-orm";
 import { transformDatabaseConversation } from "@/lib/llm/types";
 import { cleanupDocumentFile, cleanupImageFile, cleanupGeneratedImage } from "../file-handler";
+import { deleteMemoriesForConversation } from "../memory-service";
 
 const router = express.Router();
 
@@ -227,6 +228,16 @@ router.patch("/:id/nsfw", async (req: Request, res: Response) => {
       .where(eq(conversations.id, conversationId))
       .returning();
 
+    // Hiding a chat also retracts what it already taught the memory system —
+    // otherwise the facts keep surfacing in other chats after the chat itself
+    // is out of sight.
+    if (is_nsfw) {
+      const removed = await deleteMemoriesForConversation(conversationId);
+      if (removed > 0) {
+        console.log(`[memory] removed ${removed} memor${removed === 1 ? "y" : "ies"} from now-hidden conversation ${conversationId}`);
+      }
+    }
+
     res.json(transformDatabaseConversation(updated));
   } catch (error) {
     console.error("Database error:", error);
@@ -279,9 +290,14 @@ router.delete("/:id", async (req: Request, res: Response) => {
     }
 
     // Delete in this order:
-    // 1. conversation_knowledge (join table)
-    // 2. messages
-    // 3. conversation
+    // 1. memories sourced from this conversation
+    // 2. conversation_knowledge (join table)
+    // 3. messages
+    // 4. conversation
+    const removedMemories = await deleteMemoriesForConversation(conversationId);
+    if (removedMemories > 0) {
+      console.log(`[memory] removed ${removedMemories} memor${removedMemories === 1 ? "y" : "ies"} with deleted conversation ${conversationId}`);
+    }
     await db
       .delete(conversationKnowledge)
       .where(eq(conversationKnowledge.conversation_id, conversationId));

@@ -13,7 +13,7 @@ import { getOllamaModel } from "../../ai-sdk-providers";
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
-import { redactDeep, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
+import { redactRequest, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -339,7 +339,7 @@ router.post("/", async (req: Request, res: Response) => {
 
         // Redacted for consistency with cloud providers: Ollama is local, but
         // keeping tagged payloads uniform is cheap and uniform behavior-wise.
-        stream = await client.chat.completions.create(await redactDeep(streamOptions));
+        stream = await client.chat.completions.create(await redactRequest(streamOptions));
         console.log("Stream created with model:", model);
         break;
       } catch (error: any) {
@@ -600,7 +600,9 @@ router.post("/", async (req: Request, res: Response) => {
             });
 
             // Execute all tool calls
-            const toolResults = await handleToolCalls(validToolCalls);
+            const toolResults = await handleToolCalls(validToolCalls, {
+              ctx: { userId: req.user!.id, conversationId: dbConversation.id },
+            });
 
             // Store tool results as internal messages
             await db.insert(messages).values({
@@ -627,7 +629,7 @@ router.post("/", async (req: Request, res: Response) => {
 
             // Get final response with tool results (redacted: real tool output
             // is re-tagged before going back to the model)
-            const toolCompletionResponse = await client.chat.completions.create(await redactDeep({
+            const toolCompletionResponse = await client.chat.completions.create(await redactRequest({
               model,
               messages: toolResponseMessages,
               temperature: 0.7,
@@ -648,7 +650,7 @@ router.post("/", async (req: Request, res: Response) => {
                 { role: 'user', content: 'That was raw JSON. Rewrite your answer as a short, natural sentence for the user. No JSON, no code blocks.' }
               ];
               // Redacted on the way out, restored on the way back in
-              const retryResponse = await client.chat.completions.create(await redactDeep({
+              const retryResponse = await client.chat.completions.create(await redactRequest({
                 model,
                 messages: retryMessages,
                 temperature: 0.7,

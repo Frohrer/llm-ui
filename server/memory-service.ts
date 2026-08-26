@@ -14,6 +14,11 @@
  *     extractor that reads the conversation tail and proposes create /
  *     supersede / delete ops against the hot tier. Created/superseded
  *     memories are embedded inline.
+ *
+ * Chat linkage: every memory records the conversation it came from, and that
+ *   link is enforced in both directions. Hidden (is_nsfw) chats never produce
+ *   a memory and never appear in cold-tier search; deleting or hiding a chat
+ *   deletes everything it taught the hot tier.
  */
 
 import { db } from "@db";
@@ -428,6 +433,8 @@ export async function searchPastConversations(
     .where(
       and(
         eq(conversations.user_id, userId),
+        // Hidden chats stay out of every other chat, cold tier included.
+        eq(conversations.is_nsfw, false),
         sql`${messages.content_search} @@ websearch_to_tsquery('english', ${q})`,
         opts.excludeConversationId
           ? sql`${messages.conversation_id} != ${opts.excludeConversationId}`
@@ -633,6 +640,48 @@ export async function deleteMemory(id: number, userId: number) {
 }
 
 /**
+ * True when the conversation is marked hidden. Hidden chats are excluded from
+ * memory entirely: nothing is extracted from them and nothing they produced
+ * survives the moment they're hidden.
+ */
+export async function isConversationHidden(conversationId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ is_nsfw: conversations.is_nsfw })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  return row?.is_nsfw === true;
+}
+
+/**
+ * Delete every memory sourced from `conversationId` — called when the chat is
+ * deleted, and when it's marked hidden.
+ *
+ * A memory that superseded one of these rows would otherwise be orphaned in
+ * reverse: the older row stays flagged `superseded_by: <deleted id>` and is
+ * invisible to retrieval forever. So the pointers are cleared first, which
+ * revives the surviving predecessor instead of silently losing it. Returns
+ * the number of rows deleted.
+ */
+export async function deleteMemoriesForConversation(conversationId: number): Promise<number> {
+  return db.transaction(async (tx) => {
+    const doomed = await tx
+      .select({ id: memories.id })
+      .from(memories)
+      .where(eq(memories.source_conversation_id, conversationId));
+    if (doomed.length === 0) return 0;
+
+    const ids = doomed.map((m) => m.id);
+    await tx
+      .update(memories)
+      .set({ superseded_by: null, updated_at: new Date() })
+      .where(inArray(memories.superseded_by, ids));
+    await tx.delete(memories).where(inArray(memories.id, ids));
+    return ids.length;
+  });
+}
+
+/**
  * Reflection primitive: fold >=2 active source rows into one synthesized row
  * (generative-agents style). Sources are marked superseded by the new row —
  * lineage preserved, nothing deleted. The synthesis may change kind (e.g.
@@ -777,6 +826,11 @@ async function fetchExtractorContext(userId: number, transcript: string): Promis
  */
 export async function extractMemories(conversationId: number, userId: number): Promise<void> {
   if (!process.env.ANTHROPIC_API_KEY) return;
+
+  // Hidden chats never feed memory. Checked here rather than at schedule time
+  // because the flag can be flipped during the debounce window, and this is
+  // the last point before conversation text reaches the extractor model.
+  if (await isConversationHidden(conversationId)) return;
 
   // Dedup: skip if no new user content since the last successful extraction.
   // Without this, each turn of a back-and-forth chat fires a fresh Haiku call,

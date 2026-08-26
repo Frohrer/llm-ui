@@ -12,7 +12,7 @@ import { runAgenticLoop } from "../../agentic-workflow";
 import { getOpenRouterModel } from "../../ai-sdk-providers";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
-import { redactDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
+import { redactRequest, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -324,7 +324,7 @@ router.post("/", async (req: Request, res: Response) => {
       try {
         // Redacted: known PII entities and freshly detected PII are replaced
         // with tags before leaving the machine (re-redacts on each retry).
-        stream = await client.chat.completions.create(await redactDeep({
+        stream = await client.chat.completions.create(await redactRequest({
           messages: contextManagedMessages,
           model,
           stream: true as const,

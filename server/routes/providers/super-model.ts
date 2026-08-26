@@ -10,7 +10,7 @@ import { getGrokClient } from './grok';
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
-import { redactDeep, redactText, restoreText, schedulePiiClassification } from "../../pii-service";
+import { redactRequest, redactText, restoreText, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 
@@ -52,7 +52,7 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
         // on a decline the API re-runs the same request on Opus 5 server-side
         // (claude-opus-5 is in Fable 5's allowed_fallback_models).
         // Redacted: real PII must not reach the upstream API
-        const response = await client.beta.messages.create(await redactDeep({
+        const response = await client.beta.messages.create(await redactRequest({
           model: model,
           max_tokens: 16000,
           betas: ['server-side-fallback-2026-06-01'],
@@ -89,7 +89,7 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
         };
 
         // Redacted: real PII must not reach the upstream API
-        const response = await client.chat.completions.create(await redactDeep(requestOptions));
+        const response = await client.chat.completions.create(await redactRequest(requestOptions));
 
         return response.choices[0]?.message?.content || '';
       }
@@ -99,7 +99,7 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
         if (!client) throw new Error('Grok client not available');
 
         // Redacted: real PII must not reach the upstream API
-        const response = await client.chat.completions.create(await redactDeep({
+        const response = await client.chat.completions.create(await redactRequest({
           model: model,
           messages: messages,
           max_tokens: 4000
@@ -126,7 +126,7 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
         
         // Start chat with history (redacted: real PII must not reach the upstream API)
         // Gemini 3.x deprecates sampling params (temperature/top_p/top_k) — don't send them.
-        const chat = genModel.startChat(await redactDeep({
+        const chat = genModel.startChat(await redactRequest({
           history,
           generationConfig: {
             maxOutputTokens: 4000

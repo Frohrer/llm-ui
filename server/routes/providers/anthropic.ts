@@ -13,7 +13,7 @@ import { getAnthropicModel } from "../../ai-sdk-providers";
 import { prepareContext, isContextLengthError, truncateToolResult } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
-import { redactDeep, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
+import { redactRequest, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: Anthropic | null = null;
@@ -140,7 +140,8 @@ async function executeToolsAndGetResponse(
   toolCalls: any[],
   conversationMessages: any[],
   model: string,
-  conversationId: number
+  conversationId: number,
+  userId: number
 ): Promise<string> {
   console.log(`Executing ${toolCalls.length} tool calls:`, toolCalls.map(t => t.name));
   
@@ -155,7 +156,9 @@ async function executeToolsAndGetResponse(
   });
   
   // Execute all tool calls
-  const toolResults = await handleToolCalls(toolCalls);
+  const toolResults = await handleToolCalls(toolCalls, {
+    ctx: { userId, conversationId },
+  });
   console.log(`Tool execution completed. Results:`, toolResults.map(r => ({
     toolCallId: r.toolCallId,
     hasError: !!r.error,
@@ -203,7 +206,7 @@ async function executeToolsAndGetResponse(
   try {
     // Get final response with tool results (redacted: real tool output must
     // not reach the upstream API)
-    const toolCompletionResponse = await client.messages.create(await redactDeep({
+    const toolCompletionResponse = await client.messages.create(await redactRequest({
       model: model,
       messages: toolResponseMessages,
       ...(supportsTemperature(model) ? { temperature: 0.7 } : {}),
@@ -609,7 +612,7 @@ router.post("/", async (req: Request, res: Response) => {
 
         // Create stream (redacted: known PII entities and freshly detected
         // structured PII are replaced with tags before leaving the machine)
-        const stream = await client.messages.create(await redactDeep(requestOptions));
+        const stream = await client.messages.create(await redactRequest(requestOptions));
 
       // Process stream
       for await (const chunk of stream as any) {
@@ -788,7 +791,8 @@ router.post("/", async (req: Request, res: Response) => {
             validToolCalls,
             apiMessages,
             model,
-            dbConversation.id
+            dbConversation.id,
+            req.user!.id
           );
           
           // Stream the tool response

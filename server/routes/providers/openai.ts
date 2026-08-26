@@ -14,7 +14,7 @@ import { prepareContext, isContextLengthError, truncateToolResult, estimateTotal
 import { saveGeneratedImage } from "../../file-handler";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
-import { redactDeep, redactText, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
+import { redactRequest, redactText, restoreDeep, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: OpenAI | null = null;
@@ -700,7 +700,7 @@ router.post("/", async (req: Request, res: Response) => {
 
         // Create stream (redacted: known PII entities and freshly detected
         // structured PII are replaced with tags before leaving the machine)
-        stream = await client.chat.completions.create(await redactDeep(streamOptions));
+        stream = await client.chat.completions.create(await redactRequest(streamOptions));
         console.log("Stream created with model:", model);
         break;
       } catch (error: any) {
@@ -920,7 +920,9 @@ router.post("/", async (req: Request, res: Response) => {
           });
           
           // Execute all tool calls
-          const toolResults = await handleToolCalls(validToolCalls);
+          const toolResults = await handleToolCalls(validToolCalls, {
+            ctx: { userId: req.user!.id, conversationId: dbConversation.id },
+          });
           
           // Store tool results as internal messages
           await db.insert(messages).values({
@@ -948,7 +950,7 @@ router.post("/", async (req: Request, res: Response) => {
           // custom temperature and the legacy max_tokens param (must use
           // max_completion_tokens on Chat Completions). Redacted: real tool
           // output must not reach the upstream API.
-          const toolCompletionResponse = await client.chat.completions.create(await redactDeep({
+          const toolCompletionResponse = await client.chat.completions.create(await redactRequest({
             model: effectiveModel,
             messages: toolResponseMessages,
             ...(isReasoningModel(effectiveModel) ? {} : { temperature: 0.7 }),
@@ -1398,7 +1400,7 @@ async function handleResponsesAPI(req: Request, res: Response) {
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(await redactDeep(responsesPayload)),
+        body: JSON.stringify(await redactRequest(responsesPayload)),
       });
 
       console.log('Responses API HTTP status:', response.status);
@@ -1466,7 +1468,7 @@ async function handleResponsesAPI(req: Request, res: Response) {
       const piiRestorer = createStreamRestorer();
       // Create stream (redacted: known PII entities and freshly detected
       // structured PII are replaced with tags before leaving the machine)
-      const stream = await client.chat.completions.create(await redactDeep({
+      const stream = await client.chat.completions.create(await redactRequest({
         model: fallbackModel,
         messages: chatMessages as any,
         stream: true as const,
@@ -1593,7 +1595,9 @@ async function handleResponsesAPI(req: Request, res: Response) {
         }));
         
         // Execute all tool calls
-        const toolResults = await handleToolCalls(transformedToolCalls);
+        const toolResults = await handleToolCalls(transformedToolCalls, {
+          ctx: { userId: req.user!.id, conversationId: dbConversation.id },
+        });
         console.log('Tool execution results:', JSON.stringify(toolResults, null, 2));
         
         // Store tool results as internal messages

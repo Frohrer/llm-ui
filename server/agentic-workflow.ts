@@ -4,7 +4,7 @@ import { getToolDefinitions, executeTool, refreshTools } from "./tools";
 import { db } from "@db";
 import { messages } from "@db/schema";
 import { truncateToolResult } from "./context-manager";
-import { redactDeep, redactText, restoreDeep, restoreText } from "./pii-service";
+import { redactContent, redactText, restoreDeep, restoreText } from "./pii-service";
 
 // Maximum tokens per tool result to prevent context overflow during agentic loops
 // With 20 iterations max and ~2000 tokens each, worst case is ~40K tokens for tool results
@@ -123,7 +123,11 @@ function jsonSchemaToZod(schema: any): ZodObject<ZodRawShape> {
  * Convert our tool definitions to AI SDK v7 tool format
  * This function dynamically loads tools, supporting hot reload of custom tools
  */
-async function buildAgentTools(forceReload: boolean = false, userId?: number, onStatus?: (text: string) => void): Promise<Record<string, any>> {
+async function buildAgentTools(
+  forceReload: boolean = false,
+  ctx: { userId?: number; conversationId?: number } = {},
+  onStatus?: (text: string) => void,
+): Promise<Record<string, any>> {
   // Force reload tools from database if requested (hot reload support)
   if (forceReload) {
     await refreshTools();
@@ -154,7 +158,7 @@ async function buildAgentTools(forceReload: boolean = false, userId?: number, on
           // line is user-facing, so it must show real values, not PII tags).
           onStatus?.(formatToolStatus(func.name, restoredParams));
 
-          const result = await executeTool(func.name, restoredParams, userId);
+          const result = await executeTool(func.name, restoredParams, ctx);
 
           // CRITICAL: Truncate tool results to prevent context overflow
           // The AI SDK ToolLoopAgent accumulates all tool results in context
@@ -165,7 +169,7 @@ async function buildAgentTools(forceReload: boolean = false, userId?: number, on
             console.log(`[Agent] Truncating tool result from ${func.name}: ~${estimatedTokens} -> ~${MAX_TOOL_RESULT_TOKENS} tokens`);
             const truncated = truncateToolResult(result, MAX_TOOL_RESULT_TOKENS);
             try {
-              return await redactDeep(JSON.parse(truncated));
+              return await redactContent(JSON.parse(truncated));
             } catch {
               return redactText(truncated);
             }
@@ -174,7 +178,7 @@ async function buildAgentTools(forceReload: boolean = false, userId?: number, on
           // Redacted: the AI SDK feeds this result straight back to the
           // upstream model on the next loop iteration, so real values from
           // tool output must not leave the machine.
-          return redactDeep(result);
+          return redactContent(result);
         } catch (error) {
           console.error(`Error executing tool ${func.name}:`, error);
           return {
@@ -198,11 +202,12 @@ export async function createAgenticAgent(config: {
   systemPrompt?: string;
   maxIterations?: number;
   userId?: number;
+  conversationId?: number;
 }): Promise<ToolLoopAgent<any, any>> {
-  const { model, systemPrompt, maxIterations = 20, userId } = config;
+  const { model, systemPrompt, maxIterations = 20, userId, conversationId } = config;
   
   // Load tools with hot reload support
-  const tools = await buildAgentTools(true, userId);
+  const tools = await buildAgentTools(true, { userId, conversationId });
   console.log(`[Agent] Loaded ${Object.keys(tools).length} tools:`, Object.keys(tools).join(', '));
 
   // Create the agent using ToolLoopAgent class
@@ -246,7 +251,7 @@ export async function runAgenticLoop(
   console.log(`[Agent] Starting agentic workflow with max ${maxIterations} iterations`);
 
   // Load tools with hot reload support
-  const tools = await buildAgentTools(true, userId, onStatus);
+  const tools = await buildAgentTools(true, { userId, conversationId }, onStatus);
   console.log(`[Agent] Loaded ${Object.keys(tools).length} tools:`, Object.keys(tools).join(', '));
 
   // Track steps for logging
@@ -256,7 +261,7 @@ export async function runAgenticLoop(
   // Redact everything that will be sent to the upstream model: the system
   // prompt and the conversation history. Only PII tags may leave the machine.
   const redactedSystemPrompt = systemPrompt ? await redactText(systemPrompt) : systemPrompt;
-  const redactedMessages = await redactDeep(initialMessages);
+  const redactedMessages = await redactContent(initialMessages);
 
   // Create the agent using ToolLoopAgent class
   const agent = new ToolLoopAgent({

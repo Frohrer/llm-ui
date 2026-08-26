@@ -1,4 +1,4 @@
-import type { Tool } from './types';
+import type { Tool, ToolContext } from './types';
 import { searchPastConversations } from '../../memory-service';
 
 /**
@@ -30,7 +30,7 @@ export const searchPastConversationsTool: Tool = {
   },
   execute: async (
     params: { query: string; limit?: number },
-    ctx?: { userId?: number },
+    ctx?: ToolContext,
   ) => {
     try {
       if (!ctx?.userId) {
@@ -38,6 +38,8 @@ export const searchPastConversationsTool: Tool = {
       }
       const hits = await searchPastConversations(ctx.userId, params.query, {
         limit: params.limit,
+        // The current chat is already in context; "past" means the others.
+        excludeConversationId: ctx.conversationId,
       });
       return {
         success: true,
