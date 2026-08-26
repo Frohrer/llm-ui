@@ -1,0 +1,14 @@
+# Typecheck + unit tests. No database, no network calls — just tsc and the
+# pure-function tests, so it runs anywhere the source builds.
+FROM node:22-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+COPY package*.json ./
+RUN npm i
+
+COPY . .
+
+CMD ["sh", "-c", "npm run check && npm run test:pii-scope"]

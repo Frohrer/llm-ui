@@ -13,7 +13,7 @@ import { getGoogleModel } from "../../ai-sdk-providers";
 import { prepareContext, isContextLengthError } from "../../context-manager";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
-import { redactDeep, redactText, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
+import { redactRequest, redactContent, redactText, restoreText, createStreamRestorer, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 let client: GoogleGenerativeAI | null = null;
@@ -325,7 +325,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
     // Redacted: the system instruction is baked into the model config and
     // travels upstream with every request.
-    const genModel = client.getGenerativeModel(await redactDeep(modelConfig));
+    const genModel = client.getGenerativeModel(await redactRequest(modelConfig));
     
     // Convert Gemini history format to standard format for context management
     const standardHistory = history.map((h: any) => ({
@@ -355,7 +355,7 @@ router.post("/", async (req: Request, res: Response) => {
     if (contextManagedHistory.length > 0) {
       chat = genModel.startChat({
         // Redacted: prior-turn text is replayed upstream on every request
-        history: await redactDeep(contextManagedHistory),
+        history: await redactContent(contextManagedHistory),
         generationConfig: {
           maxOutputTokens: 4096,
           temperature: 0.7,
@@ -462,7 +462,7 @@ router.post("/", async (req: Request, res: Response) => {
               // For image + text (redacted: text parts are tagged; inline
               // base64 image data is skipped as an opaque blob by the service)
               const parts = [{ text: userText }, ...imageParts];
-              result = await chat.sendMessageStream(await redactDeep(parts));
+              result = await chat.sendMessageStream(await redactContent(parts));
               console.log("Gemini stream created with text and images");
             } else {
               // For text only (redacted before leaving the machine)

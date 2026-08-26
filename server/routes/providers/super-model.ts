@@ -9,7 +9,7 @@ import { getGeminiClient } from './gemini';
 import { prepareKnowledgeContentForConversation, addKnowledgeToConversation } from "../../knowledge-service";
 import { buildSystemPrompt } from "../../user-preferences-service";
 import { scheduleExtraction } from "../../memory-service";
-import { redactDeep, redactText, restoreText, schedulePiiClassification } from "../../pii-service";
+import { redactRequest, redactText, restoreText, schedulePiiClassification } from "../../pii-service";
 
 const router = express.Router();
 
@@ -44,7 +44,7 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
         if (!client) throw new Error('Anthropic client not available');
         
         // Redacted: real PII must not reach the upstream API
-        const response = await client.messages.create(await redactDeep({
+        const response = await client.messages.create(await redactRequest({
           model: model,
           max_tokens: 4000,
           messages: messages.map(msg => ({
@@ -76,7 +76,7 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
         }
         
         // Redacted: real PII must not reach the upstream API
-        const response = await client.chat.completions.create(await redactDeep(requestOptions));
+        const response = await client.chat.completions.create(await redactRequest(requestOptions));
         
         return response.choices[0]?.message?.content || '';
       }
@@ -98,7 +98,7 @@ async function callModel(provider: string, model: string, messages: any[]): Prom
         const currentMessage = messages[messages.length - 1]?.content || '';
         
         // Start chat with history (redacted: real PII must not reach the upstream API)
-        const chat = genModel.startChat(await redactDeep({
+        const chat = genModel.startChat(await redactRequest({
           history,
           generationConfig: {
             maxOutputTokens: 4000,

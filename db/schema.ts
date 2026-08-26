@@ -129,7 +129,11 @@ export const memories = pgTable("memories", {
   // saves if the embedding call fails — it just won't be similarity-retrievable
   // until re-embedded.
   embedding: text("embedding"),
-  source_conversation_id: integer("source_conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  // Cascade, not set-null: a memory belongs to the chat it came from, and
+  // deleting that chat must take it with it. The delete route does this
+  // explicitly (it also repairs supersede chains) — the constraint is the
+  // backstop for any other delete path.
+  source_conversation_id: integer("source_conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
   source_message_id: integer("source_message_id").references(() => messages.id, { onDelete: "set null" }),
   confidence: integer("confidence").default(70).notNull(),
   pinned: boolean("pinned").default(false).notNull(),

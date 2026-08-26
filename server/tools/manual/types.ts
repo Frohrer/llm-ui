@@ -1,3 +1,3 @@
-import type { Tool } from '../index';
+import type { Tool, ToolContext } from '../index';
 
-export type { Tool }; 
+export type { Tool, ToolContext }; 

@@ -13,7 +13,9 @@
     "db:generate": "drizzle-kit generate",
     "test:ai-models": "node tests/ai-model-tests.js",
     "test:agentic": "bash test-agentic.sh",
-    "test:agentic:local": "node test-agentic-mode.mjs"
+    "test:agentic:local": "node test-agentic-mode.mjs",
+    "test:pii-scope": "tsx tests/pii-scope.test.ts",
+    "test:integration": "tsx tests/pii-memory.integration.ts"
   },
   "overrides": {
     "sharp": "0.33.5"
