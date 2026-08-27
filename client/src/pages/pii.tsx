@@ -280,7 +280,7 @@ export default function PiiPage() {
           <CardHeader className="space-y-3">
             <CardTitle className="text-base">Dictionary</CardTitle>
             <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-              <TabsList>
+              <TabsList className="h-auto flex-wrap justify-start">
                 <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
                 <TabsTrigger value="active">Redacted ({counts.active})</TabsTrigger>
                 <TabsTrigger value="false_positive">False positives ({counts.false_positive})</TabsTrigger>
@@ -300,78 +300,66 @@ export default function PiiPage() {
                 No entries{statusFilter !== 'all' ? ' with this status' : ' yet — detected PII and manual entries appear here'}.
               </p>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Value</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Tag</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Added</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filtered.map((e) => (
-                      <TableRow key={e.id}>
-                        <TableCell className="font-medium max-w-[200px] truncate" title={e.value}>
-                          {e.value}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{e.type.replace('_', ' ')}</Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
+              <Table className="[&_th]:px-2 [&_td]:px-2 [&_td]:py-2.5">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Value</TableHead>
+                    <TableHead className="hidden sm:table-cell">Type</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="hidden md:table-cell">Source</TableHead>
+                    <TableHead className="hidden lg:table-cell">Added</TableHead>
+                    <TableHead className="w-10"><span className="sr-only">Delete</span></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((e) => (
+                    <TableRow key={e.id}>
+                      <TableCell className="max-w-[140px] sm:max-w-[240px]">
+                        <p className="font-medium truncate" title={e.value}>{e.value}</p>
+                        <p className="font-mono text-xs text-muted-foreground truncate">
                           [{e.tag}]
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={STATUS_META[e.status].className} variant="outline">
-                            {STATUS_META[e.status].label}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{e.source}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                          {formatDate(e.created_at)}
-                        </TableCell>
-                        <TableCell className="text-right whitespace-nowrap">
-                          {e.status !== 'active' && (
-                            <Button
-                              variant="ghost" size="sm" className="h-7 px-2 text-xs"
-                              onClick={() => setEntityStatus(e.id, 'active')}
-                            >
-                              Redact
-                            </Button>
-                          )}
-                          {e.status !== 'false_positive' && (
-                            <Button
-                              variant="ghost" size="sm" className="h-7 px-2 text-xs"
-                              onClick={() => setEntityStatus(e.id, 'false_positive')}
-                            >
-                              False positive
-                            </Button>
-                          )}
-                          {e.status !== 'allowlisted' && (
-                            <Button
-                              variant="ghost" size="sm" className="h-7 px-2 text-xs"
-                              onClick={() => setEntityStatus(e.id, 'allowlisted')}
-                            >
-                              Allowlist
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost" size="icon" className="h-7 w-7 text-destructive"
-                            title="Delete permanently (old tags in model context will stop resolving)"
-                            onClick={() => deleteEntity(e.id)}
+                          <span className="sm:hidden"> · {e.type.replace('_', ' ')}</span>
+                        </p>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge variant="outline">{e.type.replace('_', ' ')}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={e.status}
+                          onValueChange={(v) => setEntityStatus(e.id, v as PiiEntity['status'])}
+                        >
+                          <SelectTrigger
+                            className={`h-7 w-[7.5rem] border-0 text-xs ${STATUS_META[e.status].className}`}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="active">Redacted</SelectItem>
+                            <SelectItem value="false_positive">False positive</SelectItem>
+                            <SelectItem value="allowlisted">Allowlisted</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell text-xs text-muted-foreground">
+                        {e.source}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDate(e.created_at)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost" size="icon" className="h-7 w-7 text-destructive"
+                          title="Delete permanently (old tags in model context will stop resolving)"
+                          onClick={() => deleteEntity(e.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>
