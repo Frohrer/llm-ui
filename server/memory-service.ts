@@ -640,6 +640,48 @@ export async function deleteMemory(id: number, userId: number) {
 }
 
 /**
+ * Delete a memory AND its superseded lineage (the older phrasings that point
+ * at it, transitively). Backs the memory-management UI: when the user says
+ * "forget this", reviving a predecessor — or leaving it invisibly orphaned
+ * behind a dangling superseded_by pointer — would both betray that intent.
+ * Returns the number of rows deleted (0 if the id wasn't the user's).
+ */
+export async function deleteMemoryWithLineage(id: number, userId: number): Promise<number> {
+  return db.transaction(async (tx) => {
+    const [target] = await tx
+      .select({ id: memories.id })
+      .from(memories)
+      .where(and(eq(memories.id, id), eq(memories.user_id, userId)))
+      .limit(1);
+    if (!target) return 0;
+
+    const doomed = new Set<number>([id]);
+    let frontier = [id];
+    while (frontier.length > 0) {
+      const predecessors = await tx
+        .select({ id: memories.id })
+        .from(memories)
+        .where(and(eq(memories.user_id, userId), inArray(memories.superseded_by, frontier)));
+      frontier = predecessors.map((p) => p.id).filter((pid) => !doomed.has(pid));
+      frontier.forEach((pid) => doomed.add(pid));
+    }
+
+    const ids = Array.from(doomed);
+    await tx.delete(memories).where(and(eq(memories.user_id, userId), inArray(memories.id, ids)));
+    return ids.length;
+  });
+}
+
+/** Wipe the user's entire hot tier — every row, whatever its lifecycle state. */
+export async function deleteAllMemories(userId: number): Promise<number> {
+  const deleted = await db
+    .delete(memories)
+    .where(eq(memories.user_id, userId))
+    .returning({ id: memories.id });
+  return deleted.length;
+}
+
+/**
  * True when the conversation is marked hidden. Hidden chats are excluded from
  * memory entirely: nothing is extracted from them and nothing they produced
  * survives the moment they're hidden.

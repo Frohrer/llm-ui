@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useUser } from "@/hooks/use-user";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { MessageCircle, Plus, BarChart3, Wrench, Mic, Settings, ShieldCheck } from "lucide-react";
+import { MessageCircle, Plus, BarChart3, Wrench, Mic, Settings, ShieldCheck, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useRef, useState } from "react";
@@ -89,6 +89,12 @@ export function MainSidebar({
           <a className={navLinkClass("/custom-tools")}>
             <Wrench className="h-4 w-4 shrink-0" />
             Custom Tools
+          </a>
+        </Link>
+        <Link href="/memory">
+          <a className={navLinkClass("/memory")}>
+            <Brain className="h-4 w-4 shrink-0" />
+            Memory
           </a>
         </Link>
         <Link href="/voice-chat">

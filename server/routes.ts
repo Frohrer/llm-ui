@@ -11,6 +11,7 @@ import conversationsRoutes from "./routes/conversations";
 import toolsRoutes from "./routes/tools";
 import customToolsRoutes from "./routes/custom-tools";
 import userPreferencesRoutes from "./routes/user-preferences";
+import memoryRouter from "./routes/memory";
 import adminModelsRouter from "./routes/admin/models";
 import adminPiiRouter from "./routes/admin/pii";
 import {
@@ -262,6 +263,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register user preferences routes
   app.use('/api/user', userPreferencesRoutes);
+
+  // Persistent-memory management (each user sees and deletes only their own)
+  app.use('/api/memory', memoryRouter);
 
   // Register admin routes (require admin role)
   app.use('/api/admin/models', requireAdmin, adminModelsRouter);
