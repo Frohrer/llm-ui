@@ -8,6 +8,7 @@ import Home from "@/pages/home";
 import StatsPage from "@/pages/stats";
 import PiiPage from "@/pages/pii";
 import CustomToolsPage from "@/pages/custom-tools";
+import MemoryPage from "@/pages/memory";
 import VoiceChat from "@/pages/voice-chat";
 import KnowledgePage from "@/pages/knowledge";
 import NotFound from "@/pages/not-found";
@@ -36,6 +37,7 @@ function Router() {
       <Route path="/stats">{user.is_admin ? <StatsPage /> : <Home />}</Route>
       <Route path="/pii">{user.is_admin ? <PiiPage /> : <Home />}</Route>
       <Route path="/custom-tools" component={CustomToolsPage} />
+      <Route path="/memory" component={MemoryPage} />
       <Route path="/voice-chat" component={VoiceChat} />
       <Route path="/voice-chat/:id" component={VoiceChat} />
       <Route path="/knowledge" component={KnowledgePage} />
